@@ -1,5 +1,5 @@
 import { readdirSync } from 'node:fs';
-import { test, expect, type Page, type Locator, type WebSocketRoute } from '@playwright/test';
+import { test, expect, type Page, type Locator, type Request, type TestInfo, type WebSocketRoute } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
@@ -75,9 +75,17 @@ export type MonitorErrors = string[] & {
   blocked: string[];
   /**
    * Sanitized monitored requests whose fetch failed (at most 40): the method, the URL without its
-   * query and the reason, for a page that only saw net::ERR_FAILED.
+   * query and the reason, for a page that only saw net::ERR_FAILED. A fulfill or abort Playwright
+   * refuses is recorded the same way.
    */
   failed: string[];
+  /**
+   * Requests the guard took on that the page is still waiting for, sanitized and with the guard's
+   * stage: "[fetching] METHOD url" while its fetch runs, "[fulfilling] METHOD url" once the answer
+   * is handed to the browser and until the browser finishes it. A test that fails names them at
+   * teardown, so a wait that ran out says which request it was waiting on.
+   */
+  readonly pending: string[];
   /**
    * The monitor's HTTP policy for guards that cannot use `page.route` (warm runs, which keep the
    * HTTP cache): null when the request is allowed, otherwise the status and body to answer with.
@@ -130,6 +138,31 @@ export function fetchFailureReason(error: unknown, secrets: readonly string[]): 
   let reason = message.split('\n', 1)[0].replace(/^[\w.]+: /, '').replace(/\b(?:https?|wss?):\/\/[^\s'"()]+/g, sanitizeUrl);
   for (const secret of secrets) if (secret) reason = reason.split(secret).join('[redacted]');
   return reason.slice(0, 200) || 'no reason given';
+}
+
+/**
+ * What the guard's teardown adds to a test's errors: unexpected attempts, monitored requests that
+ * failed, and the requests still pending. Pending requests are recorded at close, and a fetch still
+ * running then ends only as teardown: a passing test simply didn't need them, so they are named only
+ * in a test that is failing anyway, often on a wait for that very request.
+ */
+export function teardownMessages({ blocked, failed, pending, status }: {
+  blocked: readonly string[];
+  failed: readonly string[];
+  pending: readonly string[];
+  status: TestInfo['status'];
+}): string[] {
+  const messages = [];
+  if (blocked.length > 0) {
+    messages.push(`Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`);
+  }
+  if (failed.length > 0) {
+    messages.push(`Monitored request${failed.length === 1 ? '' : 's'} failed in the network guard (${failed.length}):\n${failed.join('\n')}`);
+  }
+  if (pending.length > 0 && (messages.length > 0 || status !== 'passed')) {
+    messages.push(`Monitored request${pending.length === 1 ? '' : 's'} still waiting when the page closed (${pending.length}):\n${pending.join('\n')}`);
+  }
+  return messages;
 }
 
 /**
@@ -186,6 +219,19 @@ export async function monitor(
   const noteFailed = (entry: string) => {
     if (failed.length < MAX_BLOCKED_ENTRIES && !failed.includes(entry)) failed.push(entry);
   };
+  // Added when the guard takes a request on, removed once the browser finishes or fails it, so a request
+  // left paused (its fetch still running, or a fulfill the browser never completed) stays named.
+  const pending = new Map<Request, string>();
+  Object.defineProperty(errors, 'pending', { get: () => [...pending.values()], enumerable: false });
+  page.context().on('requestfinished', (request) => pending.delete(request));
+  page.context().on('requestfailed', (request) => pending.delete(request));
+  /**
+   * The page or its context is closing. Playwright marks a context closing before it disposes the
+   * context's request client, which drops every fetch in flight and every fetched response not yet
+   * handed over, so a fetch, fulfill or abort refused after this is teardown, not the request failing.
+   */
+  const closing = () => page.isClosed() || page.context().isClosed();
+  const secrets = Object.values(access?.headers ?? {});
 
   const base = new URL(baseURL);
   const origin = base.origin;
@@ -246,24 +292,17 @@ export async function monitor(
   let failedTeardown = false;
   const checkUnexpectedTeardown = () => {
     if (failedTeardown || !failOnUnexpected) return;
-    const messages = [];
-    if (blocked.length > 0) {
-      messages.push(`Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`);
+    let currentTest;
+    try {
+      currentTest = test.info();
+    } catch {
+      return; // test.info() unavailable outside active test runner
     }
-    if (failed.length > 0) {
-      messages.push(`Monitored request${failed.length === 1 ? '' : 's'} failed in the network guard (${failed.length}):\n${failed.join('\n')}`);
-    }
+    const messages = teardownMessages({ blocked, failed, pending: [...pending.values()], status: currentTest.status });
     if (messages.length > 0) {
       failedTeardown = true;
-      try {
-        const currentTest = test.info();
-        if (currentTest) {
-          currentTest.status = 'failed';
-          for (const message of messages) currentTest.errors.push({ message });
-        }
-      } catch {
-        // test.info() unavailable outside active test runner
-      }
+      if (currentTest.status === 'passed') currentTest.status = 'failed';
+      for (const message of messages) currentTest.errors.push({ message });
     }
   };
   page.on('close', checkUnexpectedTeardown);
@@ -411,7 +450,8 @@ export async function monitor(
           const target = report?.['blocked-uri'] ?? '';
           if (/^(https?|wss?):/.test(target)) noteBlocked(sanitizeAttempt('CSP', target, 'csp violation'));
         } catch {
-          // A malformed report carries no evidence
+          // Something was blocked, even if the report can't say what
+          noteBlocked(sanitizeAttempt('CSP', `${origin}${CSP_REPORT_PATH}`, 'malformed csp report'));
         }
         return route.fulfill({ status: 204 });
       }
@@ -427,14 +467,36 @@ export async function monitor(
 
       if (continueAllowed && !access) return route.continue();
       const token = accessHeaders(request.url(), access);
+      pending.set(request, sanitizeAttempt(method, request.url(), 'fetching'));
 
       let response;
       let url = request.url();
+      /**
+       * Answers the request with `answer`, or aborts it. A refusal while the page or context is closing
+       * is teardown: the request stays pending, which only a failing test reports. Any other refusal is
+       * recorded, since the request it leaves paused holds the page's load with nothing saying why. Once
+       * Playwright has refused a fulfill it refuses the abort too, so that request stays pending.
+       */
+      const end = async (answer?: () => Promise<void>) => {
+        if (pending.has(request)) pending.set(request, sanitizeAttempt(method, request.url(), 'fulfilling'));
+        const tried = async (step: string, call: () => Promise<void>) => {
+          try {
+            await call();
+            return true;
+          } catch (error) {
+            if (closing()) return true;
+            noteFailed(sanitizeAttempt(method, url, `${step} failed: ${fetchFailureReason(error, secrets)}`));
+            return false;
+          }
+        };
+        if (answer && await tried('fulfill', answer)) return;
+        await tried('abort', () => route.abort());
+      };
       try {
         // One connection per request: a kept-alive socket the preview server closes while the machine is
         // busy fails the next request with ECONNRESET, which aborted a chunk or the favicon and failed the test.
-        const headers = { headers: { ...request.headers(), connection: 'close', ...token } };
-        response = await route.fetch({ maxRedirects: 0, ...headers });
+        const fetchOptions = { headers: { ...request.headers(), connection: 'close', ...token } };
+        response = await route.fetch({ maxRedirects: 0, ...fetchOptions });
         // The browser sends the hop after a fulfilled redirect itself, past this handler, so on
         // staging it would go without the token: follow staging's redirects to its own origin here.
         // The page then gets the last response at the URL it asked for.
@@ -442,30 +504,27 @@ export async function monitor(
           const target = redirectTarget(url, response.headers()['location']);
           if (!target || target.origin !== access?.origin || !isAllowedUrl(target)) break;
           url = target.href;
-          response = await route.fetch({ url, maxRedirects: 0, ...headers });
+          response = await route.fetch({ url, maxRedirects: 0, ...fetchOptions });
         }
       } catch (error) {
         // The page only sees net::ERR_FAILED, so name the request and why for teardown (#1046). A fetch
-        // cut off because the page or context closed is teardown itself.
-        if (!(error instanceof Error && error.name === 'TargetClosedError')) {
-          noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, Object.values(access?.headers ?? {}))}`));
-        }
-        return route.abort();
+        // cut off because the page or context is closing is teardown itself, and stays pending.
+        if (closing()) return;
+        noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, secrets)}`));
+        return end();
       }
 
       if (REDIRECTS.has(response.status())) {
         const target = redirectTarget(url, response.headers()['location']);
         if (target && !isAllowedUrl(target)) {
           noteBlocked(sanitizeAttempt(method, url, `blocked redirect escape: ${sanitizeUrl(target.href)}`));
-          return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Redirect blocked by network guard' });
+          return end(() => route.fulfill({ status: 403, contentType: 'text/plain', body: 'Redirect blocked by network guard' }));
         }
       }
 
-      try {
-        await route.fulfill({ response, headers: continueAllowed ? response.headers() : { ...response.headers(), 'content-security-policy': csp } });
-      } catch {
-        // In-flight requests aborted by page navigation or close
-      }
+      // A request the page dropped meanwhile (a navigation, say) fulfills without an error.
+      const fetched = response;
+      return end(() => route.fulfill({ response: fetched, headers: continueAllowed ? fetched.headers() : { ...fetched.headers(), 'content-security-policy': csp } }));
     });
   }
 
@@ -515,13 +574,21 @@ export async function releaseTickets(page: Page) {
   await page.evaluate(() => (window as unknown as { __releaseTickets: () => void }).__releaseTickets());
 }
 
-/** Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. */
-export async function expectDecoded(images: Locator, count: number) {
-  await expect(images).toHaveCount(count);
+/**
+ * Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. A wait that
+ * runs out names what the image last showed: its state, whether it had loaded, its size and its address.
+ * Pass a longer `timeout` where the image waits on work the page does first, such as a full-size render.
+ */
+export async function expectDecoded(images: Locator, count: number, { timeout }: { timeout?: number } = {}) {
+  await expect(images).toHaveCount(count, { timeout });
   for (const image of await images.all()) {
-    await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
-      (element.dataset.state ?? 'ready') === 'ready' && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0,
-    )).toBe(true);
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => {
+      const state = element.dataset.state ?? 'ready';
+      if (state === 'ready' && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0) return 'ready';
+      const src = element.getAttribute('src') ?? '';
+      const address = src.startsWith('data:') ? 'data: placeholder' : src.startsWith('blob:') ? 'blob: render' : new URL(src, document.baseURI).pathname;
+      return `${state}, ${element.complete ? 'complete' : 'not complete'}, ${element.naturalWidth}x${element.naturalHeight}, ${address}`;
+    }), { timeout }).toBe('ready');
     await image.evaluate((element: HTMLImageElement) => element.decode());
   }
 }
@@ -619,7 +686,7 @@ export async function expectStill(target: Locator, message: string) {
 
 /**
  * Waits until the pack stage has finished dropping in. It falls from above the header on a spring and, below 900px,
- * paints and hit-tests over the Settings gear on the way, so a tap in that window lands on the stage instead.
+ * paints over the Settings gear on the way; it takes no presses until it first reaches its place (PackOpener's data-falling).
  */
 export async function expectPackDropped(page: Page) {
   await expect.poll(() => page.locator('.pack-display').evaluate((el) => {
@@ -688,6 +755,19 @@ export const relaysAnswerEmpty = (page: Page, down: () => boolean = () => false)
     if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
   });
 });
+
+/** Rankings' status once its check of recent pulls has ended with no relay reached, as under `monitor`'s closed sockets. */
+export const FEED_DOWN = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
+
+/**
+ * Waits for Rankings (`main`) to finish checking recent pulls, before a step that leaves it. The check
+ * starts once the list loads: it imports the relay code, and only then reads the withdrawn list. No
+ * request is in flight between the two, so an idle network can pass in the gap, and leaving during the
+ * read rightly aborts it (net::ERR_ABORTED), which `monitor` records. The status names the check's end:
+ * FEED_DOWN under `monitor`'s closed relays, 'Rankings loaded.' under `relaysAnswerEmpty`.
+ */
+export const expectRankingsChecked = (main: Locator, status = FEED_DOWN) =>
+  expect(main.getByRole('status')).toHaveText(status, { timeout: 15000 });
 
 export async function expectRecordedPack(page: Page, nonce = 0, historyCount = 1) {
   const before = await snapshot(page);

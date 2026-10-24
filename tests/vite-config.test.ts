@@ -16,8 +16,10 @@ it('stamps the checkout revision even when the build starts outside it', () => {
     const script = `const { loadConfigFromFile } = await import(${JSON.stringify(vite)});
 const loaded = await loadConfigFromFile({ command: 'build', mode: 'production' }, ${JSON.stringify(join(root, 'vite.config.ts'))}, undefined, 'silent');
 process.stdout.write(loaded.config.define.__BUILD_REVISION__);`;
-    const stamped = execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: outside, encoding: 'utf8' });
-    const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    // A synchronous child blocks the worker, so the hang timeout can't stop it: each has its own
+    // (docs/DEVELOPMENT.md, Test timing). The config load takes about 1 s.
+    const stamped = execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: outside, encoding: 'utf8', timeout: 60_000 });
+    const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', timeout: 60_000 }).trim();
     expect(stamped).toBe(JSON.stringify(revision));
   } finally { rmSync(outside, { recursive: true, force: true }); }
-}, 30000);
+});

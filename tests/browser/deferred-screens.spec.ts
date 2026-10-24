@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { expectPackDropped, monitor } from './support';
+import { expectPackDropped, expectRankingsChecked, monitor } from './support';
 
 // Every screen loaded on demand, not just the shared pull (deferred-chunk.spec.ts), survives a slow or
 // failed chunk (#340): the four pages hold a skeleton, then offer Reload and Retry; the share sheets and
@@ -14,11 +14,18 @@ const vectors = JSON.parse(readFileSync(new URL('../../spec/vectors.json', impor
 
 const chunkOf = (name: string) => new RegExp(`/assets/${name}-[\\w-]+\\.js$`);
 
+/** A page with nothing left to finish once its content shows. */
+const shown = () => Promise.resolve();
+// `settled`: what a page still finishes after its content shows, before a step leaves it. Rankings
+// checks recent pulls once its list is in, and leaving mid-check aborts a read (expectRankingsChecked).
 const PAGES = [
-  { route: 'cards', name: 'Cards', chunk: 'CollectionBrowser', content: (main: Locator) => main.locator('.collection') },
-  { route: 'rankings', name: 'Rankings', chunk: 'HallOfFamePage', content: (main: Locator) => main.locator('.hall-of-fame') },
-  { route: 'profile', name: 'Profile', chunk: 'ProfilePage', content: (main: Locator) => main.getByText(/^Player ID #/) },
-  { route: 'settings', name: 'Settings', chunk: 'SettingsPage', content: (main: Locator) => main.locator('.settings') },
+  { route: 'cards', name: 'Cards', chunk: 'CollectionBrowser', content: (main: Locator) => main.locator('.collection'), settled: shown },
+  {
+    route: 'rankings', name: 'Rankings', chunk: 'HallOfFamePage', content: (main: Locator) => main.locator('.hall-of-fame'),
+    settled: (main: Locator) => expectRankingsChecked(main),
+  },
+  { route: 'profile', name: 'Profile', chunk: 'ProfilePage', content: (main: Locator) => main.getByText(/^Player ID #/), settled: shown },
+  { route: 'settings', name: 'Settings', chunk: 'SettingsPage', content: (main: Locator) => main.locator('.settings'), settled: shown },
 ];
 
 /**
@@ -269,12 +276,13 @@ test('long tasks while opening each page, cold and then with its chunk loaded (e
   });
   report('startup long tasks, 4x CPU (emulation)', await total());
   const tabs = page.getByRole('navigation', { name: 'Main', exact: true });
-  for (const { name, content } of PAGES) {
+  for (const { name, content, settled } of PAGES) {
     for (const when of ['cold', 'loaded']) {
       // Settings sits in the header; the others are tabs.
       await (name === 'Settings' ? page.locator('.app-utilities').getByRole('button', { name, exact: true }) : tabs.getByRole('button', { name, exact: true })).click();
       const main = page.getByRole('main', { name, exact: true });
       await expect(content(main).first()).toBeVisible({ timeout: 30000 });
+      await settled(main);
       // The page has stopped working on the open once the main thread goes idle.
       await page.evaluate(() => new Promise<void>((done) => requestIdleCallback(() => done())));
       report(`${name} ${when} open long tasks, 4x CPU (emulation)`, await total());

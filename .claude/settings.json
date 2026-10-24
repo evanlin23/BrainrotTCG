@@ -24,6 +24,17 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/clean-agent-worktree.sh",
+            "timeout": 60
+          }
+        ]
+      }
     ]
   },
   "effortLevel": "high",

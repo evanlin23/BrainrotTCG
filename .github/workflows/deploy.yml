@@ -26,8 +26,10 @@ concurrency:
 #   own address and checks it serves exactly them, and staging-checks runs the browser checks there
 #   with no secret but the Access service token, in the steps that fetch staging; otherwise every
 #   step of both is skipped;
-# - publish deploys the same sealed files with Wrangler from its own lockfile, then waits until the
-#   new address serves exactly them;
+# - release-gate decides, with no secrets and a read-only token, whether this commit may be released
+#   while any recorded release blocker is open (docs/HOSTING.md#release-blocker-criteria-and-promotion-eligibility);
+# - publish waits for it, deploys the same sealed files with Wrangler from its own lockfile, then
+#   waits until the new address serves exactly them;
 # - deploy holds the GitHub Pages write scopes and runs no repository dependencies;
 # - smoke then checks production read-only, with no secrets and a read-only token, within 15 minutes.
 # The jobs holding the Cloudflare secrets run in the cloudflare-production environment.
@@ -382,10 +384,36 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: npx playwright test -c playwright.staging.config.ts
 
+  release-gate:
+    # Production waits for the release-blocker decision on this exact commit
+    # (scripts/release-blockers.ts): publish needs this job, and deploy needs publish. The base is
+    # main's tip, fetched here rather than taken from the checkout, so the record on main is the
+    # authority, and a commit that isn't on main is refused. It runs repository code, so it gets no
+    # secrets and a read-only token. Staging doesn't wait: a blocked commit can still be tried there.
+    needs: site
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Full history: a resolved blocker's fix commit must be in this commit's history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Refuse a release while a release blocker is open
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          npx tsx scripts/release-blockers.ts --candidate "$GITHUB_SHA" --base origin/main --require-on-base
+
   publish:
-    # Cloudflare only; on GitHub Pages every step is skipped and deploy goes ahead. With staging on,
-    # it runs only after staging served and passed with these very files.
-    needs: [site, build, stage, staging-checks]
+    # Cloudflare only; on GitHub Pages every step is skipped and deploy goes ahead. It runs only once
+    # release-gate allowed this commit and, with staging on, staging served and passed these very files.
+    needs: [site, build, stage, staging-checks, release-gate]
     runs-on: ubuntu-latest
     environment: cloudflare-production
     permissions:

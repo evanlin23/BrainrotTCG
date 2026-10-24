@@ -144,7 +144,7 @@ it('stops this tab opening packs or storing progress once another tab loads a di
   expect(owned()).toBe(5);
   expect(packsOpened()).toBe(4);
   expect(shelf()).toEqual([]);
-}, 60_000);
+});
 
 it('stops a pointer cut too, once another tab loads a different player', async () => {
   app = await mountedApp(SEED);
@@ -164,7 +164,7 @@ it('stops a pointer cut too, once another tab loads a different player', async (
   expect(banner()).toBeNull();
   await dragAcross();
   await app.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
-}, 60_000);
+});
 
 it('puts a torn pack back sealed when another tab loads a different player before its ticket is spent', async () => {
   app = await mountedApp(SEED);
@@ -181,13 +181,14 @@ it('puts a torn pack back sealed when another tab loads a different player befor
   expect(shelf()).toEqual([]);
   // The tear that didn't open says why, rather than leaving a sealed pack that ignores the next one.
   expectKeptSealed();
-}, 60_000);
+});
 
 /** A tear after the save changed, before this tab heard of it: the claim is refused (#811), nothing is spent or shelved. */
 async function expectStaleTearRefused() {
   await pressOpen();
   await app!.until('the pack stays sealed', expectKeptSealed);
-  expect(app!.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  // The pack states the refusal; it is not logged as a failure (#1139).
+  expect(app!.takeErrors(/^Could not open pack/)).toEqual([]);
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).nextNonce).toBe(0);
   expect(shelf()).toEqual([]);
@@ -201,7 +202,7 @@ it('blocks the claim and the write even when the storage event never arrived', a
   await expectStaleTearRefused();
 
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
-}, 60_000);
+});
 
 it('leaves another player’s name alone when this tab leaves Profile with an edited name, and says why', async () => {
   app = await mountedApp(SEED);
@@ -236,7 +237,7 @@ it('keeps saving when another tab stores the same player (a rename)', async () =
   expect(Object.keys(JSON.parse(localStorage.getItem(STORAGE_KEYS.ACHIEVEMENTS)!))).toContain('first_pack');
   expect(shelf()).toEqual([]);
   expect(banner()).toBeNull();
-}, 60_000);
+});
 
 it('stops storing progress once another tab imports a save, even the same player’s', async () => {
   app = await mountedApp(SEED);
@@ -251,7 +252,7 @@ it('stops storing progress once another tab imports a save, even the same player
   expectKeptSealed();
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
-}, 60_000);
+});
 
 it('keeps the imported save when this tab tears a pack before hearing of a same-player import', async () => {
   app = await mountedApp(SEED);
@@ -266,7 +267,7 @@ it('keeps the imported save when this tab tears a pack before hearing of a same-
   await openPack();
   expect(owned()).toBe(5);
   expect(shelf()).toEqual([]);
-}, 60_000);
+});
 
 it('stops writing once another tab clears this browser’s storage', async () => {
   app = await mountedApp(SEED);
@@ -281,7 +282,7 @@ it('stops writing once another tab clears this browser’s storage', async () =>
   expectKeptSealed();
   expect(localStorage.getItem(PLAYER_KEY)).toBeNull();
   expect(Object.values(progress())).toEqual(PROGRESS.map(() => null));
-}, 60_000);
+});
 
 it('still recovers a pack the collection couldn’t store when the player is the same', async () => {
   app = await mountedApp(SEED);
@@ -311,7 +312,7 @@ it('still recovers a pack the collection couldn’t store when the player is the
   expect(packsOpened()).toBe(1);
   expect(shelf()).toEqual([]);
   expect(banner()).toBeNull();
-}, 60_000);
+});
 
 it('retires the open card share sheet when another tab saves a different player, and not for the same one (#653)', async () => {
   const card = getSetCards('right-now')[0];
@@ -410,7 +411,7 @@ it('retires the open card share sheet when another tab saves a different player,
     vi.doUnmock('../game/bragImage');
     vi.doUnmock('../game/shareActions');
   }
-}, 60_000);
+});
 
 it('refuses stale replacement import when another tab imported a save, and allows a reconfirmed import', async () => {
   const initialSeed = {
@@ -496,7 +497,7 @@ it('refuses stale replacement import when another tab imported a save, and allow
   // And the backup in storage holds Switched Player
   const backup = JSON.parse(localStorage.getItem('brainrot-before-import-v1')!);
   expect(backup[PLAYER_KEY]).toContain('Switched Player');
-}, 60_000);
+});
 
 it("refuses at App's import commit boundary when another tab's import hasn't reached this tab yet (#668)", async () => {
   app = await mountedApp(SEED);
@@ -532,7 +533,7 @@ it("refuses at App's import commit boundary when another tab's import hasn't rea
   expect(button(document, 'Replace')).toBeUndefined();
   expect(button(document, 'Keep mine')).toBeUndefined();
   reloadSpy.mockRestore();
-}, 60_000);
+});
 
 it('refuses "Replace without a copy" when another tab imported the same player after the import found no room (#668)', async () => {
   // No progress here, so the file imports without a replacement prompt, until the copy of this save can't fit.
@@ -574,4 +575,4 @@ it('refuses "Replace without a copy" when another tab imported the same player a
     full.mockRestore();
     reloadSpy.mockRestore();
   }
-}, 60_000);
+});

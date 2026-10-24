@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import {
-  expectDecoded, expectRecordedPack, holdTickets, monitor, pickWithImport, relaysAnswerEmpty, releaseTickets, sameStorage,
+  FEED_DOWN, expectDecoded, expectRecordedPack, holdTickets, monitor, pickWithImport, relaysAnswerEmpty, releaseTickets, sameStorage,
   settingsOf, snapshot, storageOf,
 } from './support';
 
@@ -24,7 +24,6 @@ test.use({ trace: 'off', video: 'off' });
 const GARBAGE = '\u0000ÿ{not json';
 const COLLECTION_NOTE = /^Unreadable collection data was kept aside in this browser\./;
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
-const FEED_DOWN = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
 const STATS_NOTE = /^Unreadable stats data was kept aside in this browser\..* Your stats were rebuilt from your pack history and collection\./;
 const PLAYER_REPAIRED = /^Unreadable player data was kept aside in this browser\..* Your player key was kept, and its ticket count was repaired\./;
 const PLAYER_PAUSED = /^Unreadable player data was kept aside in this browser\..* Packs are paused until you restore a backup or start a new player in Settings > Save & backup\./;

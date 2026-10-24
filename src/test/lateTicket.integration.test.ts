@@ -79,4 +79,4 @@ it('opens the set the player switched to while the previous set\'s ticket was st
   expect(latest).toMatchObject({ setId: 'right-now', setVersion: 2, nonce: 1 });
   expect(latest.cards?.map((c) => encodeCard(c))).toEqual(await expectedCodes('right-now', 2, 1));
   expect((await history()).map((entry) => `${entry.setId}#${entry.nonce}`)).toEqual(['right-now#1', 'spring-breakdown#0']);
-}, 60_000);
+});
