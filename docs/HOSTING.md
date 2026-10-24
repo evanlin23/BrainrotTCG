@@ -127,8 +127,9 @@ With staging on, a deploy of `main` runs:
    shared-pull smoke tests, and `tests/browser/staging.check.ts`) against the staging address, with
    no secrets but the Access service token ([below](#cloudflare-access-on-staging)). Nothing is
    rebuilt: the tests' copy of the site is the sealed one.
-4. **publish** runs only if both passed. It checks the seal again and publishes the same files to
-   production, then fetches every sealed file from production and fails if any differs. Both
+4. **publish** runs only if both passed and the release gate allowed this commit
+   ([release blockers](#release-blocker-criteria-and-promotion-eligibility)). It checks the seal
+   again and publishes the same files to production, then fetches every sealed file from production and fails if any differs. Both
    comparisons print the release's identity (commit, run, manifest hash, file count, Hall of Fame
    list hash) to the run summary, so the summaries of `stage` and `publish` show that the bytes
    tested are the bytes released.
@@ -217,8 +218,6 @@ both secrets; a token past its expiry date fails the next staging deploy.
   carry a staging-only `noindex` tag, and a crawler that runs no scripts has only that header.
 - Hall of Fame refreshes redeploy through the same jobs, so with staging on each one takes a few
   minutes longer (two full fetches of the site and the browser checks).
-- The release-blocker gate (`scripts/release-blockers.ts`, #759) isn't wired into publish yet; that
-  is a follow-up to #706.
 
 Rollback is unchanged ([Recover on the same origin](#recover-on-the-same-origin)): roll back to an
 earlier *production* deployment. A staging preview is never a rollback target.
@@ -307,11 +306,18 @@ an approval gate:
 
 `config/release-blockers.json` records confirmed release blockers and their current disposition.
 `scripts/release-blockers.ts` decides eligibility for one exact candidate:
-`npx tsx scripts/release-blockers.ts --candidate <sha> [--base <ref>] [--corrective-target <issue>]`
+`npx tsx scripts/release-blockers.ts --candidate <sha> [--base <ref>] [--corrective-target <issue>] [--require-on-base]`
 (`--base` defaults to `origin/main`).
-It reads the record from the candidate's own tree and prints the record's sha256. Nothing consumes
-it yet: enforcement lands with the promotion gate (#706), so today it is advisory and does not by
-itself stop a deploy.
+It reads the record from the candidate's own tree and prints the record's sha256.
+
+**Enforcement (#706):** every run of deploy.yml, Hall of Fame refreshes included, runs it in the
+`release-gate` job (no secrets, a read-only token) on the run's exact commit. `publish` needs that
+job and `deploy` needs `publish`, so a blocked commit reaches neither Cloudflare nor GitHub Pages,
+and production keeps serving the previous release. Staging doesn't wait for it. `--base` is chosen
+by the caller, so the gate fetches main itself, passes main's tip as `--base`, and with
+`--require-on-base` promotes only commits on main. The gate declares no `--corrective-target`, so a
+corrective release can't ship through it yet; a `mitigated_exception` or a `resolved` entry can. Run
+by hand against any other candidate, the CLI is advisory.
 
 **What blocks release (narrow scope):** confirmed save loss or identity mixing (`save_loss`),
 broken historical-proof compatibility (`broken_proof`), a persistent startup blank screen
