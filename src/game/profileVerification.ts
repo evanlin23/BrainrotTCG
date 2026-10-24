@@ -92,8 +92,10 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
     // Optional work: each ticket waits for a free slot, so opening a pack never waits behind it.
     const pack = await openProfileTicket(checked, nonce, (set, key, n) => admitOptional(() => ticket(set, key, n), signal));
     putReopened(set, keyHex, nonce, pack.cards);
-    // A ticket that lands after its page has gone still caches its pack, written now: the page took
-    // its own pending write with it, so a batched one armed here would outlive it.
+    // Defensive. A page that has gone aborts first, which closes the pool and rejects the ticket still
+    // pending, so none lands after it. One that does land once this check is no longer current (a later
+    // call took over without an abort) still caches its pack, written now: the page took its own pending
+    // write with it, so a batched one armed here would outlive it.
     if (!current()) flushReopenCache();
     return pack;
   };

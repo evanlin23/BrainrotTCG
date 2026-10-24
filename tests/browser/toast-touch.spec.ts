@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { expectSummaryTakesClicks, fingerFor, monitor } from './support';
+import { expectSummaryTakesClicks, fingerFor, monitor, recordShownToasts } from './support';
 
 /**
  * Achievement toasts under a thumb (phone feedback on #803: it blocks things, will not go away, and a
@@ -24,8 +24,9 @@ const PHONES = [
 ];
 
 /**
- * Holds the toast with focus: a keystroke first, so the focus counts as the keyboard's (a pointer's does
- * not hold it, and a toast on its own timer would expire between steps).
+ * Puts the focus on the toast, as the keyboard would: a keystroke first, so the focus counts as the
+ * keyboard's (a pointer's does not). Each toast is already held from the moment it shows (the page
+ * does it, see toSummaryWithToast), so this is for the steps that need the focus.
  */
 const hold = async (page: Page) => {
   await page.keyboard.press('Shift');
@@ -35,9 +36,12 @@ const hold = async (page: Page) => {
 /**
  * A fresh player's first pack, skipped to its summary, with the grouped toast up and held. With `clock`,
  * the page's clock is Playwright's (still running), so a test can move time on instead of waiting for it.
+ * Every toast is held by the page from the moment it shows (as a resting pointer would hold it), so no
+ * stall between steps can let one leave on its own timer; each test sends it away itself.
  */
 async function toSummaryWithToast(page: Page, baseURL: string, { clock = false } = {}) {
   if (clock) await page.clock.install();
+  await recordShownToasts(page, { hold: true });
   const errors = await monitor(page, baseURL);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
