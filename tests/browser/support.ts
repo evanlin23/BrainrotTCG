@@ -574,13 +574,21 @@ export async function releaseTickets(page: Page) {
   await page.evaluate(() => (window as unknown as { __releaseTickets: () => void }).__releaseTickets());
 }
 
-/** Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. */
-export async function expectDecoded(images: Locator, count: number) {
-  await expect(images).toHaveCount(count);
+/**
+ * Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. A wait that
+ * runs out names what the image last showed: its state, whether it had loaded, its size and its address.
+ * Pass a longer `timeout` where the image waits on work the page does first, such as a full-size render.
+ */
+export async function expectDecoded(images: Locator, count: number, { timeout }: { timeout?: number } = {}) {
+  await expect(images).toHaveCount(count, { timeout });
   for (const image of await images.all()) {
-    await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
-      (element.dataset.state ?? 'ready') === 'ready' && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0,
-    )).toBe(true);
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => {
+      const state = element.dataset.state ?? 'ready';
+      if (state === 'ready' && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0) return 'ready';
+      const src = element.getAttribute('src') ?? '';
+      const address = src.startsWith('data:') ? 'data: placeholder' : src.startsWith('blob:') ? 'blob: render' : new URL(src, document.baseURI).pathname;
+      return `${state}, ${element.complete ? 'complete' : 'not complete'}, ${element.naturalWidth}x${element.naturalHeight}, ${address}`;
+    }), { timeout }).toBe('ready');
     await image.evaluate((element: HTMLImageElement) => element.decode());
   }
 }
@@ -747,6 +755,19 @@ export const relaysAnswerEmpty = (page: Page, down: () => boolean = () => false)
     if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
   });
 });
+
+/** Rankings' status once its check of recent pulls has ended with no relay reached, as under `monitor`'s closed sockets. */
+export const FEED_DOWN = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
+
+/**
+ * Waits for Rankings (`main`) to finish checking recent pulls, before a step that leaves it. The check
+ * starts once the list loads: it imports the relay code, and only then reads the withdrawn list. No
+ * request is in flight between the two, so an idle network can pass in the gap, and leaving during the
+ * read rightly aborts it (net::ERR_ABORTED), which `monitor` records. The status names the check's end:
+ * FEED_DOWN under `monitor`'s closed relays, 'Rankings loaded.' under `relaysAnswerEmpty`.
+ */
+export const expectRankingsChecked = (main: Locator, status = FEED_DOWN) =>
+  expect(main.getByRole('status')).toHaveText(status, { timeout: 15000 });
 
 export async function expectRecordedPack(page: Page, nonce = 0, historyCount = 1) {
   const before = await snapshot(page);

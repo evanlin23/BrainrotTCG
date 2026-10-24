@@ -290,8 +290,8 @@ describe('the controls under the pack (#312)', () => {
     expect(openPack).toHaveBeenCalledTimes(2);
   });
 
-  it('says the save changed and stays sealed when openPack rejects with StaleSaveError', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('says the save changed and stays sealed when openPack rejects with StaleSaveError, and logs no error', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(openPack).mockRejectedValueOnce(new StaleSaveError());
     await render(false);
     openButton()!.focus();
@@ -301,6 +301,8 @@ describe('the controls under the pack (#312)', () => {
     expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
     expect(announced()).toBe(REFUSAL_COPY.blocked.message);
     expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    // A refusal the pack states is not a fault: the multi-tab browser specs fail on any console error.
+    expect(logged).not.toHaveBeenCalled();
     await act(async () => { vi.advanceTimersByTime(100); });
   });
 

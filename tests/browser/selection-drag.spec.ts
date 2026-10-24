@@ -1,5 +1,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectRecordedPack, expectStill, expectSummaryTakesClicks, fingerFor, type Finger } from './support';
+import {
+  monitor, expectDecoded, expectRankingsChecked, expectRecordedPack, expectStill, expectSummaryTakesClicks, fingerFor, type Finger,
+} from './support';
 
 // Rapid presses on game controls must not highlight text or start a native image drag, while
 // inputs, copyable text and links keep their normal behaviour (#264).
@@ -173,13 +175,23 @@ test('rapid clicks on the main navigation select no text', async ({ page, baseUR
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   const nav = page.getByRole('navigation', { name: 'Main', exact: true });
-  for (const name of ['Cards', 'Rankings', 'Profile', 'Open']) {
+  // `settled`: what the page opened still finishes before the next tab leaves it. Rankings checks recent
+  // pulls once its list is in, and leaving mid-check aborts a read (support.ts, expectRankingsChecked).
+  const shown = () => Promise.resolve();
+  const pages = [
+    { name: 'Cards', settled: shown },
+    { name: 'Rankings', settled: () => expectRankingsChecked(page.getByRole('main', { name: 'Rankings', exact: true })) },
+    { name: 'Profile', settled: shown },
+    { name: 'Open', settled: shown },
+  ];
+  for (const { name, settled } of pages) {
     const item = nav.locator('.app-nav-item').filter({ hasText: name });
     await hammer(page, item);
     expect(await selectedText(page), name).toBe('');
     // The label itself, where a double press lands on its word.
     await hammer(page, item.locator('.app-nav-label'));
     expect(await selectedText(page), `${name} label`).toBe('');
+    await settled();
   }
   expect(errors).toEqual([]);
 });

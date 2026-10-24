@@ -183,7 +183,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       // Usually instant: the ticket was mined while the pack was on screen.
       pack = await openPack(set, mountedSave);
     } catch (error) {
-      console.error('Could not open pack', error);
+      // Another tab replacing the save mid-open is a refusal the pack states, as when it lands before the
+      // tear; only a real failure is an error (#1139).
+      if (!(error instanceof StaleSaveError)) console.error('Could not open pack', error);
       const { from } = send({ type: 'failed', refusal: error instanceof PlayerUnreadableError ? 'unreadable' : error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed' });
       // Already back on the packs screen: nothing was dealt, so there's nothing to say.
       if (from.kind === 'waiting' && from.leaving === 'left') landingRef.current.resetCutState();
