@@ -402,11 +402,27 @@ class Workflows(unittest.TestCase):
             'status reads one outcome twice': lambda steps: steps[-1]['env'].update(BROWSER_OUTCOME='${{ steps.http.outcome }}'),
             'status of another check': lambda steps: steps[5].update(id='checks'),
             'status before the checks': lambda steps: steps.insert(3, steps.pop()),
+            'no traces': lambda steps: steps.pop(6),
+            'traces always': lambda steps: steps[6].update({'if': 'always()'}),
+            'traces on success': lambda steps: steps[6].pop('if'),
+            'traces of the whole checkout': lambda steps: steps[6]['with'].update(path='.'),
+            'traces kept longer': lambda steps: steps[6]['with'].update({'retention-days': 90}),
+            'traces before the checks': lambda steps: steps.insert(5, steps.pop(6)),
+            'traces after the status': lambda steps: steps.append(steps.pop(6)),
         }
         for label, change in changes.items():
             with self.subTest(label):
                 problems = self.deploy_problems(lambda jobs: change(jobs['smoke']['steps']))
                 self.assertTrue(any('smoke must' in p for p in problems), problems)
+
+    def test_traces_upload_only_from_the_production_smoke(self):
+        """staging-checks sends the Access token, which its traces would record, so it uploads none."""
+        def upload(jobs):
+            traces = next(s for s in jobs['smoke']['steps'] if dc.action(s) == 'actions/upload-artifact')
+            jobs['staging-checks']['steps'].append({**traces, 'with': {**traces['with'], 'path': 'test-results/staging/'}})
+        problems = self.deploy_problems(upload)
+        self.assertTrue(any('staging-checks must' in p for p in problems), problems)
+        self.assertTrue(any('staging-checks' in p and 'runs after a failure' in p for p in problems), problems)
 
     def test_wrangler_runs_more(self):
         self.assertBrokenIn(('stage', 'publish'), '--commit-dirty=true\n', '--commit-dirty=true && npm test\n')

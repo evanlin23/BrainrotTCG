@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import { BEACON_URL, pagesBeaconTag, RUM_URL } from '../../scripts/cloudflare-analytics';
-import { BEACON_STUB, monitor, teardownMessages } from './support';
+import { BEACON_STUB, guardConnectionHeaders, monitor, teardownMessages } from './support';
 
 let primaryServer: Server;
 let externalServer: Server;
@@ -174,6 +174,27 @@ test('a monitored request the server never answers is named as pending while the
   expect(errors.failed).toEqual([]);
 });
 
+// missing_scenario (deploy run 40051793039): the guard's fetch had no deadline, so a production fetch
+// of the logo font that stalled on the way to the site held page.reload at "navigated to" until the
+// journey ran out. Bounded, the stall fails as a named timeout and the page's load completes.
+// The short deadline applies to every fetch the guard makes, so the document that holds the load is
+// fulfilled by a page route, which runs before the guard's: only the stalled request is under 500 ms.
+test('a guard fetch that outlives its deadline fails as a named timeout and lets the page load', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false, fetchTimeout: 500 });
+  // A document whose load waits on a subresource the server never answers, as a font asked for
+  // before load held the reloaded app on production.
+  await page.route('**/holds-load.html', (route) => route.fulfill({
+    contentType: 'text/html',
+    body: '<!doctype html><html><head><meta charset="utf-8"><title>Holds Load</title></head><body><img src="/stall?key=not-for-logs" alt=""></body></html>',
+  }));
+  const response = await page.goto(`${primaryUrl}holds-load.html`);
+
+  expect(response?.status()).toBe(200);
+  expect(errors.failed).toEqual([`[fetch failed: Timeout 500ms exceeded.] GET ${primaryOrigin}/stall`]);
+  expect(errors.pending).toEqual([]);
+  expect(errors).toContain(`net::ERR_FAILED ${primaryOrigin}/stall?key=not-for-logs`);
+});
+
 test('a fulfill Playwright refuses is recorded, and the request it leaves paused stays pending', async ({ page }) => {
   const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
   // Page routes run before the guard's: this one hands the guard a response that is already released,
@@ -271,7 +292,7 @@ test('a CSP report the guard cannot read is still recorded', async ({ page }) =>
   expect(errors.blocked).toEqual([`[malformed csp report] CSP ${primaryOrigin}/__network-guard/csp-report`]);
 });
 
-test('each monitored request asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
+test('each monitored request to the local preview asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
   const errors = await monitor(page, primaryUrl);
   await page.goto(primaryUrl);
   const bodies = await page.evaluate(async () => {
@@ -284,6 +305,20 @@ test('each monitored request asks for its own connection, so none reuses a socke
   expect(pings.map((ping) => ping.connection)).toEqual(['close', 'close']);
   expect(new Set(pings.map((ping) => ping.port)).size, 'the two requests arrived on separate sockets').toBe(2);
   expect(errors).toEqual([]);
+});
+
+test('only loopback origins get a connection per request; production and staging keep their sockets alive', () => {
+  for (const url of ['http://127.0.0.1:4173/BrainrotTCG/', 'http://localhost:5173/assets/app.js', 'http://[::1]:4173/']) {
+    expect(guardConnectionHeaders(url), url).toEqual({ connection: 'close' });
+  }
+  for (const url of [
+    'https://evanlin23.github.io/BrainrotTCG/assets/RubikGlitch-Latin-qpVGezE5.woff2',
+    'https://staging.example.com/',
+    'https://127.0.0.1.example.com/',
+    'not a url',
+  ]) {
+    expect(guardConnectionHeaders(url), url).toEqual({});
+  }
 });
 
 test('redirect escape to external provider is refused with 403 and zero external provider requests', async ({ page }) => {
