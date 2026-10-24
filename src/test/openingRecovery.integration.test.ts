@@ -121,7 +121,7 @@ it('says on return that an interrupted pack was kept, once, with a way to its ca
   expect(document.querySelector('.toast-region')?.getAttribute('role')).toBe('status');
   // It does not cover or replace the pack to open, and a tap takes the player to the cards.
   expect(document.querySelector('[data-pack-open]')).not.toBeNull();
-  await app.interact(() => document.querySelector<HTMLButtonElement>('.toast')!.click());
+  await app.interact(() => document.querySelector<HTMLButtonElement>('.toast-open')!.click());
   await app.until('the toast opened Cards and left', () => {
     expect(location.hash).toContain('cards');
     expect(toastTexts()).toEqual([]);

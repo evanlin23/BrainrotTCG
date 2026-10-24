@@ -81,6 +81,10 @@ async function sampleDropIn(page: Page, artTop: number, tall: boolean) {
         const layout = owner === stage
           ? { artTop: top + shell.offsetWidth * artTopShare, bottom: top + shell.offsetHeight, stageHeight: stage.clientHeight }
           : null;
+        // The falling stage takes no presses (PackOpener's data-falling), and hit tests pass over it too: the
+        // probe lifts that for its own instant, in this same frame, so it sees the pack as it paints.
+        const falling = stage.getAttribute('data-falling');
+        if (falling !== null) stage.removeAttribute('data-falling');
         const points = markers.map((marker) => {
           const box = marker.getBoundingClientRect();
           // A hit test at the last pixel of the window finds nothing at all, so that pixel counts as outside.
@@ -88,6 +92,7 @@ async function sampleDropIn(page: Page, artTop: number, tall: boolean) {
           const hit = inside ? document.elementsFromPoint(box.left, box.top).some((element) => shell.contains(element)) : null;
           return { x: Math.round(box.left), y: Math.round(box.top), hit };
         });
+        if (falling !== null) stage.setAttribute('data-falling', falling);
         drop.frames.push({ stageTop, layout, points });
         if (!Number.isNaN(lastTop) && Math.abs(stageTop - lastTop) > 20) seenMove = true;
         held = Math.abs(stageTop - lastTop) < 0.01 ? held + 1 : 0;

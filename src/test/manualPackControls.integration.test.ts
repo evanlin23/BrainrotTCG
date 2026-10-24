@@ -158,7 +158,7 @@ it('leaves a reveal with Escape as Back to packs does, and says the face-down ca
   await app.until('a notice says the pack was kept', () => expect(toasts()).toContain('Pack kept'));
   expect(toasts()).toContain('Its cards are in Cards');
   // Tapping the notice opens the cards it names.
-  await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.toast')].find((el) => el.textContent?.includes('Pack kept'))!.click());
+  await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.toast-open')].find((el) => el.textContent?.includes('Pack kept'))!.click());
   await app.until('Cards opens from the notice', () => expect(pageTitle()).toBe('Cards'));
   expect(location.hash).toBe('#/cards');
 
@@ -302,18 +302,20 @@ it('holds the last pack\'s notices while a big pull is on show, and shows them a
   await app.until('the first pack is kept', () => expect(toasts()).toContain('Pack kept'));
   await app.until('a fresh pack is ready', () => expect(sealed()).not.toBeNull());
   await reveal();
-  const before = toasts();
-  expect(before, 'a notice is up when the big pull lands').not.toBe('');
+  // The pack in hand holds the notices (the tear and reveal are not covered by one).
+  expect(toasts(), 'no notice over the opening pack').toBe('');
   await app.interact(() => button('Skip opening animation').click());
   await app.until('the big pull is on show', () => expect($('.showcase-ribbon')).not.toBeNull());
-  // Gone the frame the ribbon shows, and nothing new shows over the showcase.
+  // Nothing shows over the showcase.
   expect(toasts()).toBe('');
   await app.settle(1500);
   expect($('.showcase-ribbon')).not.toBeNull();
   expect(toasts()).toBe('');
-  // When it ends, the held notice comes back first, in full.
+  // When the pack is done, the held notice comes back, in full.
   await app.until('the showcase ends', () => expect($('.showcase-ribbon')).toBeNull());
-  await app.until('the held notice shows', () => expect(toasts()).toBe(before));
+  expect(toasts()).toBe('');
+  await escape();
+  await app.until('the held notice shows', () => expect(toasts()).toContain('Pack kept'));
 });
 
 it('keeps notices held between two big pulls that Skip shows back to back (#460)', async () => {
