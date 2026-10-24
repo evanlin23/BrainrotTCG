@@ -226,11 +226,21 @@ export async function monitor(
   page.context().on('requestfinished', (request) => pending.delete(request));
   page.context().on('requestfailed', (request) => pending.delete(request));
   /**
-   * The page or its context is closing. Playwright marks a context closing before it disposes the
-   * context's request client, which drops every fetch in flight and every fetched response not yet
-   * handed over, so a fetch, fulfill or abort refused after this is teardown, not the request failing.
+   * The request's own page, or the whole context, is closing. Playwright marks a context closing before
+   * it disposes the context's request client, which drops every fetch in flight and every fetched
+   * response not yet handed over, so a fetch, fulfill or abort refused after this is teardown, not the
+   * request failing. The route is context-wide, so another page closing excuses nothing: a refusal on
+   * a page that stays open is recorded. A request with no page (a service worker's) is excused only
+   * with its context.
    */
-  const closing = () => page.isClosed() || page.context().isClosed();
+  const closing = (request: Request) => {
+    if (page.context().isClosed()) return true;
+    try {
+      return request.frame().page().isClosed();
+    } catch {
+      return false;
+    }
+  };
   const secrets = Object.values(access?.headers ?? {});
 
   const base = new URL(baseURL);
@@ -472,8 +482,8 @@ export async function monitor(
       let response;
       let url = request.url();
       /**
-       * Answers the request with `answer`, or aborts it. A refusal while the page or context is closing
-       * is teardown: the request stays pending, which only a failing test reports. Any other refusal is
+       * Answers the request with `answer`, or aborts it. A refusal while the request's page or the context
+       * is closing is teardown: the request stays pending, which only a failing test reports. Any other refusal is
        * recorded, since the request it leaves paused holds the page's load with nothing saying why. Once
        * Playwright has refused a fulfill it refuses the abort too, so that request stays pending.
        */
@@ -484,7 +494,7 @@ export async function monitor(
             await call();
             return true;
           } catch (error) {
-            if (closing()) return true;
+            if (closing(request)) return true;
             noteFailed(sanitizeAttempt(method, url, `${step} failed: ${fetchFailureReason(error, secrets)}`));
             return false;
           }
@@ -509,7 +519,7 @@ export async function monitor(
       } catch (error) {
         // The page only sees net::ERR_FAILED, so name the request and why for teardown (#1046). A fetch
         // cut off because the page or context is closing is teardown itself, and stays pending.
-        if (closing()) return;
+        if (closing(request)) return;
         noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, secrets)}`));
         return end();
       }
