@@ -145,6 +145,16 @@ describe('isNameAllowed', () => {
         'Milfordian', 'Penistone Road', 'Scunthorpe Steel', 'Pussycat Dolls', 'Snigger Lane', 'Nazia Hassan', 'Nazim Hikmet',
       ]),
     ).toEqual([]);
+    // Joined real names: an allowed word holding the term itself ("nazir" holds "nazi"), a shared
+    // letter that doesn't touch the rest of the term, and a cut joining "p" and "h" outside "ph" terms.
+    expect(
+      allowed([
+        'Nazir-Aziz', 'Nazir_Aziz', 'NazirAziz', 'nazir.aziz', 'BenazirAziz', 'Nazim_Azizi', 'xXNazirAzizXx', 'Nazira-Zinaida',
+        'Nazima-Zidane', 'Nazia Azizi', 'MilfordLife', 'Eichhorn-Thornycroft', 'Nazia-Annais', 'Penistone-Akil', 'Hsiu-Pussycat',
+        'Scunthorpe-Lutz', 'Nazira-Pes', 'Sexto-Booby', 'PhilipNazimHuckel', 'PopNazirHuckel',
+      ]),
+    ).toEqual([]);
+    expect(blocked(['pedopNAZIRhil', 'xXNAZIRiggerXx', 'NAZIRigger-Bob'])).toEqual([]);
   });
 
   it('allows brainrot names, gamer tags and mild swearing', () => {
@@ -170,11 +180,13 @@ describe('isNameAllowed', () => {
  * position, with no sampling. Each name gets one spelling, rotating with the term, allowed word and
  * position, so every term and every allowed word is seen in every spelling: the allowed word as is,
  * upper case or capitalized; dots around it; leetspeak (digits, allowed word upper case); Cyrillic
- * look-alikes; and, for PHRASES only, spaces around it.
+ * look-alikes; and, for PHRASES only, spaces around it. A shared-letter name skips the dots and
+ * spaces, as the filter reads a shared letter only where it touches the rest of the term.
  *
- * Left out, as "Known gaps" in nameFilter.ts: a STRONG or WHOLE term split by spaces ("fu nazir ck",
- * like "Fu ck"), and a name where the inserted allowed word overlaps another one ("nazimilford",
- * "booBOOBYb"). No randomness, so the same names run every time.
+ * Left out, as the filter excuses them (see strongNotExcused): a term the allowed word holds itself, read
+ * at the letter they share ("nazirazi", like "NazirAziz"). Left out as "Known gaps" in nameFilter.ts:
+ * a STRONG or WHOLE term split by spaces ("fu nazir ck", like "Fu ck"), and a name where the inserted
+ * allowed word overlaps another one ("nazimilford", "booBOOBYb"). No randomness, so the same names run every time.
  */
 const generatedNames = () => {
   const { strong, whole, phrases, allowed: allowedWords } = NAME_FILTER_LISTS;
@@ -182,11 +194,12 @@ const generatedNames = () => {
   const lookAlike: Record<string, string> = { a: 'а', c: 'с', e: 'е', i: 'і', k: 'к', o: 'о', p: 'р', x: 'х', y: 'у' };
   const swap = (text: string, map: Record<string, string>) => Array.from(text, (c) => map[c] ?? c).join('');
   type Spelling = (before: string, word: string, after: string) => string;
+  const dotted: Spelling = (b, w, a) => [b, w, a].filter(Boolean).join('.');
   const spellings: Spelling[] = [
     (b, w, a) => b + w + a,
     (b, w, a) => b + w.toUpperCase() + a,
     (b, w, a) => b + w[0].toUpperCase() + w.slice(1) + a,
-    (b, w, a) => [b, w, a].filter(Boolean).join('.'),
+    dotted,
     (b, w, a) => swap(b, leet) + swap(w, leet).toUpperCase() + swap(a, leet),
     (b, w, a) => swap(b + w + a, lookAlike),
   ];
@@ -205,15 +218,22 @@ const generatedNames = () => {
   terms.forEach(({ term, spellings: forTerm }, t) => {
     allowedWords.forEach((word, w) => {
       // [before, after] around the allowed word: inserted, or replacing a letter it shares with the term.
-      const cuts: [string, string][] = [];
-      for (let i = 0; i <= term.length; i++) cuts.push([term.slice(0, i), term.slice(i)]);
+      const cuts: [string, string, boolean][] = [];
+      for (let i = 0; i <= term.length; i++) cuts.push([term.slice(0, i), term.slice(i), false]);
+      // Not where the term starts at the allowed word's first letter, or ends at its last, and the
+      // allowed word holds the term itself ("nazirazi", "boobyoob"): the term read there is the one
+      // inside the allowed word, which is excused, as in "NazirAziz".
+      const holds = word.includes(term);
       for (let i = 0; i < term.length; i++) {
-        if (term[i] === word[0]) cuts.push([term.slice(0, i), term.slice(i + 1)]);
-        if (term[i] === word[word.length - 1]) cuts.push([term.slice(0, i), term.slice(i + 1)]);
+        if (term[i] === word[0] && !(i === 0 && holds)) cuts.push([term.slice(0, i), term.slice(i + 1), true]);
+        if (term[i] === word[word.length - 1] && !(i === term.length - 1 && holds)) cuts.push([term.slice(0, i), term.slice(i + 1), true]);
       }
-      cuts.forEach(([before, after], c) => {
+      cuts.forEach(([before, after, shared], c) => {
         if (overlapsAnother(before + word + after, before.length, before.length + word.length)) return;
-        const s = (t + w + c) % forTerm.length;
+        // A shared letter is read with the rest of the term only where they touch, so a shared-letter
+        // name skips the dotted and spaced spellings ("nazia.nal", "porch nazim onkey").
+        const pick = forTerm.map((_, s) => s).filter((s) => !shared || (forTerm[s] !== dotted && forTerm[s] !== spaced));
+        const s = pick[(t + w + c) % pick.length];
         names.push(forTerm[s](before, word, after));
         covered.add(`${term} ${word}`).add(`${term} #${s}`).add(`${word} #${s}`);
       });
