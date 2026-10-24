@@ -37,6 +37,7 @@ import { usePackCacheVersion } from './hooks/usePackCache';
 import { playerUnreadable, sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
+import { flushReopenCache } from './game/reopenCache';
 import { isStaging, STAGING_NOTE } from './game/staging';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
@@ -311,6 +312,14 @@ function App() {
     setSettings(newSettings);
   }, []);
 
+  // Work left on a timer when the app goes away: the reload it no longer needs is dropped, and the
+  // reopen cache's batched write lands now rather than after the page is gone.
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    flushReopenCache();
+  }, []);
+
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
   const handleImportSave = useCallback((data: string, keepCopy = true, expectedSave?: SaveMark): string | null => {
     if (!samePlayer() || (expectedSave && !sameSave(expectedSave, saveMark()))) {
@@ -325,7 +334,7 @@ function App() {
       // The app still holds the save from before; only a reload shows what storage now holds.
       if (before !== null && window.confirm(`${error}\n\nDownload the save from before the import first? OK downloads it, then reloads.`)) {
         downloadSaveFile(before);
-        setTimeout(reloadPage, 1000); // give the download a moment to start
+        reloadTimer.current = setTimeout(reloadPage, 1000); // give the download a moment to start
       } else {
         if (before === null) window.alert(error);
         reloadPage();

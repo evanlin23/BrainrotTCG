@@ -41,4 +41,29 @@ describe('prefetchNextPack', () => {
     await Promise.resolve();
     expect(images.length).toBeGreaterThan(0);
   });
+
+  it('fetches nothing once its caller has gone, whether that was before the ticket or the art came in', async () => {
+    const images: { src: string }[] = [];
+    vi.stubGlobal('Image', class { src = ''; constructor() { images.push(this); } });
+    const beforeTicket = new AbortController();
+    prefetchNextPack(getSet('right-now', 2)!, false, beforeTicket.signal);
+    beforeTicket.abort();
+    await mined;
+    await Promise.resolve();
+    expect(images).toEqual([]);
+
+    // The art has settled (an earlier test settled it), so the pictures are a microtask behind the ticket.
+    const beforeArt = new AbortController();
+    prefetchNextPack(getSet('right-now', 2)!, false, beforeArt.signal);
+    await mined;
+    beforeArt.abort();
+    await Promise.resolve();
+    expect(images).toEqual([]);
+
+    // A caller still there gets its pictures.
+    prefetchNextPack(getSet('right-now', 2)!, false, new AbortController().signal);
+    await mined;
+    await Promise.resolve();
+    expect(images.length).toBeGreaterThan(0);
+  });
 });

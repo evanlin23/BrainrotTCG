@@ -146,9 +146,21 @@ describe("the next pack's art", () => {
   it('waits while a page or a sheet covers the pack, and is fetched once nothing does (#762)', async () => {
     vi.mocked(prefetchNextPack).mockClear();
     await render(true);
-    expect(vi.mocked(prefetchNextPack).mock.calls).toEqual([[SETS[0], true]]);
+    expect(vi.mocked(prefetchNextPack).mock.calls.map(([set, covered]) => [set, covered])).toEqual([[SETS[0], true]]);
     await render(false);
-    expect(vi.mocked(prefetchNextPack).mock.calls).toEqual([[SETS[0], true], [SETS[0], false]]);
+    expect(vi.mocked(prefetchNextPack).mock.calls.map(([set, covered]) => [set, covered])).toEqual([[SETS[0], true], [SETS[0], false]]);
+  });
+
+  it('keeps a fetch going through a cover change, and stops every one once the opener unmounts', async () => {
+    vi.mocked(prefetchNextPack).mockClear();
+    await render(true);
+    await render(false);
+    const signals = vi.mocked(prefetchNextPack).mock.calls.map(([, , signal]) => signal!);
+    expect(signals).toHaveLength(2);
+    expect(signals.map((signal) => signal.aborted)).toEqual([false, false]);
+    act(() => root.unmount());
+    expect(signals.map((signal) => signal.aborted)).toEqual([true, true]);
+    root = createRoot(document.body.appendChild(document.createElement('div')));
   });
 });
 
