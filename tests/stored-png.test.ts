@@ -128,6 +128,12 @@ describe('uncompressed PNG encoding', () => {
     }
   });
 
+  it('refuses an image with no rows or no columns instead of writing a broken file', () => {
+    for (const [width, height] of [[0, 1], [1, 0], [0, 0], [1.5, 2]]) {
+      expect(() => encodePng(width, height, new Uint8ClampedArray(0)), `${width}x${height}`).toThrow(RangeError);
+    }
+  });
+
   it('reads the pixels from where their view starts in its buffer', async () => {
     const backing = new Uint8ClampedArray([9, 9, 9, 9, 255, 0, 0, 255, 0, 0, 255, 128]);
     const png = encodePng(2, 1, backing.subarray(4));

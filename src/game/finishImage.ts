@@ -39,8 +39,8 @@ const getFrameMask = (): Promise<ImageData> => frameMask ??= loadImage(frameMask
   throw error;
 });
 
-// Keep the 16 most recent full-size renders (an uncompressed PNG each) for reuse; held ones never count as spare.
-export const MAX_CACHED_FINISHES = 16;
+// Keep the 10 most recent full-size renders (an uncompressed PNG each) for reuse; held ones never count as spare.
+export const MAX_CACHED_FINISHES = 10;
 
 interface CachedFinish {
   image: Promise<string>;

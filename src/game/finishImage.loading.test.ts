@@ -169,7 +169,7 @@ describe('finish image request deadlines', () => {
 });
 
 describe('finish image encoding', () => {
-  // The PNG's bytes themselves are pinned in finishImage.png.test.ts.
+  // The PNG's bytes themselves are pinned in tests/stored-png.test.ts.
   it('encodes the render it shows as a PNG without waiting on an asynchronous encoder', async () => {
     const finishedCardImage = await importFinishedCardImage();
     const image = finishedCardImage('/card.webp', 'GOLD');
@@ -242,7 +242,7 @@ describe('finished image cache', () => {
 
   it('keeps a small bounded cache and revokes the least recent render once nothing holds it', async () => {
     const { hold, loaded, shownAndGone, max } = await setup();
-    expect(max).toBe(16);
+    expect(max).toBe(10);
     const urls = await shownAndGone(0, max);
     expect(revoke).not.toHaveBeenCalled();
 

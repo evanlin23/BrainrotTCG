@@ -43,7 +43,8 @@ const loadFailures = (errors: string[], baseURL: string, finishedCardIds: readon
 };
 
 // Opening a shared pull verifies its Argon2id ticket in a worker, which is slow on a cold mobile run.
-// Rejections use the same budget so the two paths are held to one standard.
+// Rejections use the same budget so the two paths are held to one standard, and so does the card
+// viewer's full-size finish render, which runs on the page's main thread.
 const VIEWER_TIMEOUT = 20000;
 
 // Built-browser journeys verify Argon2id tickets and walk every card, so each gets the same budget.
@@ -322,7 +323,7 @@ for (const { vector, entry } of cases) {
       await card.click();
       const detail = page.getByRole('dialog', { name: definition.name, exact: true });
       await expect(detail).toBeVisible();
-      await expectDecoded(detail.locator('.card-viewer-card img'), misprint ? 2 : 1);
+      await expectDecoded(detail.locator('.card-viewer-card img'), misprint ? 2 : 1, { timeout: VIEWER_TIMEOUT });
       await expect(detail.locator('.card-viewer-card img').first()).toBeVisible();
       for (const label of modifiers) await expect(detail.locator('.card-viewer-identity')).toContainText(label as string);
       // Viewing another player's signed proof never grants permission to sign their cards.

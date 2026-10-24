@@ -31,6 +31,10 @@ const crc32 = (bytes: Uint8Array, start: number, end: number): number => {
  * bytes, where a real PNG encode compresses them (src/game/finishImage.ts says why that matters).
  */
 export const encodePng = (width: number, height: number, rgba: Uint8Array | Uint8ClampedArray) => {
+  // PNG has no empty image, and zero rows would leave the stored block's header unwritten.
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    throw new RangeError(`A PNG needs a whole width and height of at least 1, not ${width}x${height}`);
+  }
   const rowBytes = width * 4;
   const scanlineBytes = height * (1 + rowBytes);
   const blocks = Math.max(1, Math.ceil(scanlineBytes / STORED_BLOCK_MAX));
