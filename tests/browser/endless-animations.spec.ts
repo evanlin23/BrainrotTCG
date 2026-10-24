@@ -11,25 +11,29 @@ import { expectSummaryTakesClicks, monitor } from './support';
  * but the screen itself, and a frame of timing decides nothing.
  */
 
-const COMPOSITED = ['opacity', 'transform'];
+/**
+ * What Chromium runs on the compositor without the main thread: the transform family, opacity, and
+ * filter and backdrop-filter (it composites those too). Anything else, such as background-position or
+ * a box-shadow, is repainted or laid out by the main thread on every frame.
+ */
+const COMPOSITED = ['backdrop-filter', 'filter', 'opacity', 'rotate', 'scale', 'transform', 'translate'];
 
 /** Every animation on the page that never ends, with the properties its keyframes set. */
-function endlessAnimations(page: Page, within = 'body') {
-  return page.evaluate((scope) => document.getAnimations()
+function endlessAnimations(page: Page) {
+  return page.evaluate(() => document.getAnimations()
     .filter((animation) => animation.effect?.getComputedTiming().iterations === Infinity)
     .flatMap((animation) => {
       const effect = animation.effect as KeyframeEffect;
       const target = effect.target as Element;
-      if (!target.closest(scope)) return [];
       const properties = [...new Set(effect.getKeyframes().flatMap((frame) => Object.keys(frame)))]
         .filter((name) => !['offset', 'computedOffset', 'easing', 'composite'].includes(name)).sort();
       return [{ animation: (animation as CSSAnimation).animationName, on: `${target.tagName.toLowerCase()}${effect.pseudoElement ?? ''}`, properties }];
-    }), within);
+    }));
 }
 
 /** Fails with the offending animations, named, rather than a bare count. */
-async function expectCompositorOnly(page: Page, within?: string) {
-  const running = await endlessAnimations(page, within);
+async function expectCompositorOnly(page: Page) {
+  const running = await endlessAnimations(page);
   const offenders = running.filter(({ properties }) => properties.some((name) => !COMPOSITED.includes(name)));
   expect(offenders, `endless animations that the main thread repaints or lays out every frame (only ${COMPOSITED.join(' and ')} are allowed)`).toEqual([]);
   return running;
@@ -87,8 +91,7 @@ test('the pack foil previews on the profile page slide on the compositor too', a
   await expect(page.locator('.page-skeleton')).toHaveCount(0, { timeout: 15000 });
   await page.locator('#rewards summary').click();
   await expect(page.locator('.foil-swatch')).toHaveCount(4);
-  // The card-back preview beside them has its own endless animation, which is not this change's.
-  const swatches = await expectCompositorOnly(page, '.foil-swatch');
+  const running = await expectCompositorOnly(page);
   // Shimmer, gold and prism slide; the standard swatch has no foil to move.
-  expect(swatches.map(({ animation }) => animation)).toEqual(['pack-foil', 'pack-foil', 'pack-foil']);
+  expect(running.filter(({ animation }) => animation === 'pack-foil')).toHaveLength(3);
 });
