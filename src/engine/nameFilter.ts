@@ -19,14 +19,18 @@
  *   until none is left), against STRONG, WHOLE and PHRASES, so wrapping a term around one doesn't
  *   hide it: "fuNAZIRck" reads "fuck", "seNAZIRx" reads "sex" and "white NAZIR power" reads
  *   "whitepower". A WHOLE cut that is an ALLOWED_WHOLE word passes ("rapNAZIRpe" reads "rappe").
+ *   Each cut is also made keeping the allowed word's first or last letter, for a term that shares
+ *   it: "porchNAZIMonkey" reads "porchmonkey", "NAZIAnal" reads "anal".
  * Hate numbers are blocked only as a number of their own. Mild swearing (shit, damn, crap, ass, hell)
  * is allowed; slurs, sexual terms and hate are not.
  *
  * Known gaps, which a maintainer removes by hand (docs/ARCHITECTURE.md, Hall of Fame): odd spellings
- * ("sl00t"); words split into pieces longer than one letter ("Fu ck"); WHOLE terms run into other
- * words beyond the PHRASES list ("hugedick", "sexlord", "cumlord": dick, sex and cum hide inside too
- * many ordinary words to block them anywhere); phrase spellings not listed ("killurself"); a hate
- * number split up ("14 88") or written in other digits (Arabic-Indic); and terms not on the list.
+ * ("sl00t"); words split into pieces longer than one letter ("Fu ck", also around an allowed word:
+ * "fu Nazir ck"); two allowed words that overlap, when only cutting the second one would leave the
+ * term ("nazimilford", "booBOOBYb"); WHOLE terms run into other words beyond the PHRASES list
+ * ("hugedick", "sexlord", "cumlord": dick, sex and cum hide inside too many ordinary words to block
+ * them anywhere); phrase spellings not listed ("killurself"); a hate number split up ("14 88") or
+ * written in other digits (Arabic-Indic); and terms not on the list.
  */
 import { normalizeName } from './identity';
 
@@ -87,6 +91,14 @@ const ALLOWED_PHRASES = [
   'pussy cat', 'pussy willow',
 ];
 
+/** The blocked terms and allowed words, for tests that generate names from them. */
+export const NAME_FILTER_LISTS: {
+  readonly strong: readonly string[];
+  readonly whole: readonly string[];
+  readonly phrases: readonly string[];
+  readonly allowed: readonly string[];
+} = { strong: STRONG, whole: WHOLE, phrases: PHRASES, allowed: ALLOWED };
+
 /** Hate numbers, blocked only as a number of their own ("Kid1488", not "21488" or "Flabby" read as leetspeak). */
 const NUMBER_RE = /(?<!\d)(?:1488)(?!\d)/;
 
@@ -127,12 +139,22 @@ const pattern = (term: string) =>
   (fold(term, true).match(/(.)\1*/g) ?? []).map((run) => (run.length === 1 ? `${run}+` : `${run[0]}{${run.length},}`)).join('');
 
 const STRONG_RE = new RegExp(STRONG.map(pattern).join('|'));
-const STRONG_EXACT_RE = new RegExp(`^(?:${STRONG.map(pattern).join('|')})$`);
+const STRONG_AT_RE = new RegExp(STRONG.map(pattern).join('|'), 'y');
+// Each term on its own, matched from a given position. A term's letter runs each differ from the
+// next, so its greedy match there is the longest one it has.
+const STRONG_TERM_RES = STRONG.map((term) => new RegExp(pattern(term), 'y'));
 const PHRASE_RE = new RegExp(PHRASES.map(pattern).join('|'));
 const WHOLE_RE = new RegExp(`^(?:${WHOLE.map(pattern).join('|')})(?:s+|z+)?$`);
 const ALLOWED_FOLDED = ALLOWED.map((w) => fold(w, true));
 // Longest first, so the longer of two overlapping allowed words is cut ("booboo" before "booby").
-const ALLOWED_CUT_RE = new RegExp([...ALLOWED_FOLDED].sort((a, b) => b.length - a.length).join('|'), 'g');
+const ALLOWED_LONGEST = [...ALLOWED_FOLDED].sort((a, b) => b.length - a.length);
+// An allowed word is cut out whole, or keeping its first or its last letter for a term that shares
+// it ("porchNAZIMonkey" reads "porchmonkey", "NAZIAnal" reads "anal").
+const ALLOWED_CUT_RES = [
+  ALLOWED_LONGEST,
+  ALLOWED_LONGEST.map((a) => `(?<=${a[0]})${a.slice(1)}`),
+  ALLOWED_LONGEST.map((a) => `${a.slice(0, -1)}(?=${a[a.length - 1]})`),
+].map((alternatives) => new RegExp(alternatives.join('|'), 'g'));
 const ALLOWED_WHOLE_SET = new Set(ALLOWED_WHOLE.map((w) => fold(w, true)));
 // Longest first, so "dick van dyke" goes before "van dyke". It must start and end a word (letters
 // after punctuation belong to the same word), so "Moby Dick.head" keeps its "dickhead".
@@ -145,35 +167,47 @@ const ALLOWED_PHRASE_RE = new RegExp(
 );
 
 /**
- * Whether a STRONG term matches in a word other than wholly inside one ALLOWED word ("Nazir", not
- * "Pornazir"), or around one: the word with its allowed words cut out is checked again, so
- * "fuNAZIRck" reads "fuck".
+ * The word with its ALLOWED words cut out, again until none is left ("seNAZIRx" -> "sex"), in each
+ * way of cutting (whole, or keeping a shared first or last letter); empty if it holds none. A cut that
+ * joins "p" and "h" reads "f", as the fold does ("zoopNAZIRhil").
  */
-const strongOutsideAllowed = (word: string): boolean => {
+const allowedCuts = (word: string): string[] => {
+  const cuts = new Set<string>();
+  // Each cut is shorter than the last, so each way ends within the word's length.
+  for (const re of ALLOWED_CUT_RES) {
+    for (let w = word, cut = w.replace(re, ''); cut !== w; w = cut, cut = w.replace(re, '')) {
+      cut = cut.replace(/ph/g, 'f');
+      cuts.add(cut);
+    }
+  }
+  return [...cuts];
+};
+
+/** Whether a STRONG term matches in the word other than wholly inside one ALLOWED word ("Nazir", not "Pornazir"). */
+const strongNotExcused = (word: string): boolean => {
+  if (!STRONG_RE.test(word)) return false;
   const spans: [number, number][] = [];
   for (const a of ALLOWED_FOLDED) for (let i = word.indexOf(a); i >= 0; i = word.indexOf(a, i + 1)) spans.push([i, i + a.length]);
-  if (spans.length) {
-    const cut = word.replace(ALLOWED_CUT_RE, '');
-    if (cut !== word && strongOutsideAllowed(cut)) return true;
-  }
-  if (!STRONG_RE.test(word)) return false;
   if (!spans.length) return true;
   for (let start = 0; start < word.length; start++) {
+    STRONG_AT_RE.lastIndex = start;
+    if (!STRONG_AT_RE.test(word)) continue;
     // A match from here is excused only if it ends within an allowed word that covers its start.
     let end = start;
     for (const [a, b] of spans) if (a <= start && b > end) end = b;
-    for (let stop = end + 1; stop <= word.length; stop++) if (STRONG_EXACT_RE.test(word.slice(start, stop))) return true;
+    for (const re of STRONG_TERM_RES) {
+      re.lastIndex = start;
+      if (re.test(word) && re.lastIndex > end) return true;
+    }
   }
   return false;
 };
 
-/** The word with its ALLOWED words cut out, again until none is left ("seNAZIRx" -> "sex"); empty if it holds none. */
-const allowedCuts = (word: string): string[] => {
-  const cuts: string[] = [];
-  // Each cut is shorter than the last, so this ends within the word's length.
-  for (let w = word, cut = w.replace(ALLOWED_CUT_RE, ''); cut !== w; w = cut, cut = w.replace(ALLOWED_CUT_RE, '')) cuts.push(cut);
-  return cuts;
-};
+/**
+ * Whether a STRONG term matches in a word other than wholly inside one ALLOWED word, or around one:
+ * the word with its allowed words cut out is checked again, so "fuNAZIRck" reads "fuck".
+ */
+const strongOutsideAllowed = (word: string): boolean => strongNotExcused(word) || allowedCuts(word).some(strongNotExcused);
 
 /** Whether a piece is a WHOLE term on its own (with an optional plural), other than an ALLOWED_WHOLE word. */
 const wholeTerm = (piece: string) => WHOLE_RE.test(piece) && !ALLOWED_WHOLE_SET.has(piece);

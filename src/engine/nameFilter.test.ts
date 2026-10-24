@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ANONYMOUS_NAME, isNameAllowed, NAME_PLACEHOLDER, publicName, SOMEONE_NAME, visitorName } from './nameFilter';
+import { ANONYMOUS_NAME, isNameAllowed, NAME_FILTER_LISTS, NAME_PLACEHOLDER, publicName, SOMEONE_NAME, visitorName } from './nameFilter';
 
 const blocked = (names: string[]) => names.filter((name) => isNameAllowed(name));
 const allowed = (names: string[]) => names.filter((name) => !isNameAllowed(name));
@@ -132,6 +132,21 @@ describe('isNameAllowed', () => {
     ).toEqual([]);
   });
 
+  it('blocks a term sharing a letter with an allowed word inside it, but not an ordinary name doing so', () => {
+    expect(
+      blocked([
+        'porchNAZIMonkey', 'killBOOBYourself', 'killTHORNYourself', 'killyouNAZIRself', 'whitepNAZIRide', 'p0rchN4Z1Monkey',
+        'Nazirape', 'NAZIAnal', 'nazirigger', 'chiNAZIRk', 'zoopNAZIRhil',
+      ]),
+    ).toEqual([]);
+    expect(
+      allowed([
+        'Nazimabad', 'Nazirabad', 'Nazira Khan', 'Boobytrap', 'Booby Island', 'Thornycroft', 'Thornyhill', 'Milford Haven',
+        'Milfordian', 'Penistone Road', 'Scunthorpe Steel', 'Pussycat Dolls', 'Snigger Lane', 'Nazia Hassan', 'Nazim Hikmet',
+      ]),
+    ).toEqual([]);
+  });
+
   it('allows brainrot names, gamer tags and mild swearing', () => {
     expect(
       allowed([
@@ -144,6 +159,85 @@ describe('isNameAllowed', () => {
 
   it('allows a blank name (it shows as Anonymous)', () => {
     expect(isNameAllowed('')).toBe(true);
+  });
+});
+
+/**
+ * Names generated from the filter's own lists: every STRONG, WHOLE and PHRASES term with every ALLOWED
+ * word inserted at every position (before the first letter through after the last), and also at every
+ * position where the allowed word supplies a letter of the term: its first letter ("NAZIRigger" for
+ * "nigger") or its last ("porchNAZIMonkey" for "porchmonkey"). That is every term x allowed word x
+ * position, with no sampling. Each name gets one spelling, rotating with the term, allowed word and
+ * position, so every term and every allowed word is seen in every spelling: the allowed word as is,
+ * upper case or capitalized; dots around it; leetspeak (digits, allowed word upper case); Cyrillic
+ * look-alikes; and, for PHRASES only, spaces around it.
+ *
+ * Left out, as "Known gaps" in nameFilter.ts: a STRONG or WHOLE term split by spaces ("fu nazir ck",
+ * like "Fu ck"), and a name where the inserted allowed word overlaps another one ("nazimilford",
+ * "booBOOBYb"). No randomness, so the same names run every time.
+ */
+const generatedNames = () => {
+  const { strong, whole, phrases, allowed: allowedWords } = NAME_FILTER_LISTS;
+  const leet: Record<string, string> = { a: '4', e: '3', i: '1', o: '0', s: '5', t: '7' };
+  const lookAlike: Record<string, string> = { a: 'а', c: 'с', e: 'е', i: 'і', k: 'к', o: 'о', p: 'р', x: 'х', y: 'у' };
+  const swap = (text: string, map: Record<string, string>) => Array.from(text, (c) => map[c] ?? c).join('');
+  type Spelling = (before: string, word: string, after: string) => string;
+  const spellings: Spelling[] = [
+    (b, w, a) => b + w + a,
+    (b, w, a) => b + w.toUpperCase() + a,
+    (b, w, a) => b + w[0].toUpperCase() + w.slice(1) + a,
+    (b, w, a) => [b, w, a].filter(Boolean).join('.'),
+    (b, w, a) => swap(b, leet) + swap(w, leet).toUpperCase() + swap(a, leet),
+    (b, w, a) => swap(b + w + a, lookAlike),
+  ];
+  const spaced: Spelling = (b, w, a) => [b, w, a].filter(Boolean).join(' ');
+  // Where another allowed word overlaps the inserted one at [start, end) in the plain name.
+  const overlapsAnother = (name: string, start: number, end: number) =>
+    allowedWords.some((other) => {
+      for (let i = name.indexOf(other); i >= 0; i = name.indexOf(other, i + 1)) {
+        if (i < end && i + other.length > start && !(i === start && other.length === end - start)) return true;
+      }
+      return false;
+    });
+  const names: string[] = [];
+  const covered = new Set<string>();
+  const terms = [...strong, ...whole, ...phrases].map((term) => ({ term, spellings: phrases.includes(term) ? [...spellings, spaced] : spellings }));
+  terms.forEach(({ term, spellings: forTerm }, t) => {
+    allowedWords.forEach((word, w) => {
+      // [before, after] around the allowed word: inserted, or replacing a letter it shares with the term.
+      const cuts: [string, string][] = [];
+      for (let i = 0; i <= term.length; i++) cuts.push([term.slice(0, i), term.slice(i)]);
+      for (let i = 0; i < term.length; i++) {
+        if (term[i] === word[0]) cuts.push([term.slice(0, i), term.slice(i + 1)]);
+        if (term[i] === word[word.length - 1]) cuts.push([term.slice(0, i), term.slice(i + 1)]);
+      }
+      cuts.forEach(([before, after], c) => {
+        if (overlapsAnother(before + word + after, before.length, before.length + word.length)) return;
+        const s = (t + w + c) % forTerm.length;
+        names.push(forTerm[s](before, word, after));
+        covered.add(`${term} ${word}`).add(`${term} #${s}`).add(`${word} #${s}`);
+      });
+    });
+  });
+  const expected = [
+    ...terms.flatMap(({ term, spellings: forTerm }) => [
+      ...allowedWords.map((word) => `${term} ${word}`),
+      ...forTerm.map((_, s) => `${term} #${s}`),
+    ]),
+    ...allowedWords.flatMap((word) => [...spellings, spaced].map((_, s) => `${word} #${s}`)),
+  ];
+  return { names, covered, expected };
+};
+
+describe('isNameAllowed on names generated from its lists', () => {
+  const generated = generatedNames();
+
+  it('covers every term with every allowed word, and each of them in every spelling', () => {
+    expect(generated.expected.filter((key) => !generated.covered.has(key))).toEqual([]);
+  });
+
+  it('blocks every term with an allowed word inserted or sharing a letter, in every spelling', () => {
+    expect(blocked(generated.names)).toEqual([]);
   });
 });
 
