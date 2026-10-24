@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -67,74 +68,179 @@ describe('test run wiring', () => {
   });
 });
 
-/** The hang guard, the one timeout a test file may name. */
+/**
+ * The hang guard, the one timeout a test file may name, in any slot or options object: vite.config.ts
+ * already sets it for every test and hook, so naming it changes nothing.
+ */
 const HANG_GUARD = 'HANG_TIMEOUT_MS';
 const isHangGuard = (node: ts.Node) => ts.isIdentifier(node) && node.text === HANG_GUARD;
 
-/** The identifier a call chain starts from: `it` for it(...), it.concurrent(...) and it.each(...)(...). */
+/** Vitest's test and suite functions. A file's own aliases of them are added per file (runnersIn). */
+const RUNNERS = ['it', 'test', 'describe', 'suite'];
+const HOOKS = ['beforeAll', 'beforeEach', 'afterAll', 'afterEach'];
+
+/** What the guard reports, each with its own message. Both fail: no test sets its own timeout or retries. */
+const LIMITS = { timeout: 'sets its own timeout', retry: 'retries a failure' } as const;
+type Limit = keyof typeof LIMITS;
+
+/** The identifier a call chain starts from: `it` for it(...), it.only(...), it.each(...)(...), it.each`...`(...) and it['only'](...). */
 const rootName = (node: ts.Expression): string | undefined => {
   if (ts.isIdentifier(node)) return node.text;
-  if (ts.isPropertyAccessExpression(node) || ts.isCallExpression(node)) return rootName(node.expression);
+  if (ts.isTaggedTemplateExpression(node)) return rootName(node.tag);
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) || ts.isCallExpression(node)
+    || ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node) || ts.isAsExpression(node)) return rootName(node.expression);
   return undefined;
 };
 
-/** A timeout in an argument slot: anything but the test or hook function, or the hang guard. */
-const timeoutArgument = (node: ts.Node | undefined) => !!node && !ts.isArrowFunction(node) && !ts.isFunctionExpression(node) && !isHangGuard(node);
+/** The name a call ends on: `beforeEach` for beforeEach(...) and test.beforeEach(...). */
+const calleeName = (node: ts.Expression) => ts.isIdentifier(node) ? node.text : ts.isPropertyAccessExpression(node) ? node.name.text : undefined;
 
-/** An options object that sets one of `keys` to anything but the hang guard. */
-const timeoutOption = (node: ts.Node | undefined, keys: readonly string[]) =>
-  !!node && ts.isObjectLiteralExpression(node) && node.properties.some((property) =>
-    ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) && keys.includes(property.name.text) && !isHangGuard(property.initializer));
+/**
+ * Vitest's runners plus the names this file gives them: `const slow = test.extend(...)`, chains of
+ * those in any order, and `import { it as spec }`.
+ */
+const runnersIn = (sourceFile: ts.SourceFile) => {
+  const names = new Set(RUNNERS);
+  const aliases: { name: string; value: ts.Expression }[] = [];
+  const collect = (node: ts.Node) => {
+    if (ts.isImportSpecifier(node) && node.propertyName && names.has(node.propertyName.text)) names.add(node.name.text);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) aliases.push({ name: node.name.text, value: node.initializer });
+    ts.forEachChild(node, collect);
+  };
+  collect(sourceFile);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const { name, value } of aliases) {
+      const root = rootName(value);
+      if (!names.has(name) && root !== undefined && names.has(root)) { names.add(name); grew = true; }
+    }
+  }
+  return names;
+};
 
-const setsOwnTimeout = (call: ts.CallExpression, sourceFile: ts.SourceFile) => {
-  const name = rootName(call.expression);
+/** A property's key as written: `timeout`, 'timeout' and ['timeout'] all name `timeout`; a spread has none. */
+const keyName = (property: ts.ObjectLiteralElementLike) => {
+  if (ts.isSpreadAssignment(property)) return undefined;
+  const { name } = property;
+  if (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) return name.text;
+  if (ts.isComputedPropertyName(name) && ts.isStringLiteralLike(name.expression)) return name.expression.text;
+  return undefined;
+};
+
+/** What an options object sets: one of `timeoutKeys` as anything but the hang guard (`{ timeout }` included), or any retry. */
+const limitsIn = (options: ts.ObjectLiteralExpression, timeoutKeys: readonly string[]) =>
+  options.properties.flatMap((property): Limit[] => {
+    const key = keyName(property);
+    if (key === 'retry') return ['retry'];
+    if (key === undefined || !timeoutKeys.includes(key)) return [];
+    return ts.isPropertyAssignment(property) && isHangGuard(property.initializer) ? [] : ['timeout'];
+  });
+
+/** What a timeout slot holds: nothing for the function or the hang guard, an options object's limits, and anything else (30_000, a variable) is a timeout. */
+const limitsOf = (node: ts.Expression | undefined): Limit[] => {
+  if (!node || ts.isArrowFunction(node) || ts.isFunctionExpression(node) || isHangGuard(node)) return [];
+  return ts.isObjectLiteralExpression(node) ? limitsIn(node, ['timeout']) : ['timeout'];
+};
+
+const limitsOfCall = (call: ts.CallExpression, runners: ReadonlySet<string>): Limit[] => {
+  const root = rootName(call.expression);
+  const callee = calleeName(call.expression);
   const args = call.arguments;
-  // it(name, fn, 30_000), it(name, fn, { timeout }) and it(name, { timeout }, fn), also on it.each(...)(...).
-  if (name === 'it' || name === 'test') return timeoutArgument(args[2]) || timeoutOption(args[1], ['timeout']);
-  // beforeEach(fn, 10_000), only on the hook itself.
-  if (['beforeAll', 'beforeEach', 'afterAll', 'afterEach'].includes(call.expression.getText(sourceFile))) return timeoutArgument(args[1]);
-  return call.expression.getText(sourceFile) === 'vi.setConfig' && timeoutOption(args[0], ['testTimeout', 'hookTimeout']);
+  // beforeEach(fn, 10_000) and beforeEach(fn, { timeout }), bare or on a test: test.beforeEach(...).
+  if (callee !== undefined && HOOKS.includes(callee) && (ts.isIdentifier(call.expression) || (root !== undefined && runners.has(root)))) return limitsOf(args[1]);
+  // vi.setConfig({ testTimeout, hookTimeout, retry }).
+  if (callee === 'setConfig' && (root === 'vi' || root === 'vitest')) return args[0] && ts.isObjectLiteralExpression(args[0]) ? limitsIn(args[0], ['testTimeout', 'hookTimeout']) : [];
+  if (root === undefined || !runners.has(root)) return [];
+  // it(name, options, fn), and the same for test, describe, suite, their chains (it.each(...)(...),
+  // it.each`...`(...), describe.concurrent(...)) and aliases: the function is the third argument.
+  if (args[1] && ts.isObjectLiteralExpression(args[1])) return limitsIn(args[1], ['timeout']);
+  // it(name, fn, 30_000) and it(name, fn, options).
+  return limitsOf(args[2]);
 };
 
 /**
- * The lines where `source` gives a test or hook its own timeout. Only the hang guard (HANG_TIMEOUT_MS,
- * set for every test and hook in vite.config.ts) may: a per-test ceiling fails a test on a busy
- * runner rather than on a bug (docs/DEVELOPMENT.md, Test timing).
+ * Where `source` gives a test, suite or hook its own timeout, or a retry, as `file:line message`.
+ * Only the hang guard (HANG_TIMEOUT_MS, set for every test and hook in vite.config.ts) may be named:
+ * a per-test ceiling fails a test on a busy runner rather than on a bug, and a retry hides a flake
+ * (docs/DEVELOPMENT.md, Test timing).
  */
-const ownTimeouts = (file: string, source: string) => {
+const ownLimits = (file: string, source: string) => {
   const found: string[] = [];
-  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, /\.[jt]sx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const runners = runnersIn(sourceFile);
   const visit = (node: ts.Node) => {
-    if (ts.isCallExpression(node) && setsOwnTimeout(node, sourceFile)) found.push(`${file}:${sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1}`);
+    if (ts.isCallExpression(node)) {
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+      for (const limit of new Set(limitsOfCall(node, runners))) found.push(`${file}:${line} ${LIMITS[limit]}`);
+    }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
   return found;
 };
 
-describe('one timeout for every test', () => {
+describe('one timeout for every test, and no retries', () => {
   const root = fileURLToPath(new URL('..', import.meta.url));
 
-  it('finds a test or hook that sets its own timeout, and nothing else', () => {
-    const source = [
-      "it('a', async () => {}, 30_000);",
-      "test('b', { timeout: 5000 }, () => {});",
-      "it.each([[1]])('c %s', async () => {}, 60_000);",
-      "it.concurrent('d', () => {}, { timeout: 1 });",
-      'beforeEach(() => {}, 10_000);',
-      'vi.setConfig({ testTimeout: 1000 });',
-      "it('e', async () => { await vi.waitFor(() => {}, { timeout: 1000 }); spawnSync('git', [], { timeout: 5000 }); });",
-      "it.each([{ timeout: 3 }])('f', ({ timeout }) => {});",
-      `test('g', { timeout: ${HANG_GUARD} }, () => {});`,
-      `afterAll(async () => {}, ${HANG_GUARD});`,
-      'vi.setConfig({ fakeTimers: {} });',
-    ].join('\n');
-    expect(ownTimeouts('x.test.ts', source)).toEqual(['x.test.ts:1', 'x.test.ts:2', 'x.test.ts:3', 'x.test.ts:4', 'x.test.ts:5', 'x.test.ts:6']);
+  it('finds a test, suite or hook that sets its own timeout or a retry, and nothing else', () => {
+    // Each line of the source, and what the guard must report on it.
+    const lines: [string, Limit[]][] = [
+      ["it('a', async () => {}, 30_000);", ['timeout']],
+      ["test('b', { timeout: 5000 }, () => {});", ['timeout']],
+      ["it.each([[1]])('c %s', async () => {}, 60_000);", ['timeout']],
+      ["it.concurrent('d', () => {}, { timeout: 1 });", ['timeout']],
+      ['beforeEach(() => {}, 10_000);', ['timeout']],
+      ['vi.setConfig({ testTimeout: 1000 });', ['timeout']],
+      // Suites.
+      ["describe('s1', { timeout: 5000 }, () => {});", ['timeout']],
+      ["describe('s2', () => {}, 5);", ['timeout']],
+      ["suite('s3', () => {}, 5);", ['timeout']],
+      ["suite.each([[1]])('s4', { timeout: 5 }, () => {});", ['timeout']],
+      // Other ways to write the key.
+      ["const timeout = 5; it('k1', { timeout }, () => {});", ['timeout']],
+      ["it('k2', { 'timeout': 5 }, () => {});", ['timeout']],
+      ["it('k3', () => {}, { ['timeout']: 5 });", ['timeout']],
+      // Aliases: test.extend, chains of them in any order, an import rename, and a hook on an alias.
+      ["const slow = test.extend({}); slow('x1', () => {}, 5000);", ['timeout']],
+      ["slower('x2', { timeout: 5 }, () => {}); const slower = slow.extend({});", ['timeout']],
+      ["import { it as spec } from 'vitest'; spec('x3', () => {}, 5);", ['timeout']],
+      ['slow.beforeEach(() => {}, 5);', ['timeout']],
+      // The tagged-template table form.
+      ["it.each`a | b`('t1 $a', () => {}, 5000);", ['timeout']],
+      ["test.each`a`('t2', { timeout: 5 }, () => {});", ['timeout']],
+      // Retries, reported as retries.
+      ["it('r1', { retry: 2 }, () => {});", ['retry']],
+      ["describe('r2', () => {}, { retry: 1 });", ['retry']],
+      ["it('r3', { timeout: 1, retry: 1 }, () => {});", ['timeout', 'retry']],
+      ['vi.setConfig({ hookTimeout: 1, retry: 3 });', ['timeout', 'retry']],
+      // Allowed: waits and child processes keep their own timeouts, test data may hold one, and the hang guard may be named in any slot.
+      ["it('e', async () => { await vi.waitFor(() => {}, { timeout: 1000 }); spawnSync('git', [], { timeout: 5000 }); });", []],
+      ["it.each([{ timeout: 3 }])('f', ({ timeout }) => {});", []],
+      [`test('g1', { timeout: ${HANG_GUARD} }, () => {});`, []],
+      [`it('g2', () => {}, ${HANG_GUARD});`, []],
+      [`it('g3', () => {}, { timeout: ${HANG_GUARD} });`, []],
+      [`describe('g4', { timeout: ${HANG_GUARD} }, () => {});`, []],
+      [`afterAll(async () => {}, ${HANG_GUARD});`, []],
+      [`beforeEach(() => {}, { timeout: ${HANG_GUARD} });`, []],
+      [`vi.setConfig({ testTimeout: ${HANG_GUARD}, hookTimeout: ${HANG_GUARD} });`, []],
+      ['vi.setConfig({ fakeTimers: {} });', []],
+      ["it('h', { concurrent: true }, runCase); test('i', runCase); beforeAll(setUp);", []],
+      ["const quick = it.extend({}); quick('j', () => {}); /x/.test('y'); pattern.test(path);", []],
+    ];
+    const source = lines.map(([line]) => line).join('\n');
+    const expected = lines.flatMap(([, limits], index) => limits.map((limit) => `x.test.ts:${index + 1} ${LIMITS[limit]}`));
+    expect(ownLimits('x.test.ts', source)).toEqual(expected);
   });
 
-  it('finds no test file under src/ or scripts/ that sets its own timeout', () => {
-    const files = ['src', 'scripts'].flatMap((dir) => readdirSync(`${root}${dir}`, { recursive: true, encoding: 'utf8' }).filter((path) => /\.test\.tsx?$/.test(path)).map((path) => `${dir}/${path}`));
+  it('finds no test file Vitest runs that sets its own timeout or a retry', async () => {
+    // The files Vitest itself collects with this config's include and exclude, not a hand-kept list.
+    const vitest = await createVitest('test', { root, watch: false });
+    let files: string[];
+    try {
+      files = (await vitest.globTestSpecifications()).map((specification) => relative(root, specification.moduleId));
+    } finally { await vitest.close(); }
+    expect(files, 'test files found').toEqual(expect.arrayContaining(['src/engine/engine.test.ts', 'scripts/test-budget.test.ts', 'tests/vite-config.test.ts']));
     expect(files.length, 'test files found').toBeGreaterThan(100);
-    expect(files.flatMap((file) => ownTimeouts(file, readFileSync(`${root}${file}`, 'utf8')))).toEqual([]);
+    expect(files.flatMap((file) => ownLimits(file, readFileSync(join(root, file), 'utf8')))).toEqual([]);
   });
 });
