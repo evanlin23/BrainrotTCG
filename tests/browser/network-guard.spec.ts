@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import { BEACON_URL, pagesBeaconTag, RUM_URL } from '../../scripts/cloudflare-analytics';
-import { BEACON_STUB, monitor } from './support';
+import { BEACON_STUB, monitor, teardownMessages } from './support';
 
 let primaryServer: Server;
 let externalServer: Server;
@@ -53,6 +53,10 @@ ${pagesBeaconTag('0123456789abcdef0123456789abcdef')}</body></html>`);
     if (url.pathname === '/hang-up') {
       // Drops the connection without answering, so the guard's fetch fails.
       req.socket.destroy();
+      return;
+    }
+    if (url.pathname === '/stall') {
+      // Never answers and keeps the connection open: a request the server just sits on.
       return;
     }
     if (url.pathname === '/write' && req.method === 'POST') {
@@ -121,6 +125,7 @@ test.beforeEach(() => {
 });
 
 test.afterAll(async () => {
+  primaryServer.closeAllConnections();
   await new Promise((resolve) => primaryServer.close(resolve));
   await new Promise((resolve) => externalServer.close(resolve));
 });
@@ -155,6 +160,97 @@ test('a monitored request whose fetch fails is recorded with its method, URL and
   expect(result).toBe('TypeError');
   expect(errors.failed).toEqual([`[fetch failed: socket hang up (ECONNRESET)] GET ${primaryOrigin}/hang-up`]);
   expect(errors.blocked).toEqual([]);
+});
+
+// missing_scenario: a request that never finished held a journey's wait (deploy of bc12640) or the
+// page's load (deploy of 80aa840) until the test ran out, and nothing said which request it was. The
+// guard keeps every request it took on until the browser finishes it; teardown twins are below.
+test('a monitored request the server never answers is named as pending while the page waits', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  await page.evaluate(() => { void fetch('/stall?key=not-for-logs'); });
+
+  await expect.poll(() => errors.pending).toEqual([`[fetching] GET ${primaryOrigin}/stall`]);
+  expect(errors.failed).toEqual([]);
+});
+
+test('a fulfill Playwright refuses is recorded, and the request it leaves paused stays pending', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  // Page routes run before the guard's: this one hands the guard a response that is already released,
+  // so Playwright takes the guard's fulfill and then refuses it, as it does a protocol error.
+  await page.route('**/asset.json', async (route) => {
+    const fetch = route.fetch.bind(route);
+    route.fetch = async (options) => {
+      const response = await fetch(options);
+      await response.dispose();
+      return response;
+    };
+    await route.fallback();
+  });
+  await page.goto(primaryUrl);
+  await page.evaluate(() => { void fetch('/asset.json'); });
+
+  // Playwright refuses the abort after that too, so the request stays paused until the page closes.
+  await expect.poll(() => errors.failed).toEqual([
+    `[fulfill failed: Fetch response has been disposed] GET ${primaryOrigin}/asset.json`,
+    `[abort failed: Route is already handled!] GET ${primaryOrigin}/asset.json`,
+  ]);
+  expect(errors.pending).toEqual([`[fulfilling] GET ${primaryOrigin}/asset.json`]);
+});
+
+test('a request still pending when a passing test closes its page does not fail the test', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl);
+  await page.goto(primaryUrl);
+  await page.evaluate(() => { void fetch('/stall'); });
+  await expect.poll(() => errors.pending).toEqual([`[fetching] GET ${primaryOrigin}/stall`]);
+
+  await page.close();
+  expect(test.info().errors).toEqual([]);
+  expect(test.info().status).toBe('passed');
+});
+
+// missing_scenario (review of #1143): the test fixture closes the context, which disposes its request
+// client before the page closes. A fetch still running, or a fetched response not yet handed to the
+// browser, is then refused, and the guard recorded that as a failed request, failing a passing test.
+for (const stage of ['fetching', 'fulfilling'] as const) {
+  test(`a request whose context closes while ${stage} leaves a passing test passed`, async ({ page }) => {
+    const errors = await monitor(page, primaryUrl);
+    let closed: Promise<void> | undefined;
+    // Page routes run before the guard's: this one closes the context the way the fixture does, and
+    // waits for the request client to be disposed, before the guard's fetch runs or after it returns.
+    await page.route('**/asset.json', async (route) => {
+      const fetch = route.fetch.bind(route);
+      route.fetch = async (options) => {
+        const close = async () => {
+          closed = page.context().close({ reason: 'Test ended.' });
+          await page.context().request.dispose({ reason: 'Test ended.' });
+        };
+        if (stage === 'fetching') await close();
+        const response = await fetch(options);
+        if (stage === 'fulfilling') await close();
+        return response;
+      };
+      await route.fallback();
+    });
+    await page.goto(primaryUrl);
+    await page.evaluate(() => { void fetch('/asset.json'); });
+    await expect.poll(() => closed !== undefined).toBe(true);
+    await closed;
+
+    expect(errors.failed).toEqual([]);
+    expect(errors.pending).toEqual([`[${stage}] GET ${primaryOrigin}/asset.json`]);
+    expect(test.info().errors).toEqual([]);
+    expect(test.info().status).toBe('passed');
+  });
+}
+
+test('a CSP report the guard cannot read is still recorded', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  const status = await page.evaluate(() => fetch('/__network-guard/csp-report', { method: 'POST', body: 'not json' }).then((res) => res.status));
+
+  expect(status).toBe(204);
+  expect(errors.blocked).toEqual([`[malformed csp report] CSP ${primaryOrigin}/__network-guard/csp-report`]);
 });
 
 test('each monitored request asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
@@ -411,6 +507,28 @@ test('allowWebSocket function: allowed unless it returns false or throws', async
   expect(await openSocket(page, `ws://${host}/throw`)).not.toBe('open');
   await expect.poll(() => errors.blocked.filter((b) => b.includes('disallowed websocket')).length).toBe(2);
   expect(seen).toHaveLength(3);
+});
+
+// What teardown adds, from the guard's records and the test's status at close. A pending request is
+// named only in a test that is failing anyway: its own wait, or another record, failed it.
+test('teardown names the requests still pending only in a test that is already failing', () => {
+  const pending = [`[fetching] GET ${primaryOrigin}/stall`, `[fulfilling] GET ${primaryOrigin}/asset.json`];
+  const waiting = `Monitored requests still waiting when the page closed (2):\n${pending.join('\n')}`;
+  const failed = `[fetch failed: socket hang up (ECONNRESET)] GET ${primaryOrigin}/hang-up`;
+  const blocked = `GET https://example.com/ [blocked]`;
+
+  expect(teardownMessages({ blocked: [], failed: [], pending: [], status: 'failed' })).toEqual([]);
+  expect(teardownMessages({ blocked: [], failed: [], pending, status: 'passed' })).toEqual([]);
+  expect(teardownMessages({ blocked: [], failed: [], pending, status: 'failed' })).toEqual([waiting]);
+  expect(teardownMessages({ blocked: [], failed: [], pending, status: 'timedOut' })).toEqual([waiting]);
+  expect(teardownMessages({ blocked: [], failed: [failed], pending: pending.slice(0, 1), status: 'passed' })).toEqual([
+    `Monitored request failed in the network guard (1):\n${failed}`,
+    `Monitored request still waiting when the page closed (1):\n${pending[0]}`,
+  ]);
+  expect(teardownMessages({ blocked: [blocked], failed: [], pending, status: 'passed' })).toEqual([
+    `Unexpected browser I/O blocked by network guard (1 attempt):\n${blocked}`,
+    waiting,
+  ]);
 });
 
 // Teardown failure is the core acceptance: test.fail() passes only if the guard fails the test
