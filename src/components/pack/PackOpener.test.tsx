@@ -5,6 +5,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
+import { getCard } from '../../data/cards';
+import { setKey, type SetDefinition } from '../../engine';
+import { packArtSettled } from '../../game/packArt';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack, prefetchNextPack } from '../../game/pulls';
 import { PlayerUnreadableError, StaleSaveError } from '../../game/player';
@@ -38,6 +41,22 @@ vi.mock('../../hooks/usePackCutter', () => ({
   },
 }));
 vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), siteLabel: () => 'example.test/BrainrotTCG' }));
+// The next pack's tickets, answered by hand per set (a set's ticket is cached, as the real miner's is).
+const tickets = vi.hoisted(() => {
+  const bySet = new Map<string, { ticket: Promise<Uint8Array>; arrive: () => void }>();
+  return {
+    bySet,
+    getTicket: (key: string) => {
+      if (!bySet.has(key)) {
+        let arrive = () => {};
+        const ticket = new Promise<Uint8Array>((resolve) => { arrive = () => resolve(new Uint8Array(32).fill(3)); });
+        bySet.set(key, { ticket, arrive });
+      }
+      return bySet.get(key)!.ticket;
+    },
+  };
+});
+vi.mock('../../game/ticketMiner', () => ({ getTicket: tickets.getTicket, prefetchTicket: () => {} }));
 // The confetti chunk is a dynamic import, and in a browser every caller's import() of a module gets the
 // same promise. So `loaded` is one promise per test, handed to every caller, and `arrive` resolves it for all
 // of them at once. `fails` makes every import reject, as one with no network does.
@@ -161,6 +180,32 @@ describe("the next pack's art", () => {
     act(() => root.unmount());
     expect(signals.map((signal) => signal.aborted)).toEqual([true, true]);
     root = createRoot(document.body.appendChild(document.createElement('div')));
+  });
+
+  it("drops the old set's pictures when the set changes while its ticket mines, and fetches them on the way back", async () => {
+    const { prefetchNextPack: realPrefetch } = await vi.importActual<typeof import('../../game/pulls')>('../../game/pulls');
+    vi.mocked(prefetchNextPack).mockReset().mockImplementation(realPrefetch);
+    tickets.bySet.clear();
+    packArtSettled();
+    const fetched: string[] = [];
+    vi.stubGlobal('Image', class { set src(url: string) { fetched.push(url); } });
+    const [oldSet, newSet] = [SETS[0], SETS[1]];
+    const pictures = (set: SetDefinition) => new Set(set.cards.map((card) => getCard(`${set.id}/${card.id}`)!.image));
+    const fetchedFrom = (set: SetDefinition) => fetched.filter((url) => pictures(set).has(url));
+    // App keys the opener by set, so picking another set unmounts this one.
+    const show = (set: SetDefinition) => act(() => root.render(
+      <PackOpener key={set.id} onOpen={() => {}} onShare={() => {}} set={set} settings={DEFAULT_SETTINGS} disabled={false} mountedSave={MOUNTED_SAVE} />,
+    ));
+
+    await show(oldSet);
+    await show(newSet);
+    await act(async () => tickets.bySet.get(setKey(oldSet))!.arrive());
+    expect(fetchedFrom(oldSet)).toEqual([]);
+
+    await show(oldSet);
+    await act(async () => {});
+    expect(fetchedFrom(oldSet).length).toBeGreaterThan(0);
+    vi.mocked(prefetchNextPack).mockReset();
   });
 });
 

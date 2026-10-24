@@ -19,7 +19,7 @@ import {
   type ProofRule,
 } from '../engine';
 import { getSet } from '../content/sets';
-import { getReopened, putReopened } from './reopenCache';
+import { flushReopenCache, getReopened, putReopened } from './reopenCache';
 import { createTicketPool, isMemoryError, OUT_OF_MEMORY_ADVICE } from './ticketPool';
 import { admitOptional } from './admission';
 
@@ -92,6 +92,9 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
     // Optional work: each ticket waits for a free slot, so opening a pack never waits behind it.
     const pack = await openProfileTicket(checked, nonce, (set, key, n) => admitOptional(() => ticket(set, key, n), signal));
     putReopened(set, keyHex, nonce, pack.cards);
+    // A ticket that lands after its page has gone still caches its pack, written now: the page took
+    // its own pending write with it, so a batched one armed here would outlive it.
+    if (!current()) flushReopenCache();
     return pack;
   };
 

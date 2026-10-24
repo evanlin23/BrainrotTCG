@@ -98,7 +98,13 @@ describe('a pending reopen-cache write', () => {
       throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
     });
     putReopened(set, key, 6, cards);
-    expect(() => window.dispatchEvent(new Event('pagehide'))).not.toThrow();
+    // dispatchEvent never rethrows a listener's error; jsdom reports it on the window instead.
+    const errors: unknown[] = [];
+    const onError = (event: ErrorEvent) => errors.push(event.error);
+    window.addEventListener('error', onError);
+    window.dispatchEvent(new Event('pagehide'));
+    window.removeEventListener('error', onError);
+    expect(errors).toEqual([]);
     expect(localStorage.getItem(REOPEN_CACHE_KEY)).toBeNull();
 
     // Memory-only: a later write arms no timed or page-hide write.
