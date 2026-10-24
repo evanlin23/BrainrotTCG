@@ -6,7 +6,7 @@ import { __resetReopenCacheForTests as resetReopenCache, REOPEN_CACHE_KEY } from
 import { createTicketPool } from './ticketPool';
 import { verifyProfileLive } from './profileVerification';
 
-// The pool's one ticket is answered by hand, so it can land after the viewer has gone.
+// Each pool's tickets are answered by hand, so one can land after a later check has taken over.
 vi.mock('./ticketPool', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./ticketPool')>()),
   createTicketPool: vi.fn(),
@@ -33,9 +33,9 @@ beforeAll(async () => {
   text = encodeProfile(signProfile({ publicKey, name: 'Tester', runs, xp, highlights }, secretKey));
 });
 
-let finish: () => void;
-let asked: Promise<void>;
-let closedTwice: Promise<void>;
+/** A pool the check made: answer its pending tickets, and know when it was asked and closed. */
+interface Pool { finish: () => void; asked: Promise<void>; closed: Promise<void> }
+let pools: Pool[];
 
 /** The cache's page-hide and visibility listeners still attached. */
 const listening = new Set<string>();
@@ -56,21 +56,34 @@ beforeEach(() => {
   data.clear();
   resetReopenCache();
   listening.clear();
-  let onAsk!: () => void;
-  asked = new Promise((resolve) => { onAsk = resolve; });
-  let closes = 0;
-  let onClosedTwice!: () => void;
-  closedTwice = new Promise((resolve) => { onClosedTwice = resolve; });
-  vi.mocked(createTicketPool).mockImplementation(() => ({
-    size: 1,
-    ticket: () => new Promise<Uint8Array>((resolve) => {
-      finish = () => resolve(ticketBytes);
-      onAsk();
-    }),
-    close: () => {
-      if (++closes === 2) onClosedTwice();
-    },
-  }));
+  pools = [];
+  vi.mocked(createTicketPool).mockImplementation(() => {
+    let closed = false;
+    const pending: { resolve: (ticket: Uint8Array) => void; reject: (error: Error) => void }[] = [];
+    let onAsk!: () => void;
+    let onClosed!: () => void;
+    pools.push({
+      finish: () => pending.splice(0).forEach((job) => job.resolve(ticketBytes)),
+      asked: new Promise((resolve) => { onAsk = resolve; }),
+      closed: new Promise((resolve) => { onClosed = resolve; }),
+    });
+    return {
+      size: 1,
+      ticket: () => closed
+        ? Promise.reject(new Error('Ticket pool closed'))
+        : new Promise<Uint8Array>((resolve, reject) => {
+          pending.push({ resolve, reject });
+          onAsk();
+        }),
+      // Like the real pool: closing rejects every pending ticket, and closing again does nothing.
+      close: () => {
+        if (closed) return;
+        closed = true;
+        pending.splice(0).forEach((job) => job.reject(new Error('Ticket pool closed')));
+        onClosed();
+      },
+    };
+  });
   vi.useFakeTimers();
 });
 
@@ -80,16 +93,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('writes a pack whose ticket lands after the viewer has gone at once, leaving no timer or listener behind', async () => {
-  const stop = new AbortController();
-  verifyProfileLive(text, () => {}, stop.signal);
-  await asked;
+it('writes a pack whose ticket lands after a later check took over at once, leaving no timer or listener behind', async () => {
+  const first = new AbortController();
+  verifyProfileLive(text, () => {}, first.signal);
+  await pools[0].asked;
   track(window);
   track(document);
-  stop.abort(); // the viewer unmounts, and App flushes what was pending (nothing yet)
+  // The real path to the late write: a later call supersedes this one without aborting it, so its pool
+  // stays open (an abort closes the pool, which rejects the pending ticket, as ticketPool's close() does).
+  const later = new AbortController();
+  verifyProfileLive(text, () => {}, later.signal);
 
-  finish();
-  await closedTwice; // the check has wound down, after caching the late pack
+  pools[0].finish();
+  await pools[0].closed; // the first check has wound down, after caching the late pack
+  later.abort(); // the later viewer goes too
+  await pools[1].closed;
 
   expect(Object.keys(JSON.parse(data.get(REOPEN_CACHE_KEY) ?? '{}') as object)).toEqual([`${SET.id}@${SET.version}|${toHex(publicKey)}|0`]);
   expect(vi.getTimerCount()).toBe(0);
