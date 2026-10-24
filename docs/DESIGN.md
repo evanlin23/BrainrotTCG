@@ -39,7 +39,9 @@ from a 390 px wide screen.
    summary, has the same top bar with one X ("Back to packs"), and Escape and the browser's Back do
    what it does. Tapping empty space never leaves a pack.
    The sealed pack falls in from above only the first time the packs screen is on screen after the page
-   loads (a load straight into #/cards waits until the packs screen is shown). Every return (Back, Escape,
+   loads (a load straight into #/cards waits until the packs screen is shown). The fall passes over the
+   header and any warning banner, so the pack takes no presses until it first reaches its place: a tap on
+   the gear or a banner's Download then reaches them. Every return (Back, Escape,
    the X, Next pack) uses a short entrance instead: it fades in while rising about 24px over 180 ms, with
    no rotation, so the stage never passes over the header or the gear and takes a tap as soon as it is at
    rest. Reduced motion makes the return instant (#720).
@@ -191,8 +193,8 @@ results rules below (#339).
   44 px hit areas (pack-targets.spec measures the gear, set steps, Card guide, sheet and page
   closes, Skip, the logo link and the profile's "What do these numbers mean?" summary at 390 px,
   at 195 px and with doubled text). #943 keeps the achievement toast off the pack's X and holds it
-  while the pointer or focus is on it, but #803 still owns the clickable toast as a moving target
-  in the tap path: it can cover the set picker on the home screen.
+  while the pointer or focus is on it; #803 also keeps it from covering a control on the home
+  screen (it takes no room and covers nothing there, see Toasts).
 
 ## Looks like a card game, not like an AI demo
 
@@ -334,7 +336,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   gated behind a first pack. Once a pack or a card is saved the pages show on their own and Settings
   leaves the switch out (the stored choice is kept). The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
-  problem).
+  problem). On a phone (899 px or less) the wordmark sits flush at the left gutter and the gear at the
+  right edge, with the space between them (#803). The achievement toast lies over the header's left, so the
+  gear must stay at the right edge, wherever the text size wraps it; before, the gear sat just after a
+  wordmark set in from the left. A wide screen's header is unchanged. `visual-baselines` first-pack-narrow.png shows it.
 - **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit
   name" opening the field in place (Enter saves, Escape cancels and returns focus to the button);
   Best pack and Best card (`profile/BestHighlights.tsx`, #680), each verified on its own by opening
@@ -378,8 +383,30 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   opens the era you open packs from (else the newest started one), then the other started eras newest
   first while they fit 24 pockets, and collapses the rest. A collapsed grid is unmounted, not hidden,
   so a big collection stays cheap to open (#344).
-- **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss after 8 s (10 s for a grouped toast); hovering or focusing
-  a toast holds it, and it gets its full time again when the pointer or focus leaves.
+- **Toasts** (`achievements/AchievementToasts.tsx`): auto-dismiss after 5 s (6 s for a grouped toast); hovering
+  a toast, or focusing it from the keyboard (`:focus-visible`; a tap leaves focus on it, which must not hold it
+  for good), holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or
+  sideways follows the finger and sends it away (a press that travels 16 px or less is still a tap, a
+  swipe that stops short springs back); Escape on the focused toast does the same without opening it. With
+  reduced motion it only fades, wherever it is sent. A visible X at its right edge (a 44 px square, named
+  "Dismiss") only sends it away, so a player who does not want to open what it names has a plain way to be
+  rid of it; the rest of the toast, the body, opens what it is about and dismisses it. The toast's code and styles are fetched when the first
+  toast is due (a new player sees none before a first pack is saved), so the first screen carries neither; its
+  live region is on the page from the start. A toast never takes room: the page is laid out the same
+  with a toast up, after one and with none, so the pack's size and place never depend on one (#803). On a
+  phone (899 px wide or less) it lies over the header, bottom-aligned, from the left gutter to the Settings
+  button (the header puts Settings at the right edge), so it covers no set step, pack, guide link or tab; the
+  kicker is one line, a level-up's line is clamped to one line, and the full text is still the button's name.
+  On a wide screen it lies over the wordmark too, left-aligned and no wider than the wordmark (it is held to 9.6em of the logo's size, where the wordmark measures about 9.7em, and to 24rem), so the nav, which starts just past the wordmark, is never under it. It is at least 44 px tall at every
+  size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
+  hold the toasts until they clear, and a toast the player had 1.5 s to see is let go then, not shown again in
+  full. In pack focus mode it still overlays, under the pack's X, or beside the X at the right on a short
+  screen (520 px tall or less, where the headline below it is kept clear by tight padding).
+  `tests/browser/toast-home.spec.ts` checks every home control at 360, 390, 1280, 640x360, 844x390, 900 and
+  1440, 200% text at 360, that nothing moves as the toast goes, the turn to landscape, and the sheet hold.
+  `tests/browser/toast-touch.spec.ts` checks the tap, the X, the swipe, the seen toast, the pack hold, the reduced
+  motion fade, and the 44 px target, a tap and what the toast covers on the home screen and the summary at
+  five phone sizes, in touch emulation.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload

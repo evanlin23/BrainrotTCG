@@ -94,11 +94,17 @@ function obstruction(page: Page) {
   });
 }
 
-/** A point on the summary's empty space: what's hit there is the area or a summary container itself. */
+/**
+ * A point on the summary's empty space: what's hit there is the area or a summary container itself, and
+ * a finger's width clear of a toast (a touch's radius would reach it, and a tap on that opens a page).
+ */
 function emptyPoint(page: Page, classes: string[]) {
   return page.evaluate((classes) => {
+    const toast = document.querySelector('.toast')?.getBoundingClientRect();
+    const reach = 24;
     for (let y = 8; y < innerHeight; y += 12) {
       for (let x = 4; x < innerWidth; x += 12) {
+        if (toast && x > toast.left - reach && x < toast.right + reach && y > toast.top - reach && y < toast.bottom + reach) continue;
         const hit = document.elementFromPoint(x, y);
         if (hit && classes.some((name) => hit.classList.contains(name)) && !hit.closest('button, a, [role="dialog"]')) return { x, y };
       }

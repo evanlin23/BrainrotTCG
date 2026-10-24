@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { MotionGlobalConfig } from 'framer-motion';
+import { MotionGlobalConfig, frameData } from 'framer-motion';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
@@ -853,10 +853,39 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
     expect(onArrive).toHaveBeenCalledOnce();
   });
 
+  it('takes no presses on the first fall until it reaches its place', async () => {
+    // Framer finishes each animation in its first frame, so the fall's completion needs no clock.
+    MotionGlobalConfig.skipAnimations = true;
+    try {
+      show();
+      expect(stage().hasAttribute('data-falling')).toBe(true);
+      await vi.waitFor(() => expect(stage().hasAttribute('data-falling')).toBe(false));
+    } finally {
+      MotionGlobalConfig.skipAnimations = false;
+    }
+  });
+
+  it('takes presses at once on a return when the pack was torn mid-fall', async () => {
+    show();
+    expect(stage().hasAttribute('data-falling')).toBe(true);
+    // Torn before the fall ends, the fall never completes: its stage flies off instead.
+    await tearIntoReveal();
+    escape();
+    expect(stage().hasAttribute('data-falling')).toBe(false);
+    expect(stage().style.transform).toBe('translateY(24px)');
+  });
+
+  it('takes presses from the first frame when the device asks for less motion, as it is in its place at once', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }));
+    show();
+    expect(stage().hasAttribute('data-falling')).toBe(false);
+  });
+
   it('rises in from the first stage of an opener the page has already seen the pack arrive in', () => {
     const onArrive = vi.fn();
     show({ arrived: true, onArrive });
     expect(stage().style.transform).toBe('translateY(24px)');
+    expect(stage().hasAttribute('data-falling')).toBe(false);
     expect(onArrive).not.toHaveBeenCalled();
   });
 
@@ -902,6 +931,30 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
       // The same element as the one that left, so it must not keep the mark that makes a leaving pack ignore taps.
       expect(stage()).toBe(leaving);
       expect(stage().getAttribute('data-leaving')).toBeNull();
+    });
+
+    // The exit grows the stage to 1.25 as it fades. A stage that came back after the exit had finished but
+    // before React took it away rose to its place and full opacity but kept that growth for good, since
+    // nothing at rest named the scale (pack-exit.spec.ts on a busy CI runner).
+    it('settles at its own size when it comes back after the exit finished but before it was taken away', async () => {
+      show();
+      await tear();
+      const leaving = stage();
+      // One late frame carries the exit to its end (a busy main thread), and the player is back before
+      // React has taken the finished stage away: it is still the same element, at the exit's end.
+      await act(async () => {
+        frameData.timestamp += 400;
+        await vi.waitFor(() => expect(leaving.style.transform).toContain('scale(1.25)'));
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
+      });
+      expect(stage()).toBe(leaving);
+      expect(stage().getAttribute('data-leaving')).toBeNull();
+
+      MotionGlobalConfig.useManualTiming = false;
+      await vi.waitFor(() => {
+        expect(stage().style.opacity).toBe('1');
+        expect(stage().style.transform).toBe('none');
+      });
     });
   });
 });

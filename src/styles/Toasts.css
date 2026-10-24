@@ -1,7 +1,7 @@
 .toast-region {
   /* A zero-height row in the app column, right after the header (and the save warning above it), so
-     a toast hangs just under whatever the header's real height is and never covers the logo or the
-     Player and settings buttons. */
+     a toast hangs just under whatever the header's real height is. Focus mode keeps it that way; on
+     the home screen it is moved over the header instead (below). */
   position: relative;
   top: var(--space-1);
   z-index: var(--z-toast);
@@ -14,16 +14,55 @@
 
 .toast {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  align-items: stretch;
   width: 100%;
-  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-lg);
+  /* A thumb's size at every screen size: it is tapped, and swiped away. */
+  min-height: var(--touch-target);
   background: var(--surface-2);
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-2);
   text-align: left;
   pointer-events: auto;
+}
+
+/* The body opens what the toast is about (and dismisses it); the X beside it only dismisses. Both are a
+   thumb's size, and the whole toast is still what a swipe moves. */
+.toast-open {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) 0 var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  text-align: inherit;
+}
+
+.toast-dismiss {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--touch-target);
+  min-height: var(--touch-target);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--text-muted);
+}
+
+.toast-dismiss svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (hover: hover) {
+  .toast-dismiss:hover {
+    color: var(--text);
+  }
 }
 
 .toast-icon {
@@ -76,6 +115,55 @@
   font-size: var(--text-xs);
 }
 
+/* The home screen has no free band under the header (the set picker, the pack and the guide link fill it,
+   on a phone and on a wide screen alike), so a toast lies over the header instead, bottom-aligned to it (the
+   header's rows and any banner above it are never moved): over the wordmark, which only links to the screen
+   the player is on, and clear of everything beside it. It takes no room, so the pack and the set picker rest
+   the same with a toast up, one that has gone and none at all, and nothing moves under a finger as one
+   arrives or leaves (#803). A level-up's line is clamped to one line (the header is only about 86px tall);
+   its full text is still the button's name. */
+.app:not(.is-focus) .toast-region {
+  top: 0;
+  width: auto;
+  max-width: 24rem;
+  /* The header's gutter on the left (and its centring on a very wide screen); on a phone, on the right the
+     Settings button's width (3rem: it grows with the text) and the gap before it. */
+  margin: 0 calc(var(--gutter) + 3rem + var(--space-3)) 0 max(var(--gutter), calc((100% - var(--content-max)) / 2 + var(--gutter)));
+}
+
+.app:not(.is-focus) .toast {
+  position: absolute;
+  right: 0;
+  bottom: var(--space-1);
+  left: 0;
+}
+
+.app:not(.is-focus) .toast-open {
+  gap: var(--space-2);
+  padding-block: var(--space-1);
+}
+
+.toast-kicker {
+  overflow: hidden;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast--detail .toast-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.app:not(.is-focus) .toast--detail .toast-desc {
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
 /* Focus mode on a phone hides the header, so the region would sit at the very top, over the pack's X
    (and the card count): a toast there intercepts the X's press (#614). Hang it under the pack's top
    bar instead (the bar's padding, the X, and the toast's 12px slide-in, so even mid-entrance it stays
@@ -86,9 +174,34 @@
   }
 }
 
-/* Wide screens: top right, under the nav so it never covers a tab, and clear of the logo. */
+/* A phone on its side has no band under the pack's X that is clear of the summary's headline, so the
+   toast moves up beside the X instead, at the right: the top bar's X is at the left, and what the bar
+   draws between them is not on the summary (the toasts are held while a pack is torn and revealed). */
+@media (max-height: 520px) {
+  .app.is-focus .toast-region {
+    top: var(--space-2);
+    width: min(calc(100vw - var(--touch-target) - 3 * var(--gutter)), 24rem);
+    margin: 0 var(--gutter) 0 auto;
+  }
+
+  /* A level-up is three lines tall; tight padding keeps its box off the headline below it. */
+  .app.is-focus .toast-open {
+    padding-block: var(--space-1);
+  }
+}
+
+/* Wide screens: the nav and Settings share the header's row with the wordmark, and the nav starts only about
+   37px past the wordmark's right edge, so the toast is held to the wordmark's width: 9.6em of the logo's
+   size here (index.css; the wordmark, mark included, measures about 9.7em), and at most 24rem. At 900px that
+   is 346px against the wordmark's 348px; from about 950px the 24rem cap is the narrower. Focus mode (a
+   header-less pack screen) keeps it at the right. */
 @media (min-width: 900px) {
-  .toast-region {
+  .app:not(.is-focus) .toast-region {
+    width: min(24rem, calc(9.6 * clamp(1.75rem, 10vw - 3.375rem, 3.25rem)));
+    margin-right: 0;
+  }
+
+  .app.is-focus .toast-region {
     margin: 0 var(--gutter) 0 auto;
   }
 }
