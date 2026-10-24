@@ -38,13 +38,6 @@ test.beforeAll(async () => {
 ${pagesBeaconTag('0123456789abcdef0123456789abcdef')}</body></html>`);
       return;
     }
-    if (url.pathname === '/holds-load.html') {
-      // A document whose load waits on a subresource the server never answers, as a font asked for
-      // before load held the reloaded app on production.
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end('<!doctype html><html><head><meta charset="utf-8"><title>Holds Load</title></head><body><img src="/stall?key=not-for-logs" alt=""></body></html>');
-      return;
-    }
     if (url.pathname === '/asset.json' && req.method === 'GET') {
       primaryAssetHits++;
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -184,8 +177,16 @@ test('a monitored request the server never answers is named as pending while the
 // missing_scenario (deploy run 40051793039): the guard's fetch had no deadline, so a production fetch
 // of the logo font that stalled on the way to the site held page.reload at "navigated to" until the
 // journey ran out. Bounded, the stall fails as a named timeout and the page's load completes.
+// The short deadline applies to every fetch the guard makes, so the document that holds the load is
+// fulfilled by a page route, which runs before the guard's: only the stalled request is under 500 ms.
 test('a guard fetch that outlives its deadline fails as a named timeout and lets the page load', async ({ page }) => {
   const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false, fetchTimeout: 500 });
+  // A document whose load waits on a subresource the server never answers, as a font asked for
+  // before load held the reloaded app on production.
+  await page.route('**/holds-load.html', (route) => route.fulfill({
+    contentType: 'text/html',
+    body: '<!doctype html><html><head><meta charset="utf-8"><title>Holds Load</title></head><body><img src="/stall?key=not-for-logs" alt=""></body></html>',
+  }));
   const response = await page.goto(`${primaryUrl}holds-load.html`);
 
   expect(response?.status()).toBe(200);
