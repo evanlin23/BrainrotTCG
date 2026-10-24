@@ -48,6 +48,7 @@ const RewardsPanel = ({ level, settings, onSettingsChange, packImage }: RewardsP
         preview={(r) => (
           <span className={`foil-swatch foil-${r.id}`} style={{ '--pack-mask': `url("${packImage}")` } as React.CSSProperties}>
             <img src={packImage} alt="" draggable="false" />
+            <span className="pack-foil" aria-hidden="true" />
           </span>
         )}
       />

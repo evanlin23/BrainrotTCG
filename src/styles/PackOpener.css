@@ -334,26 +334,40 @@
     isolation: isolate;
 }
 
-/* Pack foils unlocked by level (game/progression.ts): a sheen over the wrapper, cut to its shape. */
-.pack-half::after,
-.foil-swatch::after {
-    content: '';
+/*
+ * Pack foils unlocked by level (game/progression.ts): a sheen over the wrapper, cut to its shape.
+ * The box stays put and carries the cut-out, blend and fade. The gradient is three boxes wide and
+ * slides inside it by transform, which the compositor runs on its own: animating background-position
+ * repaints on the main thread every frame for as long as the packs screen is up, which starves idle
+ * time (tests/browser/endless-animations.spec.ts). The standard foil paints nothing, so it doesn't move.
+ */
+.pack-foil {
     position: absolute;
     inset: 0;
     z-index: 2;
+    overflow: hidden;
     pointer-events: none;
-    background: var(--pack-foil, none);
-    background-size: 300% 100%;
     mix-blend-mode: var(--pack-foil-blend, normal);
     opacity: var(--pack-foil-opacity, 1);
     -webkit-mask: var(--pack-mask) center / 100% 100% no-repeat;
     mask: var(--pack-mask) center / 100% 100% no-repeat;
-    animation: pack-foil var(--dur-drift) ease-in-out infinite alternate;
     transition: opacity var(--dur) ease;
+}
+
+.pack-foil::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 300%;
+    background: var(--pack-foil, none);
+    animation: var(--pack-foil-drift, none);
 }
 
 .foil-standard {
     --pack-foil: none;
+    --pack-foil-drift: none;
     --pack-foil-blend: normal;
     --pack-foil-opacity: 1;
 }
@@ -363,6 +377,7 @@
     --pack-foil: linear-gradient(var(--foil-angle), transparent 36%, var(--glint) 50%, transparent 64%);
     --pack-foil-blend: overlay;
     --pack-foil-opacity: 1;
+    --pack-foil-drift: pack-foil var(--dur-drift) ease-in-out infinite alternate;
 }
 
 :root[data-pack-foil='gold'],
@@ -379,6 +394,7 @@
     );
     --pack-foil-blend: overlay;
     --pack-foil-opacity: 0.8;
+    --pack-foil-drift: pack-foil var(--dur-drift) ease-in-out infinite alternate;
 }
 
 :root[data-pack-foil='prism'],
@@ -394,21 +410,22 @@
     );
     --pack-foil-blend: overlay;
     --pack-foil-opacity: 0.7;
+    --pack-foil-drift: pack-foil var(--dur-drift) ease-in-out infinite alternate;
 }
 
+/* Two thirds of its own width is the whole span the old 0% to 100% background-position covered. */
 @keyframes pack-foil {
     from {
-        background-position: 0% 50%;
+        transform: translateX(0);
     }
 
     to {
-        background-position: 100% 50%;
+        transform: translateX(calc(-200% / 3));
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .pack-half::after,
-    .foil-swatch::after {
+    .pack-foil::before {
         animation: none;
     }
 }
