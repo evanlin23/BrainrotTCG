@@ -39,7 +39,9 @@ from a 390 px wide screen.
    summary, has the same top bar with one X ("Back to packs"), and Escape and the browser's Back do
    what it does. Tapping empty space never leaves a pack.
    The sealed pack falls in from above only the first time the packs screen is on screen after the page
-   loads (a load straight into #/cards waits until the packs screen is shown). Every return (Back, Escape,
+   loads (a load straight into #/cards waits until the packs screen is shown). The fall passes over the
+   header and any warning banner, so the pack takes no presses until it first reaches its place: a tap on
+   the gear or a banner's Download then reaches them. Every return (Back, Escape,
    the X, Next pack) uses a short entrance instead: it fades in while rising about 24px over 180 ms, with
    no rotation, so the stage never passes over the header or the gear and takes a tap as soon as it is at
    rest. Reduced motion makes the return instant (#720).
