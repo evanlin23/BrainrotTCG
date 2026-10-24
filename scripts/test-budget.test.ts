@@ -80,8 +80,9 @@ const isHangGuard = (node: ts.Node) => ts.isIdentifier(node) && node.text === HA
 
 /** Vitest's test and suite functions. A file's own aliases of them are added per file (runnersIn). */
 const RUNNERS = ['it', 'test', 'describe', 'suite'];
-/** Functions taking (fn, timeout): the four hooks, and the two that run after a test and take a timeout as well. */
-const HOOKS = ['beforeAll', 'beforeEach', 'afterAll', 'afterEach'];
+/** Functions taking (fn, timeout): the four hooks and the two wrapping hooks (Vitest 5), which take a timeout as well. */
+const HOOKS = ['beforeAll', 'beforeEach', 'afterAll', 'afterEach', 'aroundAll', 'aroundEach'];
+/** Functions taking (fn, timeout) that run after a test, on any receiver. */
 const AFTER_TEST = ['onTestFinished', 'onTestFailed'];
 
 /**
@@ -206,13 +207,16 @@ const limitsOfCall = (call: ts.CallExpression, runners: ReadonlySet<string>, nam
   const root = rootName(call.expression, namespaces);
   const callee = calleeName(call.expression);
   const args = call.arguments;
-  // beforeEach(fn, 10_000) and beforeEach(fn, { timeout }), bare, through a namespace import or on a test: test.beforeEach(...).
-  if (callee !== undefined && HOOKS.includes(callee) && (ts.isIdentifier(call.expression) || isNamespaceMember(call.expression, namespaces) || (root !== undefined && runners.has(root)))) return limitsOf(args[1]);
+  // A spread argument list (it(...args)) hides every slot, so it is reported as unreadable.
+  const spread = args.some(ts.isSpreadElement) ? ['opaque' as const] : [];
+  // beforeEach(fn, 10_000) and aroundEach(fn, { timeout }), bare, through a namespace import or on a test: test.beforeEach(...).
+  if (callee !== undefined && HOOKS.includes(callee) && (ts.isIdentifier(call.expression) || isNamespaceMember(call.expression, namespaces) || (root !== undefined && runners.has(root)))) return [...spread, ...limitsOf(args[1])];
   // onTestFinished(fn, 5) and onTestFailed(fn, { timeout }), on any receiver: they are also reached through the test context (`ctx.onTestFinished`).
-  if (callee !== undefined && AFTER_TEST.includes(callee)) return limitsOf(args[1]);
+  if (callee !== undefined && AFTER_TEST.includes(callee)) return [...spread, ...limitsOf(args[1])];
   // vi.setConfig(...) with any argument: a literal could name a timeout or retry, a variable or spread anything, and no test needs it.
   if (callee === 'setConfig' && (root === 'vi' || root === 'vitest')) return args.length > 0 ? ['config'] : [];
   if (root === undefined || !runners.has(root)) return [];
+  if (spread.length > 0) return spread;
   // it(name, options, fn), and the same for test, describe, suite, their chains (it.each(...)(...),
   // it.each`...`(...), describe.concurrent(...)) and aliases: the function is the third argument.
   if (args[1] && ts.isObjectLiteralExpression(args[1])) return limitsIn(args[1]);
@@ -231,17 +235,21 @@ const limitsOfCall = (call: ts.CallExpression, runners: ReadonlySet<string>, nam
  *
  * Covered: the timeout and options slots of it, test, describe and suite, their chains (.each in both
  * forms, .concurrent, .only) and the file's own aliases (test.extend(...), `import { it as spec }`);
- * the timeout slot of beforeAll, beforeEach, afterAll, afterEach, onTestFinished and onTestFailed;
+ * the timeout slot of beforeAll, beforeEach, afterAll, afterEach, aroundAll, aroundEach, onTestFinished
+ * and onTestFailed;
  * any vi.setConfig call with an argument; and all of these through a namespace import
  * (`import * as v from 'vitest'`, `await import('vitest')`, `require('vitest')`).
  *
  * Conservative, so it can flag what it can't evaluate: an options object that is a variable or call,
- * or has a spread, is reported (as unreadable) rather than followed, and vi.setConfig is reported
- * whatever it is given. A guarded test must write its options out.
+ * or has a spread, and an argument list with a spread (`it(...args)`), are reported (as unreadable)
+ * rather than followed, and vi.setConfig is reported whatever it is given. A guarded test must write
+ * its options out.
  *
  * Not covered, because finding them needs types or data flow rather than syntax: `vi` or a hook
  * renamed on import (`import { vi as v }`) or destructured (`const { it } = await import('vitest')`),
- * a runner passed around as a value (`const run = it; run(...)`), and the CLI or environment
+ * a runner or namespace passed around as a value (`const run = it; run(...)`, `const w = v; w.it(...)`),
+ * the waits that take their own timeout and are not a test or hook ceiling (`vi.waitFor`, `vi.waitUntil`,
+ * `expect.poll`), and the CLI or environment
  * (`--testTimeout`, `--retry`): the 'test run wiring' tests above check the resolved config for those.
  */
 const ownLimits = (file: string, source: string) => {
@@ -312,6 +320,23 @@ describe('one timeout for every test, and no retries', () => {
       ['vi.setConfig({ ...cfg });', ['config']],
       ['vitest.setConfig(cfg);', ['config']],
       ["vi['setConfig'](cfg);", ['config']],
+      // aroundEach and aroundAll take a timeout like the other hooks: bare, on a test, with an options object, an opaque one or a spread.
+      ['aroundEach(async (run) => { await run(); }, 5000);', ['timeout']],
+      ['aroundAll(async (run) => { await run(); }, 5000);', ['timeout']],
+      ['test.aroundEach(async (run) => { await run(); }, 5000);', ['timeout']],
+      ['slow.aroundAll(async (run) => { await run(); }, 5);', ['timeout']],
+      ['aroundEach(async (run) => { await run(); }, { timeout: 5 });', ['timeout']],
+      ['aroundAll(fn, opts);', ['opaque']],
+      ["const m = await import('vitest'); m.aroundEach(fn, 5);", ['timeout']],
+      ["const q = require('vitest'); q.aroundAll(fn, 5);", ['timeout']],
+      // A spread argument list hides every slot.
+      ["it(...args);", ['opaque']],
+      ["test.each([[1]])(...args);", ['opaque']],
+      ['beforeEach(...args);', ['opaque']],
+      ['aroundEach(...args);', ['opaque']],
+      ['v.describe.only(...args);', ['opaque']],
+      ["onTestFinished(...args);", ['opaque']],
+      ["it('s1', ...rest);", ['opaque']],
       // The timeout slot of onTestFinished and onTestFailed, bare or on the test context.
       ['onTestFinished(() => {}, 5000);', ['timeout']],
       ['onTestFailed(() => {}, { timeout: 5 });', ['timeout']],
@@ -325,6 +350,8 @@ describe('one timeout for every test, and no retries', () => {
       ["v['it']('n4', { retry: 2 }, () => {});", ['retry']],
       ['v.describe.concurrent("n5", () => {}, 5);', ['timeout']],
       ['v.beforeEach(() => {}, 5);', ['timeout']],
+      ['v.aroundEach(async (run) => { await run(); }, 5000);', ['timeout']],
+      ['v.aroundAll(async (run) => { await run(); }, { timeout: 5 });', ['timeout']],
       ['v.onTestFinished(() => {}, 5);', ['timeout']],
       ['v.vi.setConfig({ retry: 1 });', ['config']],
       ["const slowV = v.test.extend({}); slowV('n6', () => {}, 5);", ['timeout']],
@@ -341,6 +368,8 @@ describe('one timeout for every test, and no retries', () => {
       [`it('g3', () => {}, { timeout: ${HANG_GUARD} });`, []],
       [`describe('g4', { timeout: ${HANG_GUARD} }, () => {});`, []],
       [`afterAll(async () => {}, ${HANG_GUARD});`, []],
+      [`aroundEach(async (run) => { await run(); }, ${HANG_GUARD}); aroundAll(async (run) => { await run(); }); test.aroundEach(fn, { timeout: ${HANG_GUARD} });`, []],
+      ['expect(...args); other.aroundEach(fn, 5); fn(...args); Math.max(...nums);', []],
       [`beforeEach(() => {}, { timeout: ${HANG_GUARD} });`, []],
       [`onTestFinished(() => {}, ${HANG_GUARD}); onTestFailed(() => {}, { timeout: ${HANG_GUARD} });`, []],
       ["onTestFinished(() => {}); vi.setConfig; vi.fn(setConfigLater);", []],
@@ -353,7 +382,7 @@ describe('one timeout for every test, and no retries', () => {
   });
 
   it('finds no test file Vitest runs that sets its own timeout or a retry', async () => {
-    // The files Vitest itself collects with this config's include and exclude, not a hand-kept list.
+    // The files Vitest itself collects with Vitest's default include, minus this config's exclude, not a hand-kept list.
     const vitest = await createVitest('test', { root, watch: false });
     let files: string[];
     try {
