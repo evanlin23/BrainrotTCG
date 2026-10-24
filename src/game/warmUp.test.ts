@@ -193,11 +193,16 @@ describe('warmUpFirstPack', () => {
 
     it('stops one waiting for a hidden tab to be shown, and removes its listener', async () => {
       const task = vi.fn();
+      const added = vi.spyOn(document, 'addEventListener');
+      const removed = vi.spyOn(document, 'removeEventListener');
       const { warmUpForPack } = await import('./warmUp');
       visibility = 'hidden';
       const cancel = warmUpForPack(task);
       await load();
+      const listening = added.mock.calls.filter(([event]) => event === 'visibilitychange');
+      expect(listening).toHaveLength(1);
       cancel();
+      expect(removed).toHaveBeenCalledWith('visibilitychange', listening[0][1]);
       show('visible');
       vi.runAllTimers();
       expect(task).not.toHaveBeenCalled();
@@ -297,6 +302,25 @@ describe('warmUpArgon2 (#776)', () => {
 
     history.replaceState(null, '', '/#/cards');
     warmUpArgon2()();
+    await idle();
+    expect(fetches).toEqual([]);
+  });
+
+  it('cancels the idle wait when stopped after the art settles, so it never fetches', async () => {
+    const idleTasks = new Map<number, () => void>();
+    vi.stubGlobal('requestIdleCallback', (task: () => void) => {
+      idleTasks.set(idleTasks.size + 1, task);
+      return idleTasks.size;
+    });
+    vi.stubGlobal('cancelIdleCallback', (handle: number) => idleTasks.delete(handle));
+    const { warmUpArgon2 } = await import('./warmUp');
+    const stop = warmUpArgon2();
+    artLoaded();
+    await Promise.resolve();
+    expect(idleTasks.size).toBe(1);
+    stop();
+    expect(idleTasks.size).toBe(0);
+    idleTasks.forEach((task) => task());
     await idle();
     expect(fetches).toEqual([]);
   });
