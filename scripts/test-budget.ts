@@ -2,23 +2,20 @@ import { fileURLToPath } from 'node:url';
 import type { Reporter, TestModule, Vitest, VitestPluginContext } from 'vitest/node';
 
 /**
- * Wall-time budget for `npm test` (the whole suite, with coverage). The four latest successful main
- * runs on GitHub Actions (Node 22) took 120.9-196.3s (median 167.7s) at 2,388-2,667 tests, and
- * a 2-core container took 150.0s at 2,667 tests (150.7-155.5s at 1,819). The budget is about twice
- * the slowest run, per the policy there. See docs/DEVELOPMENT.md
- * (Test budgets) for the runs and the method before changing the budget.
- * The coverage floors live in vite.config.ts (test.coverage.thresholds).
+ * The per-test and per-hook timeout for every Vitest run (vite.config.ts). It only catches a test that
+ * hangs: the slowest test in a full `npm test` run with coverage takes about 6 s, so even at 4x CPU
+ * contention (about 23 s) it stays 5x below this. Wall time never fails a run otherwise.
+ * See docs/DEVELOPMENT.md (Test timing) before changing it.
  */
-export const RUNTIME_BUDGET_SECONDS = 400;
+export const HANG_TIMEOUT_MS = 120_000;
 
 export interface RunTotals { seconds: number; tests: number; files: number }
 
-/** The summary line for a run, and whether it went over its budget. */
-export const checkRuntimeBudget = (run: RunTotals, budgetSeconds = RUNTIME_BUDGET_SECONDS) => {
-  const over = run.seconds > budgetSeconds;
-  const line = `Test budget: ${run.tests} tests in ${run.files} files took ${run.seconds.toFixed(1)}s (budget ${budgetSeconds}s)`;
-  return { over, message: over ? `${line}: over budget, find the slow tests or raise the budget (docs/DEVELOPMENT.md)` : line };
-};
+/**
+ * The run's summary line. Report-only: wall time depends on the machine and what else runs on it, so
+ * it can't tell a slow test from a busy runner, and no figure here fails a run.
+ */
+export const runSummary = (run: RunTotals) => `Test time: ${run.tests} tests in ${run.files} files took ${run.seconds.toFixed(1)}s (report-only)`;
 
 /** This reporter's module, as Vitest loads it. */
 export const TEST_BUDGET_REPORTER = fileURLToPath(import.meta.url);
@@ -37,18 +34,16 @@ export const testBudget = () => ({
 
 /**
  * Vitest reporter for `npm test` runs, whatever flags they add (`--reporter`, coverage off): prints
- * the run's wall time and test count, and fails the run when it is over budget. Other runs, such as
+ * the run's wall time and test count, and never changes the run's result. Other runs, such as
  * targeted `npx vitest run <path>` and watch runs, are left alone.
  */
 export default class TestBudgetReporter implements Reporter {
   private vitest?: Vitest;
   private start = 0;
-  private readonly budgetSeconds: number;
   private readonly now: () => number;
   private readonly env: Record<string, string | undefined>;
 
-  constructor(options: { budgetSeconds?: number; now?: () => number; env?: Record<string, string | undefined> } = {}) {
-    this.budgetSeconds = options.budgetSeconds ?? RUNTIME_BUDGET_SECONDS;
+  constructor(options: { now?: () => number; env?: Record<string, string | undefined> } = {}) {
     this.now = options.now ?? (() => performance.now());
     this.env = options.env ?? process.env;
   }
@@ -62,11 +57,6 @@ export default class TestBudgetReporter implements Reporter {
     // npm sets this for `npm test`, including the one inside `npm run check`.
     if (this.env.npm_lifecycle_event !== 'test' || !this.vitest || this.vitest.config.watch) return;
     const tests = testModules.reduce((count, testModule) => count + [...testModule.children.allTests()].length, 0);
-    const seconds = (this.now() - this.start) / 1000;
-    const { over, message } = checkRuntimeBudget({ seconds, tests, files: testModules.length }, this.budgetSeconds);
-    if (over) {
-      this.vitest.logger.error(message);
-      process.exitCode = 1;
-    } else this.vitest.logger.log(message);
+    this.vitest.logger.log(runSummary({ seconds: (this.now() - this.start) / 1000, tests, files: testModules.length }));
   }
 }

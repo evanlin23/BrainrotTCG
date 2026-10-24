@@ -123,7 +123,7 @@ it('keeps unreadable collection entries through pack writes and offers them to d
   await openPack(app);
   expect(owned(stored())).toBe(1 + 10);
   expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
-}, 60_000);
+});
 
 it('saves the collection, and keeps the unreadable entries in this tab to download, when the archive cannot be written', async () => {
   app = await mountedApp(SEED);
@@ -151,7 +151,7 @@ it('saves the collection, and keeps the unreadable entries in this tab to downlo
   expect(name).toBe('brainrot-collection-recovery-2026-01-01.json');
   expect(file.raw).toBe(RAW);
   expect(JSON.parse(file.player!).secretKey).toBe(SECRET);
-}, 60_000);
+});
 
 it('shows the kept-aside note at once, and keeps the pack waiting, when only the collection write fails', async () => {
   app = await mountedApp(SEED);
@@ -169,7 +169,7 @@ it('shows the kept-aside note at once, and keeps the pack waiting, when only the
   expect(shelfKeys()).toHaveLength(1);
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`)]);
   expect(warnings()).toEqual([expect.stringMatching(/couldn't be saved in this browser[\s\S]*kept aside/)]);
-}, 60_000);
+});
 
 it('lets the player hide the kept-aside note until something new is kept aside; Settings still shows it', async () => {
   const archive = JSON.stringify({ raw: RAW, player: PLAYER });

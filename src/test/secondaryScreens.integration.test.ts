@@ -282,7 +282,7 @@ it('fetches a page on intent, but not while a pack is opening', async () => {
   await app.interact(() => point('Cards'));
   expect(pages()).toHaveLength(1);
   expect(pages()[0]).toContain('CollectionBrowser');
-}, 60_000);
+});
 
 // The App's own Rankings and Profile pages, through the real Page, and its Share sheet, through the real
 // DeferredSheet. Each loader stands in for a chunk a deploy removed while `stale` holds its title, then
