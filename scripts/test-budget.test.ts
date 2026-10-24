@@ -246,7 +246,7 @@ const limitsOfCall = (call: ts.CallExpression, runners: ReadonlySet<string>, nam
  * its options out.
  *
  * Not covered, because finding them needs types or data flow rather than syntax: `vi` or a hook
- * renamed on import (`import { vi as v }`) or destructured (`const { it } = await import('vitest')`),
+ * renamed on import (`import { vi as v }`) or in a destructure (`const { it: spec } = await import('vitest')`),
  * a runner or namespace passed around as a value (`const run = it; run(...)`, `const w = v; w.it(...)`),
  * the waits that take their own timeout and are not a test or hook ceiling (`vi.waitFor`, `vi.waitUntil`,
  * `expect.poll`), and the CLI or environment
