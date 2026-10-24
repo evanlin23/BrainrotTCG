@@ -21,8 +21,11 @@
  *   "whitepower". A WHOLE cut that is an ALLOWED_WHOLE word passes ("rapNAZIRpe" reads "rappe").
  *   Each cut is also made keeping the allowed word's first or last letter, for a term that shares
  *   it: "porchNAZIMonkey" reads "porchmonkey", "NAZIAnal" reads "anal". A shared letter is read with
- *   the rest of the term only where they touch ("Nazia-Annais" passes), and not for a term the
- *   allowed word holds itself ("NazirAziz" passes: its "nazi" is the one in "nazir").
+ *   the rest of the term only where they touch, so a space or punctuation anywhere between them, even
+ *   inside the allowed word or the term, keeps them apart ("Nazia-Annais", "NAZ.IRigger" and
+ *   "NAZIRig.ger" pass), as does a camelCase boundary after the allowed word ("NaziaNail",
+ *   "NaziraPes", "xXNazirUdeXx" pass; one before it doesn't: "orgasNazim" reads "orgasm"). Nor is it
+ *   read for a term the allowed word holds itself ("NazirAziz" passes: its "nazi" is the one in "nazir").
  * Hate numbers are blocked only as a number of their own. Mild swearing (shit, damn, crap, ass, hell)
  * is allowed; slurs, sexual terms and hate are not.
  *
@@ -34,8 +37,11 @@
  * them anywhere); phrase spellings not listed ("killurself"); a shared letter split from the rest
  * of the term by a space or punctuation ("porch nazim onkey"); a hate number split up ("14 88") or
  * written in other digits (Arabic-Indic); and terms not on the list. The other way, an ordinary name
- * run into an allowed word in camelCase is blocked when the shared letter starts a term with it
- * ("NaziaNail" reads "anal", "NazirUde" "nude", "PenistoneOrnella" "porn"), as "NAZIAnal" is.
+ * run into an allowed word is blocked where they share a letter: a name before it in camelCase, where
+ * the shared letter ends the term, as in "orgasNazim" ("CorgasNazim" reads "orgasm", "WhittleNazir"
+ * "hitler", "BoneNazir" "boner", "KniggeNazir" "nigger"); and a join in lower case or with no
+ * camelCase boundary after the allowed word, which has the letters of a plain spelling ("nazianail"
+ * and "xxnazianailxx" read "anal" as "nazianal" does, "Penistoneakil" reads "paki").
  */
 import { normalizeName } from './identity';
 
@@ -131,13 +137,44 @@ const LEET: Record<string, string> = {
 /** Unicode compatibility forms (full-width, circled, math letters) to plain ones, without accents or invisibles. */
 const plain = (text: string) => text.normalize('NFKC').normalize('NFD').replace(/[\p{M}\p{C}]/gu, '');
 
+const CAMEL_RE = /(?<=[\p{Ll}\p{Nd}])(?=\p{Lu})/gu;
 /** Splits camelCase ("BigWord" -> "Big Word") before lowercasing loses it. */
-const splitCamel = (text: string) => text.replace(/(?<=[\p{Ll}\p{Nd}])(?=\p{Lu})/gu, ' ');
+const splitCamel = (text: string) => text.replace(CAMEL_RE, ' ');
+/**
+ * Marks a camelCase boundary inside a word that runs its parts together ("NaziaNail"), so a shared
+ * letter isn't read across one right after an allowed word. An invisible character, which `plain`
+ * strips from every name, so no name can hold one itself.
+ */
+const CAMEL = '\u2063';
 
 const fold = (text: string, leet: boolean) =>
   Array.from(text.toLowerCase(), (c) => LETTERS[c] ?? (leet ? LEET[c] : undefined) ?? c)
     .join('')
-    .replace(/ph/g, 'f');
+    .replace(/p\u2063?h/g, 'f');
+
+/**
+ * Where `fold(text, leet)` has a camelCase boundary of `text`: each index of the folded text that a
+ * boundary comes right before. Empty if the boundaries can't be placed exactly.
+ */
+const camelMarks = (text: string, folded: string, leet: boolean) => {
+  const marks = new Set<number>();
+  const marked = fold(text.replace(CAMEL_RE, CAMEL), leet);
+  if (marked.length === folded.length || marked.replace(/\u2063/g, '') !== folded) return marks;
+  let at = 0;
+  for (const c of marked) {
+    if (c === CAMEL) marks.add(at);
+    else at += c.length;
+  }
+  return marks;
+};
+
+/** `part` (which starts at index `from` of a folded text) with CAMEL before each of its letters a mark names. */
+const withMarks = (part: string, from: number, marks: ReadonlySet<number>) => {
+  if (!marks.size) return part;
+  let out = part[0] ?? '';
+  for (let j = 1; j < part.length; j++) out += (marks.has(from + j) ? CAMEL : '') + part[j];
+  return out;
+};
 
 /** A regex for a folded term: each letter may repeat ("fuuuck"), and a doubled one needs at least two ("boobs", not "bobs"). */
 const pattern = (term: string) =>
@@ -188,8 +225,31 @@ const ALLOWED_PHRASE_RE = new RegExp(
  */
 type Cut = { text: string; keep: Keep; kept: Map<number, string> };
 
-/** A word as `readings` gives it ("-" for each run of non-letters) without its non-letters. */
-const letters = (word: string) => word.replace(/-/g, '');
+/** A word as `readings` gives it ("-" for each run of non-letters, CAMEL marks) without its non-letters. */
+const letters = (word: string) => word.replace(/[-\u2063]/g, '');
+const FIRST_ALLOWED_RE = new RegExp(ALLOWED_LONGEST.join('|'));
+
+/**
+ * The word for a cut that keeps a shared letter: a camelCase boundary after the first allowed word
+ * in it becomes "-", which a shared letter isn't read across ("NaziaNail" doesn't read "anal",
+ * "NaziraPes" not "rapes"), and the others go ("orgasNazim" still reads "orgasm").
+ */
+const sharedLetterWord = (word: string) => {
+  if (!word.includes(CAMEL)) return word;
+  const bare = word.replace(/\u2063/g, '');
+  const first = FIRST_ALLOWED_RE.exec(bare);
+  if (!first) return bare;
+  const after = first.index + first[0].length;
+  let out = '';
+  let at = 0;
+  for (const c of word) {
+    if (c !== CAMEL) {
+      out += c;
+      at += c.length;
+    } else if (at >= after) out += '-';
+  }
+  return out;
+};
 
 /**
  * The word with its ALLOWED words cut out, again until none is left ("seNAZIRx" -> "sex"), in each
@@ -201,7 +261,7 @@ const letters = (word: string) => word.replace(/-/g, '');
 const allowedCuts = (word: string): Cut[] => {
   const cuts: Cut[] = [];
   for (const { keep, re } of ALLOWED_CUT_WAYS) {
-    let text = keep === 'none' ? letters(word) : word;
+    let text = keep === 'none' ? letters(word) : sharedLetterWord(word);
     let kept = new Map<number, string>();
     // Each cut is shorter than the last, so each way ends within the word's length.
     for (;;) {
@@ -294,6 +354,13 @@ const joinSingles = (tokens: readonly string[]) => {
   return runs;
 };
 
+/** Each run of non-letters as "-", without a CAMEL mark beside one or at either end, and none at either end. */
+const dashes = (word: string) =>
+  word
+    .replace(/[^a-z\u2063]+/g, '-')
+    .replace(/\u2063(?=-|$)|(?<=^|-)\u2063/g, '')
+    .replace(/^-|-$/g, '');
+
 /** The words of each reading of a name, and the pieces between any non-letters, for matching. */
 const readings = (name: string) => {
   const base = plain(name);
@@ -303,20 +370,24 @@ const readings = (name: string) => {
   for (const text of [base, splitCamel(base)]) {
     for (const leet of [true, false]) {
       const folded = fold(text, leet);
-      const kept = folded.replace(ALLOWED_PHRASE_RE, ' ');
+      // Only the reading that runs camelCase parts together marks them, for allowedCuts.
+      const marks = text === base ? camelMarks(text, folded, leet) : new Set<number>();
+      // Each allowed phrase becomes as many spaces, so the marks still line up.
+      const kept = folded.replace(ALLOWED_PHRASE_RE, (phrase) => ' '.repeat(phrase.length));
+      const parts = (re: RegExp) => Array.from(kept.matchAll(re), (m) => withMarks(m[0], m.index, marks));
       // Punctuation inside a word is ignored ("f.u.c.k"); spaces separate words. A word keeps each run
-      // of non-letters as "-" for allowedCuts, and drops it for everything else.
-      const ws = kept.split(/\s+/).map((w) => w.replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '')).filter(Boolean);
-      const ps = kept.split(/[^a-z]+/).filter(Boolean);
+      // of non-letters as "-" for allowedCuts, and drops it for everything else, as it does CAMEL marks.
+      const ws = parts(/\S+/g).map(dashes).filter(Boolean);
+      const ps = parts(/[a-z]+/g);
       for (const w of [...ws, ...joinSingles(ws), ...joinSingles(ps)]) words.add(w);
       for (const p of [...ps, ...ws, ...joinSingles(ws), ...joinSingles(ps)]) pieces.add(p);
       // No allowed phrase holds a PHRASE, so allowed phrases stay in: "Moby Dick Pic" still reads "dickpic".
-      whole.push(folded.replace(/[^a-z]+/g, '-').replace(/^-|-$/g, ''));
+      whole.push(dashes(withMarks(folded, 0, marks)));
     }
   }
   // "xXslayerXx" decorations
   for (const p of [...pieces]) {
-    const bare = p.replace(/^x{2,}-?|-?x{2,}$/g, '');
+    const bare = p.replace(/^x(?:\u2063?x)+-?|-?x(?:\u2063?x)+$/g, '');
     if (bare) pieces.add(bare);
   }
   return { words, pieces, whole };

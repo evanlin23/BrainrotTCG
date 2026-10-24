@@ -157,6 +157,20 @@ describe('isNameAllowed', () => {
     expect(blocked(['pedopNAZIRhil', 'xXNAZIRiggerXx', 'NAZIRigger-Bob'])).toEqual([]);
   });
 
+  it('reads a shared letter across a camelCase boundary before the allowed word, but not after it', () => {
+    // All caps and lower case have no camelCase boundary, so they still read the shared letter.
+    expect(blocked(['NAZIRigger', 'NAZIAnal', 'nazianal', 'fu.NAZIR.ck', 'NAZIRaziNigger', 'orgasNazim', 'porchNAZIMonkey'])).toEqual([]);
+    // Real names joined after an allowed word in camelCase, and a gamer tag of one.
+    expect(
+      allowed([
+        'NaziaNail', 'NazirUde', 'NaziraPes', 'NazirRappe', 'MilfordOlesti', 'PenistoneOrnella', 'SniggerLuther', 'PenistoneAkil',
+        'PussycatAkil', 'xXNaziaNailXx',
+      ]),
+    ).toEqual([]);
+    // Marking a camelCase boundary doesn't change the rest of the reading: "p" and "h" still read "f".
+    expect(blocked(['ZoopHil', 'xXPornXx'])).toEqual([]);
+  });
+
   it('allows brainrot names, gamer tags and mild swearing', () => {
     expect(
       allowed([
