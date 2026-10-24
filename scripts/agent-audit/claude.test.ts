@@ -1,8 +1,9 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
-import { claudeArgs, reviewerTools, runClaude } from './claude';
+import type { ChildProcess } from 'node:child_process';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { claudeArgs, reviewerTools, runClaude, stopGroup } from './claude';
 import { tasks } from './contracts';
 
 // Flags checked against `claude --help` for the pinned release (see docs/DEVELOPMENT.md).
@@ -70,6 +71,29 @@ async function gone(pid: number) {
   return false;
 }
 
+// Records every group kill (a negative pid) while still delivering it, so the real descendants die.
+async function groupKills(run: () => Promise<unknown>) {
+  const kill = process.kill.bind(process);
+  const spy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => kill(pid, signal));
+  try { await run(); return spy.mock.calls.filter(([pid]) => pid < 0).map(([pid, signal]) => [pid, signal]); } finally { spy.mockRestore(); }
+}
+
+describe('Claude reviewer group kill', () => {
+  it('signals a child group at most once and never one without a pid', () => {
+    const spy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    try {
+      const child = { pid: 424242 } as ChildProcess;
+      stopGroup(child);
+      stopGroup(child);
+      expect(spy.mock.calls).toEqual([[-424242, 'SIGKILL']]);
+      spy.mockClear();
+      stopGroup({ pid: 424243 } as ChildProcess);
+      stopGroup({} as ChildProcess);
+      expect(spy.mock.calls).toEqual([[-424243, 'SIGKILL']]);
+    } finally { spy.mockRestore(); }
+  });
+});
+
 describe('Claude reviewer runs (mocked CLI)', () => {
   it('returns the structured report, model and model turns from a finished run', async () => {
     expect(await fake('success')).toEqual({ turns: 2, model: 'claude-test', report: JSON.stringify({ outcome: 'blocked', observations: 'Saw the heading' }) });
@@ -110,5 +134,20 @@ describe('Claude reviewer runs (mocked CLI)', () => {
     const missing = await runClaude(join(scratch, 'no-such-claude'), [], { cwd: scratch, env: {}, seconds: 5, maxTurns: 5, signal: new AbortController().signal });
     expect(missing).toEqual({ turns: 0, reason: 'Claude CLI unavailable' });
     for (const mode of ['extra', 'nobrowser', 'error', 'noreport', 'noinit', 'exit']) expect((await fake(mode)).report).toBeUndefined();
+  });
+
+  it('kills the group once across exit, stop and close, and still reaches a descendant that outlives the CLI', async () => {
+    const orphanPid = join(scratch, 'once-orphan.pid');
+    let run: Awaited<ReturnType<typeof fake>> | undefined;
+    const exited = await groupKills(async () => { run = await fake('orphan', { seconds: 3, pidFile: orphanPid }); });
+    expect(run?.report).toBe(JSON.stringify({ outcome: 'blocked', observations: 'Saw the heading' }));
+    expect(exited).toHaveLength(1);
+    expect(await gone(Number(readFileSync(orphanPid, 'utf8')))).toBe(true);
+
+    const loopPid = join(scratch, 'once-loop.pid');
+    const stopped = await groupKills(async () => { run = await fake('loop', { maxTurns: 3, pidFile: loopPid }); });
+    expect(run?.reason).toBe('turn budget exhausted');
+    expect(stopped).toHaveLength(1);
+    expect(await gone(Number(readFileSync(loopPid, 'utf8')))).toBe(true);
   });
 });

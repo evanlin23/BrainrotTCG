@@ -26,9 +26,16 @@ export function claudeArgs(task: string, mcpConfig: string) {
 }
 
 // Kills the child's whole process group, even after the leader exits: an MCP adapter or other
-// descendant may outlive it.
+// descendant may outlive it. It signals at most once per child. SIGKILL to the group ends every
+// member, and Linux does not reuse a PID number while any process still has it as its PGID, so the
+// first kill (at the latest on the leader's 'exit', before anything else could take the number)
+// reaches only our group. After that the group may be empty and its number free for an unrelated
+// process, so every later call (stop, 'exit', 'close') is a no-op.
+const signalled = new WeakSet<ChildProcess>();
 export function stopGroup(child: ChildProcess) {
-  if (child.pid) try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Group already gone. */ }
+  if (!child.pid || signalled.has(child)) return;
+  signalled.add(child);
+  try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Group already gone. */ }
 }
 
 export type ClaudeRun = { turns: number; model?: string; report?: string; reason?: string };
