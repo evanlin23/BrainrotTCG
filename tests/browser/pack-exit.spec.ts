@@ -1,28 +1,16 @@
 import { test, expect } from '@playwright/test';
-import { monitor, snapshot, untilIdle } from './support';
+import { monitor, recordShownToasts, snapshot, untilIdle } from './support';
 
 test('browser Back mid-reveal returns to the packs screen, keeps the pack and stays on the site', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   // A notice leaves by its own timer, TOAST_MS after it shows, and the checks after Back can take longer than
-  // that on a loaded machine. So the page keeps a log of "Pack kept" notices (from before the page loads), and
-  // the test reads the log instead of racing the notice's lifetime. An entry is a new toast element that was
-  // on screen (a box with a size, not visibility: hidden: what toBeVisible asks) with that kicker, so the log
+  // that on a loaded machine. So the page keeps a log of the notices it shows (from before it loads), and the
+  // test reads the log instead of racing a notice's lifetime. An entry is a new toast element that was on
+  // screen (a box with a size, not visibility: hidden: what toBeVisible asks) with that kicker, so the log
   // proves a notice was shown, not only mounted, and it counts one that replaces another with the same text.
-  // No clock, margin or wait is involved.
-  await page.addInitScript(() => {
-    const log: string[] = [];
-    (window as unknown as { __noticeLog: string[] }).__noticeLog = log;
-    const seen = new WeakSet<Element>();
-    new MutationObserver(() => {
-      for (const toast of Array.from(document.querySelectorAll('.toast'))) {
-        const box = toast.getBoundingClientRect();
-        if (seen.has(toast) || box.width === 0 || box.height === 0 || getComputedStyle(toast).visibility === 'hidden') continue;
-        seen.add(toast);
-        log.push(toast.querySelector('.toast-kicker')?.textContent ?? '');
-      }
-    }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true });
-  });
-  const noticesKept = () => page.evaluate(() => (window as unknown as { __noticeLog: string[] }).__noticeLog.filter((kicker) => kicker === 'Pack kept').length);
+  // Each notice is also held from the moment it shows, so the test can send it away with its X.
+  const shown = await recordShownToasts(page, { hold: true });
+  const noticesKept = async () => (await shown()).filter((kicker) => kicker === 'Pack kept').length;
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
@@ -47,9 +35,10 @@ test('browser Back mid-reveal returns to the packs screen, keeps the pack and st
     await expect(page.locator('.app-logo')).toBeVisible();
     expect(page.url(), 'Back left the page or changed its address').toBe(start);
     await expect.poll(async () => (await snapshot(page)).stats?.packsOpened).toBe(pack);
-    // This Back showed a notice: the log holds one for each Back so far, however long the steps above took. (At
-    // least: a notice still queued behind an earlier one shows again later, which is right.)
-    await expect.poll(noticesKept, { message: 'the "Pack kept" notices shown so far' }).toBeGreaterThanOrEqual(pack);
+    // This Back showed its own notice, and no other: exactly one for each Back so far. It is sent away with its X,
+    // so an earlier one that pack 2 only held can't come back after the next Back and stand in for that Back's.
+    await expect.poll(noticesKept, { message: 'the "Pack kept" notices shown so far' }).toBe(pack);
+    await page.locator('.toast', { hasText: 'Pack kept' }).getByRole('button', { name: 'Dismiss' }).click();
   }
 
   // Forward onto the old entry reopens nothing.
