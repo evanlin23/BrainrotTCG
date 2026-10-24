@@ -455,7 +455,9 @@ same commit), since production may then serve a newer release; re-running an old
 can't mark an older commit known-good. A named rollback run may
 predate these checks or have been a GitHub Pages run, so check its `smoke` job before trusting it
 (see [Recover on the same origin](#recover-on-the-same-origin); otherwise fix forward on `main`).
-Nothing is uploaded: traces stay on the discarded runner. Use the steps below after a dashboard rollback or
+Only a failed `smoke` job uploads anything: the browser checks' traces and screenshots, as the
+`playwright-production-smoke` artifact, kept 7 days. They record request headers, which hold no secret
+there, since only staging gets the Access token; `staging-checks` uploads nothing. Use the steps below after a dashboard rollback or
 other recovery, which starts no deploy run.
 
 Smoke check, GETs only (`curl -fsS`), each with a fresh `?run=<anything>` so no cache answers (as

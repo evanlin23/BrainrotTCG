@@ -526,7 +526,8 @@ jobs:
     # this run red; the last step always runs, and calls the release known-good only when both
     # checks passed, or else, when one failed, names the release to go back to. It gives no verdict
     # when a check didn't finish (cancelled or skipped), main has moved past this commit, or
-    # production serves a newer run. Nothing is uploaded or kept.
+    # production serves a newer run. Only a failed run uploads anything: the browser checks' traces,
+    # kept 7 days.
     needs: [site, deploy]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -556,6 +557,15 @@ jobs:
         env:
           PRODUCTION_URL: ${{ needs.site.outputs.url }}
         run: npx playwright test -c playwright.production.config.ts
+      # Keeps a failed check's Playwright traces and screenshots for 7 days, so a stall can be traced
+      # (deploy run 40051793039 had none). Safe to publish: production gets no Access token, so the
+      # recorded request headers hold no secret. staging-checks, which sends one, uploads nothing.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-production-smoke
+          path: test-results/production/
+          retention-days: 7
       # Runs whatever the checks did: names the rollback target when either failed, and gives no
       # verdict when one didn't finish, this commit is no longer main's tip (git ls-remote), or the
       # marker names a newer run.
