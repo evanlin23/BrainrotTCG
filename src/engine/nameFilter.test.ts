@@ -109,7 +109,25 @@ describe('isNameAllowed', () => {
     expect(
       allowed([
         'Sussex', 'Dickens', 'Cumberland', 'Titsworth', 'Dickensian', 'Sexton Nazir', 'Nazir Dickens', 'Cumberland Nazim',
-        'Nazirs', 'Benazirs', 'Nazims', 'Milfords', 'Sniggers', 'Scunthorpes', 'Booboos', 'Thornycroft', 'rapnazirpe',
+        'Nazirs', 'Benazirs', 'Nazims', 'Milfords', 'Sniggers', 'Scunthorpes', 'Booboos', 'Thornycroft',
+      ]),
+    ).toEqual([]);
+    // A cut that leaves an ALLOWED_WHOLE word ("rappe") passes.
+    expect(allowed(['rapnazirpe'])).toEqual([]);
+  });
+
+  it('blocks a PHRASE wrapped around an allowed word, in one word or across words', () => {
+    expect(
+      blocked([
+        'whitepNAZIRower', 'white NAZIR power', 'siegNAZIRheil', 'killyourNAZIRself', 'chingNAZIRchong', 'whiteBOOBYpride',
+        'porchTHORNYmonkey', 'white.NAZIR.power', 'xXwhitepNAZIRowerXx',
+      ]),
+    ).toEqual([]);
+    expect(
+      allowed([
+        'Nazir White', 'White Nazir', 'Benazir Whiteside', 'White Booby Trap', 'White Thorny Rose', 'Porch Thorny',
+        'Ching Nazir', 'Siegfried Nazir', 'Kill Nazir', 'Nazim Powers', 'Whitney Nazir Powell', 'Siegel Nazir Heilman',
+        'Chingford Nazim',
       ]),
     ).toEqual([]);
   });

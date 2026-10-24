@@ -13,11 +13,12 @@
  * - WHOLE terms are short words that hide inside ordinary ones ("Dickens", "cocktail", "Sussex",
  *   "Scunthorpe", "grape"), so they are blocked only as a whole word (plurals included), and not
  *   inside a few ALLOWED_PHRASES ("Moby Dick", but not "Moby Dick.head").
- * - A word holding an ALLOWED word is also checked with its ALLOWED words cut out (again until none
- *   is left), against both STRONG and WHOLE terms, so wrapping a term around one doesn't hide it:
- *   "fuNAZIRck" reads "fuck" and "seNAZIRx" reads "sex". A cut that is an ALLOWED_WHOLE word passes.
  * - PHRASES are blocked anywhere in the name with its spaces removed: phrases usually written as
  *   separate words, and a few common run-together names built on a WHOLE term ("bigdick").
+ * - A word or name holding an ALLOWED word is also checked with its ALLOWED words cut out (again
+ *   until none is left), against STRONG, WHOLE and PHRASES, so wrapping a term around one doesn't
+ *   hide it: "fuNAZIRck" reads "fuck", "seNAZIRx" reads "sex" and "white NAZIR power" reads
+ *   "whitepower". A WHOLE cut that is an ALLOWED_WHOLE word passes ("rapNAZIRpe" reads "rappe").
  * Hate numbers are blocked only as a number of their own. Mild swearing (shit, damn, crap, ass, hell)
  * is allowed; slurs, sexual terms and hate are not.
  *
@@ -226,8 +227,9 @@ export const isNameAllowed = (name: string): boolean => {
   if (NUMBER_RE.test(plain(name))) return false;
   const { words, pieces, whole } = readings(name);
   for (const w of words) if (strongOutsideAllowed(w)) return false;
-  for (const p of pieces) if (wholeTerm(p) || allowedCuts(p).some(wholeTerm)) return false;
-  return !whole.some((w) => PHRASE_RE.test(w));
+  for (const p of pieces) if (wholeTerm(p) || allowedCuts(p).some((cut) => wholeTerm(cut) || PHRASE_RE.test(cut))) return false;
+  // The whole name runs its words together, so its cuts also take out an allowed word between them ("white NAZIR power").
+  return !whole.some((w) => PHRASE_RE.test(w) || allowedCuts(w).some((cut) => PHRASE_RE.test(cut)));
 };
 
 /** The name to show other players: the normalized name, ANONYMOUS_NAME if blank, NAME_PLACEHOLDER if blocked. */
