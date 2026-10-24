@@ -42,26 +42,26 @@ Downloaded files are untrusted: download each into its own empty folder, then va
 with Pillow (`python3 -I`, which also strips metadata) before it goes into `art/`.
 
 Then run `npm run cards`. It also builds the set's booster pack wrapper (`pack.webp`, and
-`pack-thumb.webp` for the pack picker): a sticker bomb. Eight to twelve of the set's own characters, cut
-from its `art/` as die-cut stickers (thick white border, thin dark edge, soft shadow), overlap each other
-and the pack's edges at random tilts around a die-cut sticker of the site logo (the mark in
-`src/styles/logoMark.ts` and the Rubik Glitch wordmark) on a starburst, over crimped foil in the set's
-colours, with the era and "N CARDS INSIDE" on a plate at the bottom. No card frames, titles or card
-shapes, and no outside images. The flap above the tear line (19% down) holds only foil, crimp and
-border. Which cards and where is seeded by the set id, so each set gets its own mix and a rebuild gives
-the same bytes.
+`pack-thumb.webp` for the pack picker): one hero and the set's name. The hero is one character from the
+set's own `art/`, die-cut on its own silhouette with a bold dark outline and a soft drop shadow, no
+white border, blended into a burst in the set's two palette colours on a glossy metallic pouch (gloss
+bands, side folds, chrome crimped seals). The set's name sits under it in chunky gradient lettering,
+at most two lines. There is no site logo and no era on the pack (the header carries the logo, and the
+pack's button says "Open pack, <name>" to a screen reader), no card frames, titles or card shapes, and
+no outside images. The flap above the tear line (19% down) holds only field. A rebuild gives the same
+bytes.
 
-The sticker outlines come from `scripts/cards/cut-stickers.py`, run by hand once a set's art is in
-place (and again whenever its art changes; `scripts/cards/pack.test.ts` fails on a stale cut). It cuts
-each card's subject out with rembg (`isnet-general-use`, pinned in
-`scripts/cards/stickers-requirements.txt`; the header there has the setup), keeps the largest piece,
-fills holes and smooths the edge. Cuts that come out tiny, fragmented, mostly scenery or stringy fall
-back to a round or rounded-rect sticker of a crop on the subject. Its output is committed in
-`src/content/sets/<set>/stickers/`: `index.json` (per card: the art file, the kind, the crop and the
-grades) and a small 1-bit mask per die-cut sticker. `npm run cards` only composites those files, so it
-needs no Python. Look at every sticker before committing (render the packs with `npm run cards`); when
-a cut is wrong, add the card to `OVERRIDES` in the script (`die`, `round`, `rect` or `skip`) and run it
-again with `--set <id> --force`.
+Pick the hero in `scripts/cards/pack-heroes.json` (set id to card id): a character that reads as one
+clear silhouette from the set's own art, not a real person, and not a card whose art was removed. The
+hero's outline comes from `scripts/cards/cut-stickers.py`, run by hand once the hero is chosen (and again
+whenever its art changes; `scripts/cards/pack.test.ts` fails on a stale cut). It cuts the hero out with
+rembg (`isnet-general-use`, pinned in `scripts/cards/stickers-requirements.txt`; the header there has the
+setup), keeps the largest piece, fills holes and smooths the edge. A cut that comes out tiny,
+fragmented, mostly scenery or stringy stops the script with a message: pick another hero, or, when the
+cut is right, add the card to `OVERRIDES` in the script (`die`) with a one-line reason. Its output is
+committed in `src/content/sets/<set>/stickers/`: `index.json` (the hero's art file, the crop and the
+grades) and its small 1-bit mask. `npm run cards` only composites those files, so it needs no Python.
+Look at the pack before committing (`npm run cards`, then open `pack.webp`).
 
 To preview one set (registered or not) as a contact sheet:
 

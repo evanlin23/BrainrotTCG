@@ -1,28 +1,25 @@
 """
-Cut the pack stickers for every set from the set's own card art.
+Cut each set's pack hero from the set's own card art.
 
-The booster pack wrapper (scripts/cards/pack.ts) is a sticker bomb: characters from the set's art,
-die-cut like stickers, around the logo. Finding a character's outline takes an ML matting model, so
-that step lives here, run by hand, and its output is committed; the build only composites committed
-files and stays deterministic.
+The booster pack wrapper (scripts/cards/pack.ts) shows one hero character per set, die-cut and blended
+into the pouch, above the set's name. The hero is named in scripts/cards/pack-heroes.json. Finding a
+character's outline takes an ML matting model, so that step lives here, run by hand, and its output is
+committed; the build only composites committed files and stays deterministic.
 
-For each card in src/content/sets/<set>/art/ (a full `.card.*` image is cropped to the Genesis art
-window first, so no frame or title gets in):
+For the hero's image in src/content/sets/<set>/art/ (a full `.card.*` image is cropped to the Genesis
+art window first, so no frame or title gets in):
 
 1. rembg (model isnet-general-use) gives a soft foreground alpha.
 2. The main subject is kept: the largest connected part, holes filled, edge smoothed.
-3. The cut is graded. Fragmented (the largest part is a small share of the foreground), tiny, or
-   mostly scenery (covers most of the picture or touches three or four of its edges) cuts fall back
-   to a round or rounded-rect sticker of a crop on the subject (from its top, where faces are). OVERRIDES below can force a
-   kind, or skip a card, where the grades get it wrong.
+3. The cut is graded. Fragmented, tiny, or mostly scenery cuts are refused with a message, unless
+   OVERRIDES below says the cut is right.
 
-Writes src/content/sets/<set>/stickers/index.json (per card: its art file, the crop in that file's
-pixels, the sticker kind and the grades) and, for die-cut stickers, <card>.png: a 1-bit mask of the
-crop, at most MASK_SIZE px on its long side.
+Writes src/content/sets/<set>/stickers/index.json (the hero's art file, the crop in that file's
+pixels and the grades) and <hero>.png: a 1-bit mask of the crop, at most MASK_SIZE px on its long side.
 
 Run (Python 3.13, the pinned packages in stickers-requirements.txt):
   python3 scripts/cards/cut-stickers.py [--set <id>] [--force]
-A set whose index.json already lists every card with the same art bytes is left alone unless --force.
+A set whose index.json already holds the hero with the same art bytes is left alone unless --force.
 """
 import argparse
 import glob
@@ -43,16 +40,11 @@ TOOL = 'cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)'
 MASK_SIZE = 360
 EXTS = ('png', 'jpg', 'jpeg', 'webp')
 
-# Hand calls where the grades get a card wrong: 'die', 'round', 'rect' or 'skip'. Keyed by set id,
-# then card id. Keep it short and say why.
+# Hand calls where the grades get the hero wrong: 'die' accepts the cut. Keyed by set id, then card id.
+# Keep it short and say why.
 OVERRIDES: dict[str, dict[str, str]] = {
-    # The model cut only part of the subject.
-    'gen-alpha-uprising': {'pesto-the-penguin': 'round'},  # the beak, not the chick
-    'lockdown-lore': {'coffin-dance': 'round', 'stick-bug': 'rect'},  # one hat; a white shape, not the bug
-    'peak-brain-rot': {'cheeseball-the-wizard': 'round'},  # the face, not the wizard
-    'right-now': {'remember-november': 'round'},  # a dark blob with no clear outline
-    # The largest part is the gorilla, which is the sticker; the hundred men are scenery.
-    'six-seven-season': {'100-men-vs-1-gorilla': 'die', 'ashton-hall': 'round'},  # ashton-hall: the clock only
+    # The largest part is the gorilla, which is the hero; the hundred men are scenery.
+    'six-seven-season': {'100-men-vs-1-gorilla': 'die'},
 }
 
 # Grades (shares of the crop's area, or of the foreground's).
@@ -140,28 +132,6 @@ def verdict(grades):
     return None
 
 
-def centred_crop(alpha, kind):
-    """
-    A crop of the picture on the subject, clamped inside it: centred across on the alpha's centre of
-    mass, and starting just above the subject's top (faces sit at the top; a centre-of-mass crop
-    shows torsos). With no real subject, the middle of the picture.
-    """
-    h, w = alpha.shape
-    if kind == 'round':
-        cw = ch = 0.82 * min(w, h)
-    else:
-        cw, ch = 0.9 * w, 0.72 * h
-    rows = np.nonzero((alpha > 0.5).sum(axis=1) > 0.02 * w)[0]
-    if alpha.sum() > 0.05 * w * h and len(rows):
-        cx = ndimage.center_of_mass(alpha)[1]
-        top = rows[0] - 0.04 * h
-    else:
-        cx, top = w / 2, 0.45 * h - ch / 2
-    x = min(max(cx - cw / 2, 0), w - cw)
-    y = min(max(top, 0), h - ch)
-    return [round(x), round(y), round(cw), round(ch)]
-
-
 def cut_card(session, remove, set_id, card, path, full):
     image = Image.open(path).convert('RGB')
     window = art_window(image.size) if full else (0, 0, image.width, image.height)
@@ -170,30 +140,24 @@ def cut_card(session, remove, set_id, card, path, full):
     alpha = np.asarray(remove(crop, session=session, only_mask=True), dtype=np.float32) / 255.0
     mask, grades = main_subject(alpha)
     bad = verdict(grades)
-    kind = OVERRIDES.get(set_id, {}).get(card) or ('die' if bad is None else None)
-    if kind is None:
-        # Round or rounded-rect, by the card id so a pack gets both.
-        kind = 'round' if hashlib.sha256(card.encode()).digest()[0] % 2 == 0 else 'rect'
-    entry = {'art': os.path.relpath(path, os.path.join(SETS, set_id)).replace(os.sep, '/'), 'kind': kind, 'grades': grades}
+    override = OVERRIDES.get(set_id, {}).get(card)
+    if bad and override != 'die':
+        sys.exit(f'{set_id}/{card}: the cut is {bad} {grades}; pick another hero in pack-heroes.json, or add an OVERRIDES entry if the cut is right')
+    entry = {'art': os.path.relpath(path, os.path.join(SETS, set_id)).replace(os.sep, '/'), 'kind': 'die', 'grades': grades}
     if bad:
         entry['flag'] = bad
-    if card in OVERRIDES.get(set_id, {}):
+    if override:
         entry['override'] = True
-    out_mask = None
-    if kind == 'die':
-        ys, xs = np.nonzero(mask)
-        pad = round(0.02 * max(ww, wh))
-        bx0, by0 = max(int(xs.min()) - pad, 0), max(int(ys.min()) - pad, 0)
-        bx1, by1 = min(int(xs.max()) + 1 + pad, ww), min(int(ys.max()) + 1 + pad, wh)
-        entry['crop'] = [x0 + bx0, y0 + by0, bx1 - bx0, by1 - by0]
-        sub = Image.fromarray((mask[by0:by1, bx0:bx1] * 255).astype(np.uint8), 'L')
-        scale = min(1.0, MASK_SIZE / max(sub.size))
-        size = (max(1, round(sub.width * scale)), max(1, round(sub.height * scale)))
-        out_mask = sub.resize(size, Image.LANCZOS).point(lambda v: 255 if v >= 128 else 0).convert('1')
-        entry['mask'] = f'{card}.png'
-    elif kind in ('round', 'rect'):
-        cx, cy, cw, ch = centred_crop(alpha, kind)
-        entry['crop'] = [x0 + cx, y0 + cy, cw, ch]
+    ys, xs = np.nonzero(mask)
+    pad = round(0.02 * max(ww, wh))
+    bx0, by0 = max(int(xs.min()) - pad, 0), max(int(ys.min()) - pad, 0)
+    bx1, by1 = min(int(xs.max()) + 1 + pad, ww), min(int(ys.max()) + 1 + pad, wh)
+    entry['crop'] = [x0 + bx0, y0 + by0, bx1 - bx0, by1 - by0]
+    sub = Image.fromarray((mask[by0:by1, bx0:bx1] * 255).astype(np.uint8), 'L')
+    scale = min(1.0, MASK_SIZE / max(sub.size))
+    size = (max(1, round(sub.width * scale)), max(1, round(sub.height * scale)))
+    out_mask = sub.resize(size, Image.LANCZOS).point(lambda v: 255 if v >= 128 else 0).convert('1')
+    entry['mask'] = f'{card}.png'
     return entry, out_mask
 
 
@@ -208,6 +172,7 @@ def main():
     args = parser.parse_args()
     from rembg import new_session, remove
 
+    heroes = json.load(open(os.path.join(HERE, 'pack-heroes.json')))
     session = None
     set_ids = sorted(os.path.basename(os.path.dirname(p)) for p in glob.glob(os.path.join(SETS, '*', 'set.json')))
     if args.set:
@@ -215,13 +180,19 @@ def main():
         if not set_ids:
             sys.exit(f'No set {args.set}')
     for set_id in set_ids:
+        card = heroes.get(set_id)
+        if card is None:
+            sys.exit(f'{set_id}: no hero in pack-heroes.json')
         arts = art_files(set_id)
+        if card not in arts:
+            sys.exit(f'{set_id}: the hero {card} has no art in {set_id}/art')
+        path, full = arts[card]
         out_dir = os.path.join(SETS, set_id, 'stickers')
         index_path = os.path.join(out_dir, 'index.json')
-        sources = {card: digest(path) for card, (path, _) in arts.items()}
+        source = digest(path)
         if not args.force and os.path.exists(index_path):
             old = json.load(open(index_path))
-            if old.get('tool') == TOOL and {c: e.get('source') for c, e in old['stickers'].items()} == sources and old.get('overrides') == OVERRIDES.get(set_id, {}):
+            if old.get('tool') == TOOL and {c: e.get('source') for c, e in old['stickers'].items()} == {card: source} and old.get('overrides') == OVERRIDES.get(set_id, {}):
                 print(f'{set_id}: up to date')
                 continue
         if session is None:
@@ -229,15 +200,11 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
         for stale in glob.glob(os.path.join(out_dir, '*.png')):
             os.remove(stale)
-        stickers = {}
-        for card, (path, full) in sorted(arts.items()):
-            entry, mask = cut_card(session, remove, set_id, card, path, full)
-            entry['source'] = sources[card]
-            stickers[card] = entry
-            if mask is not None:
-                mask.save(os.path.join(out_dir, entry['mask']), optimize=True)
-            print(f"{set_id}/{card}: {entry['kind']}{' (' + entry['flag'] + ')' if 'flag' in entry else ''} {entry['grades']}")
-        index = {'tool': TOOL, 'overrides': OVERRIDES.get(set_id, {}), 'stickers': stickers}
+        entry, mask = cut_card(session, remove, set_id, card, path, full)
+        entry['source'] = source
+        mask.save(os.path.join(out_dir, entry['mask']), optimize=True)
+        print(f"{set_id}/{card}: {entry['grades']}")
+        index = {'tool': TOOL, 'overrides': OVERRIDES.get(set_id, {}), 'stickers': {card: entry}}
         with open(index_path, 'w') as fh:
             json.dump(index, fh, indent=2)
             fh.write('\n')
