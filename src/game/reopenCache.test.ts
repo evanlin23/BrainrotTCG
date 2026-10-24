@@ -3,6 +3,7 @@ import { getSet } from '../content/sets';
 import { encodeCard } from './cardCode';
 import {
   __resetReopenCacheForTests as resetReopenCache,
+  flushReopenCache,
   getReopened,
   MAX_REOPEN_CACHE_ENTRIES,
   putReopened,
@@ -167,6 +168,20 @@ describe('reopenCache', () => {
     const parsed = JSON.parse(data.get(REOPEN_CACHE_KEY)!) as Record<string, string>;
     expect(Object.keys(parsed)).toHaveLength(1);
     expect(getReopened(set, key, 10)).toEqual(cards);
+  });
+
+  it('writes a pending change at once when flushed and cancels its timer, so nothing runs after teardown', () => {
+    const set = getSet('genesis', 1)!;
+    const key = '9a'.repeat(32);
+    const card = set.cards[0];
+    const cards: PulledCard[] = [{ setId: 'genesis', cardId: card.id, rarity: card.rarity, isHolo: false, slot: 0 }];
+
+    putReopened(set, key, 11, cards);
+    expect(vi.getTimerCount()).toBe(1);
+    flushReopenCache();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(Object.keys(JSON.parse(data.get(REOPEN_CACHE_KEY)!) as object)).toEqual([`genesis@1|${key}|11`]);
+    expect(storage.setItem).toHaveBeenCalledOnce();
   });
 
   it('enforces size limits by evicting oldest entries when MAX_REOPEN_CACHE_ENTRIES is exceeded', () => {
