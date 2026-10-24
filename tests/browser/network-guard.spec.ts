@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import { BEACON_URL, pagesBeaconTag, RUM_URL } from '../../scripts/cloudflare-analytics';
-import { BEACON_STUB, monitor, teardownMessages } from './support';
+import { BEACON_STUB, guardConnectionHeaders, monitor, teardownMessages } from './support';
 
 let primaryServer: Server;
 let externalServer: Server;
@@ -273,7 +273,7 @@ test('a CSP report the guard cannot read is still recorded', async ({ page }) =>
   expect(errors.blocked).toEqual([`[malformed csp report] CSP ${primaryOrigin}/__network-guard/csp-report`]);
 });
 
-test('each monitored request asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
+test('each monitored request to the local preview asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
   const errors = await monitor(page, primaryUrl);
   await page.goto(primaryUrl);
   const bodies = await page.evaluate(async () => {
@@ -286,6 +286,20 @@ test('each monitored request asks for its own connection, so none reuses a socke
   expect(pings.map((ping) => ping.connection)).toEqual(['close', 'close']);
   expect(new Set(pings.map((ping) => ping.port)).size, 'the two requests arrived on separate sockets').toBe(2);
   expect(errors).toEqual([]);
+});
+
+test('only loopback origins get a connection per request; production and staging keep their sockets alive', () => {
+  for (const url of ['http://127.0.0.1:4173/BrainrotTCG/', 'http://localhost:5173/assets/app.js', 'http://[::1]:4173/']) {
+    expect(guardConnectionHeaders(url), url).toEqual({ connection: 'close' });
+  }
+  for (const url of [
+    'https://evanlin23.github.io/BrainrotTCG/assets/RubikGlitch-Latin-qpVGezE5.woff2',
+    'https://staging.example.com/',
+    'https://127.0.0.1.example.com/',
+    'not a url',
+  ]) {
+    expect(guardConnectionHeaders(url), url).toEqual({});
+  }
 });
 
 test('redirect escape to external provider is refused with 403 and zero external provider requests', async ({ page }) => {
