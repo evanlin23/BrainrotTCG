@@ -12,6 +12,7 @@ import { useCardSwipe, useSidewaysFlickGuard } from '../../hooks/useRevealGestur
 import { isBigPull, isSpecialReveal, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import { siteLabel } from '../../game/pulls';
 import { cardNumber } from '../../data/cards';
+import { useFirstCardCue } from '../../hooks/useFirstCardCue';
 
 const Motion = motion;
 
@@ -58,13 +59,15 @@ interface CardRevealUIProps {
   skipping?: boolean;
   /** The pack's set, named in the provenance line under the card. */
   setName?: string;
+  /** No pack is saved yet, so this is the player's first: its first card plays the lift cue once (DESIGN.md Flow 3). */
+  firstPack?: boolean;
 }
 
 /**
  * One card at a time off the top of the stack, rarest last. Big pulls light the back's edge before
  * the flip and get a spotlight after it; a flipped card can be swiped away or tapped.
  */
-const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMovedMouse, onInteraction, onSkip, revealLocked = false, celebrating = false, skipping = false, setName }: CardRevealUIProps) => {
+const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMovedMouse, onInteraction, onSkip, revealLocked = false, celebrating = false, skipping = false, setName, firstPack = false }: CardRevealUIProps) => {
   const touch = useCoarsePointer();
   const reducedMotion = usePrefersReducedMotion();
   const revealed = currentCard?.isRevealed;
@@ -76,6 +79,10 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   // Face up, the next move is a card, or on the last card the pack summary: the same click, Space, Enter, swipe
   // or tap either way, so the words follow what it opens (#790).
   const hint = revealHint({ touch, revealed: !!revealed, locked: revealLocked, last: remaining <= 0 });
+
+  // The first card of the first pack, face down: its back lifts once over the hint, or only the hint under
+  // reduced motion. The first input (a press, a key, the flip) ends it.
+  const { cue: firstCardCue, end: endFirstCardCue } = useFirstCardCue(firstPack && currentIndex === 0 && !revealed);
 
   const { onDragEnd, onTap } = useCardSwipe(currentCard?.uniqueId, revealLocked, onInteraction);
   const stageEl = useRef<HTMLDivElement | null>(null);
@@ -119,6 +126,9 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
               ref={cardRef}
               data-pack-keys
               onClick={onTap}
+              onPointerDown={endFirstCardCue}
+              onKeyDown={endFirstCardCue}
+              onAnimationEnd={(e) => { if (e.animationName === 'first-card-lift') endFirstCardCue(); }}
               aria-label={cardLabel}
               aria-disabled={revealLocked || undefined}
               initial={{ y: 24, opacity: 0, scale: 0.96 }}
@@ -133,12 +143,14 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
               {/* The halo glows behind the card (it paints under it), so the art stays clear for a screenshot.
                   The pull is announced once, by the ribbon in the top bar (PackOpener's ShowcaseRibbon). */}
               {celebration && <div className="showcase-halo" aria-hidden="true" />}
-              <Card card={currentCard} isFlipped={currentCard.isRevealed} tell={big} slowFlip={slow} />
+              <Card card={currentCard} isFlipped={currentCard.isRevealed} tell={big} slowFlip={slow} liftCue={firstCardCue === 'play'} />
             </RevealCard>
           )}
         </AnimatePresence>
       </div>
 
+      {/* Everything under the card: no box of its own, except in a short landscape window, where it is the column beside the card. */}
+      <div className="reveal-side">
       {/* Waits for the flip to land (longer for the slow Legendary and Brainrot flips), so it can't spoil it. */}
       {/* Seen, not read: the pack's live region (PackOpener) says the card, its rarity and its stickers once. */}
       <div className={`reveal-rarity ${slow ? 'is-slow' : ''}`} aria-hidden="true">
@@ -159,7 +171,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
         </p>
       )}
 
-      <p className="tip-text">{hint}</p>
+      <p className="tip-text" data-first-card-cue={firstCardCue ?? undefined}>{hint}</p>
       {/* Skip sits apart from the X, at the bottom, so a press meant for one can't land on the other. */}
       <div className="reveal-bottom">
         <button type="button" className="reveal-skip" title="Show the full pack summary; good-pull pauses still follow your settings." onClick={onSkip} disabled={revealLocked || skipping}>
@@ -167,6 +179,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
         </button>
       </div>
       {!touch && !reducedMotion && <div className={`mouse-hint ${hasMovedMouse ? 'fade-out' : ''}`}>Move the mouse over the card to tilt it</div>}
+      </div>
     </>
   );
 };

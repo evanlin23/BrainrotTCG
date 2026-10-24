@@ -525,8 +525,10 @@ def match(step, spec):
 
 
 def smoke_status(name, index, step, jobs):
-    """Whether step is smoke's last step and exactly the status step, the one step that runs always."""
-    return name == 'smoke' and index == len(jobs['smoke'].get('steps') or []) - 1 and match(step, SMOKE_STATUS)
+    """Whether step is exactly one of smoke's two closing steps, the only steps that run after a
+    failure: the trace upload second to last, on failure, then the status step last, always."""
+    last = len(jobs['smoke'].get('steps') or []) - 1 if name == 'smoke' else -1
+    return (index == last and match(step, SMOKE_STATUS)) or (index == last - 1 and match(step, SMOKE_TRACES))
 
 
 def cloudflare(spec):
@@ -617,14 +619,17 @@ RELEASE_GATE = [
 ]
 DEPLOY = [TIP, {'uses': 'actions/deploy-pages'}]
 # Read-only checks of production once publish and deploy are done (scripts/production-smoke.ts): no
-# secrets, and every check's failure fails the run. Only the last step is conditional, and only to run
-# always: it reads both checks' outcomes and says whether the release is known-good, or what to go
-# back to.
+# secrets, and every check's failure fails the run. Only the last two steps are conditional: on a
+# failure, the browser checks' traces are uploaded for 7 days (production gets no Access token, so
+# they hold no secret header; staging-checks, which sends one, uploads nothing); then, always, the
+# last reads both checks' outcomes and says whether the release is known-good, or what to go back to.
 SMOKE_ENV = {'SITE_URL': '${{ needs.site.outputs.url }}', 'HOST': '${{ needs.site.outputs.host }}',
              'OLD_URL': 'https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/'}
 SMOKE_STATUS = {'if': 'always()', 'env': {**SMOKE_ENV, 'GH_TOKEN': '${{ github.token }}',
                                           'HTTP_OUTCOME': '${{ steps.http.outcome }}', 'BROWSER_OUTCOME': '${{ steps.browser.outcome }}'},
                 'run': 'npx tsx scripts/production-smoke.ts --status >> "$GITHUB_STEP_SUMMARY"'}
+SMOKE_TRACES = {'if': 'failure()', 'uses': 'actions/upload-artifact',
+                'with': {'name': 'playwright-production-smoke', 'path': 'test-results/production/', 'retention-days': 7}}
 SMOKE = [
     {'uses': 'actions/checkout', 'with': {'persist-credentials': False}},
     {'uses': 'actions/setup-node', 'with': {'node-version': 22, 'cache': 'npm'}},
@@ -633,6 +638,7 @@ SMOKE = [
     {'run': 'npx playwright install --with-deps chromium'},
     {'id': 'browser', 'env': {'PRODUCTION_URL': '${{ needs.site.outputs.url }}'},
      'run': 'npx playwright test -c playwright.production.config.ts'},
+    SMOKE_TRACES,
     SMOKE_STATUS,
 ]
 # Only one deploy of main runs at a time, and a newer push to main cancels the older run: with GUARD
@@ -755,8 +761,8 @@ def check_deploy(workflow):
     smoke = jobs['smoke'].get('steps') or []
     if len(smoke) != len(SMOKE) or not all(match(step, spec) for step, spec in zip(smoke, SMOKE)):
         problems.append('deploy.yml: smoke must check out without the token, install, run scripts/production-smoke.ts '
-                        'against the site address, then run playwright.production.config.ts there, then always record '
-                        'the release status from both outcomes (production-smoke.ts --status)')
+                        'against the site address, then run playwright.production.config.ts there, upload its traces only '
+                        'on failure for 7 days, then always record the release status from both outcomes (production-smoke.ts --status)')
     return problems
 
 

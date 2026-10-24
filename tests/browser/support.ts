@@ -68,6 +68,8 @@ export interface MonitorOptions {
    * one in the environment, which is null unless STAGING_URL and the token are set.
    */
   access?: StagingAccess | null;
+  /** How long one guard fetch may run before it fails as a timeout (GUARD_FETCH_TIMEOUT unless given). */
+  fetchTimeout?: number;
 }
 
 export type MonitorErrors = string[] & {
@@ -95,7 +97,30 @@ export type MonitorErrors = string[] & {
 };
 
 const MAX_BLOCKED_ENTRIES = 40;
+/**
+ * The guard fetches every monitored request itself (route.fetch, in Playwright's Node client), and
+ * Playwright gives that fetch no deadline in a test (actionTimeout is 0) while Node sets none on the
+ * socket. A connection or response that stalls on the way to the site then holds the request until
+ * the test runs out: a font asked for before load held page.reload at "navigated to" for the whole
+ * journey on production (deploy run 40051793039). Bounded, the stall fails as a named timeout well
+ * inside a journey's waits. A healthy fetch from the local preview or Cloudflare takes milliseconds.
+ */
+const GUARD_FETCH_TIMEOUT = 15_000;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+/**
+ * The connection header the guard sends with a fetch to `url`. On the local preview it asks for one
+ * connection per request: the preview closes an idle kept-alive socket, and while the machine is busy
+ * the guard could reuse one just as it closed, failing that request with ECONNRESET (an aborted chunk
+ * or favicon failed the test). A remote origin (production, staging) keeps the pool, so requests there
+ * don't each pay a fresh DNS, TCP and TLS handshake through Cloudflare.
+ */
+export function guardConnectionHeaders(url: string): Record<string, string> {
+  try {
+    return LOOPBACK_HOSTS.has(new URL(url).hostname) ? { connection: 'close' } : {};
+  } catch {
+    return {};
+  }
+}
 function originOf(urlString: string): string {
   try {
     return new URL(urlString).origin;
@@ -199,6 +224,7 @@ export async function monitor(
     failOnUnexpected = true,
     continueAllowed = false,
     access = stagingAccess(),
+    fetchTimeout = GUARD_FETCH_TIMEOUT,
   } = options;
 
   const errors = [] as unknown as MonitorErrors;
@@ -503,9 +529,8 @@ export async function monitor(
         await tried('abort', () => route.abort());
       };
       try {
-        // One connection per request: a kept-alive socket the preview server closes while the machine is
-        // busy fails the next request with ECONNRESET, which aborted a chunk or the favicon and failed the test.
-        const fetchOptions = { headers: { ...request.headers(), connection: 'close', ...token } };
+        // Chosen by the request's origin, which the staging redirect hops below keep.
+        const fetchOptions = { headers: { ...request.headers(), ...guardConnectionHeaders(url), ...token }, timeout: fetchTimeout };
         response = await route.fetch({ maxRedirects: 0, ...fetchOptions });
         // The browser sends the hop after a fulfilled redirect itself, past this handler, so on
         // staging it would go without the token: follow staging's redirects to its own origin here.

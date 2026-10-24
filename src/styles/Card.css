@@ -174,9 +174,32 @@
     background: linear-gradient(var(--black), var(--black)) padding-box, var(--foil) border-box;
 }
 
+/*
+ * The first-card cue (DESIGN.md Flow 3): the first card of a new player's first pack lifts its back toward the
+ * viewer once, as if to flip, then settles. Only transform moves (the back's own, so the flip's spring on
+ * .card-inner is untouched), and it plays once: no iteration count to loop. A legendary or brainrot tell keeps
+ * its pulse alongside it. Under reduced motion the hint under the card is the cue and nothing here runs.
+ */
+.card-wrapper.lift-cue .card-back {
+    animation: first-card-lift 1.1s ease-in-out var(--dur-slow) 1;
+}
+
+.card-wrapper.lift-cue:is(.tell-legendary, .tell-brainrot) .card-back {
+    animation: first-card-lift 1.1s ease-in-out var(--dur-slow) 1, tellPulse var(--dur-pulse) ease-in-out infinite;
+}
+
+@keyframes first-card-lift {
+    0%, 100% { transform: none; }
+    45%, 60% { transform: translateY(-4%) scale(1.05); }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .card-back-image,
     .card-wrapper:is(.tell-legendary, .tell-brainrot) .card-back {
+        animation: none;
+    }
+
+    .card-wrapper.lift-cue .card-back {
         animation: none;
     }
 }
