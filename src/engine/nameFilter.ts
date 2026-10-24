@@ -184,9 +184,9 @@ const ALLOWED_PHRASE_RE = new RegExp(
 
 /**
  * A word with allowed words cut out. Where the cut kept an allowed word's first or last letter (as
- * `keep` says), `kept[i]` is the allowed word the letter at i stands for.
+ * `keep` says), `kept.get(i)` is the allowed word the letter at i stands for.
  */
-type Cut = { text: string; keep: Keep; kept: (string | undefined)[] };
+type Cut = { text: string; keep: Keep; kept: Map<number, string> };
 
 /** A word as `readings` gives it ("-" for each run of non-letters) without its non-letters. */
 const letters = (word: string) => word.replace(/-/g, '');
@@ -202,26 +202,26 @@ const allowedCuts = (word: string): Cut[] => {
   const cuts: Cut[] = [];
   for (const { keep, re } of ALLOWED_CUT_WAYS) {
     let text = keep === 'none' ? letters(word) : word;
-    let kept: (string | undefined)[] = [];
+    let kept = new Map<number, string>();
     // Each cut is shorter than the last, so each way ends within the word's length.
     for (;;) {
       let next = '';
-      const nextKept: (string | undefined)[] = [];
+      const nextKept = new Map<number, string>();
       // Copies text[from, to), giving its first letter the allowed word a keep-last cut kept it for.
       let carry: string | undefined;
       const copy = (from: number, to: number) => {
         if (from >= to) return;
+        for (const [at, a] of kept) if (at >= from && at < to) nextKept.set(next.length + at - from, a);
+        if (carry) nextKept.set(next.length, carry);
         next += text.slice(from, to);
-        for (let i = from; i < to; i++) nextKept.push(i === from && carry ? carry : kept[i]);
       };
       let i = 0;
       re.lastIndex = 0;
       for (let m = re.exec(text); m; m = re.exec(text)) {
         const a = ALLOWED_LONGEST[m.findIndex((group, g) => g > 0 && group !== undefined) - 1];
-        // A keep-first cut keeps the letter before the match, unless an earlier match took it.
-        const keepsFirst = keep === 'first' && i < m.index;
         copy(i, m.index);
-        if (keepsFirst) nextKept[nextKept.length - 1] = a;
+        // A keep-first cut keeps the letter before the match, unless an earlier match took it.
+        if (keep === 'first' && i < m.index) nextKept.set(next.length - 1, a);
         carry = keep === 'last' ? a : undefined;
         i = m.index + m[0].length;
       }
@@ -245,7 +245,7 @@ const strongNotExcused = (word: string, cut?: Cut, { terms, any, next, each } = 
   if (!any.test(word)) return false;
   const spans: [number, number][] = [];
   for (const a of ALLOWED_FOLDED) for (let i = word.indexOf(a); i >= 0; i = word.indexOf(a, i + 1)) spans.push([i, i + a.length]);
-  if (!spans.length && !cut?.kept.some(Boolean)) return true;
+  if (!spans.length && !cut?.kept.size) return true;
   // Each position where some term matches, in order.
   for (let start = 0; ; start++) {
     next.lastIndex = start;
@@ -258,7 +258,7 @@ const strongNotExcused = (word: string, cut?: Cut, { terms, any, next, each } = 
     for (const [t, re] of each.entries()) {
       re.lastIndex = start;
       if (!re.test(word) || re.lastIndex <= end) continue;
-      const keptBy = cut?.kept[cut.keep === 'first' ? start : re.lastIndex - 1];
+      const keptBy = cut?.kept.get(cut.keep === 'first' ? start : re.lastIndex - 1);
       if (keptBy === undefined || !ALLOWED_HOLDS.get(keptBy)?.has(terms[t])) return true;
     }
   }
@@ -271,9 +271,9 @@ const strongNotExcused = (word: string, cut?: Cut, { terms, any, next, each } = 
  * joins "p" and "h" also reads "f", as the fold does, for the terms spelled with "ph" only:
  * "zoopNAZIRhil" reads "zoophil", "PopNazirHuckel" doesn't read "fuck".
  */
-const strongOutsideAllowed = (word: string): boolean =>
+const strongOutsideAllowed = (word: string, cuts: readonly Cut[]): boolean =>
   strongNotExcused(letters(word)) ||
-  allowedCuts(word).some(
+  cuts.some(
     (cut) => strongNotExcused(cut.text, cut) || (cut.text.includes('ph') && strongNotExcused(cut.text.replace(/ph/g, 'f'), undefined, PH_TERMS)),
   );
 
@@ -329,13 +329,19 @@ const readings = (name: string) => {
 export const isNameAllowed = (name: string): boolean => {
   if (NUMBER_RE.test(plain(name))) return false;
   const { words, pieces, whole } = readings(name);
-  for (const w of words) if (strongOutsideAllowed(w)) return false;
+  // Most words are pieces too, so each is cut once.
+  const cutsOf = new Map<string, Cut[]>();
+  const cuts = (w: string) => {
+    let c = cutsOf.get(w);
+    if (!c) cutsOf.set(w, (c = allowedCuts(w)));
+    return c;
+  };
+  for (const w of words) if (strongOutsideAllowed(w, cuts(w))) return false;
   for (const p of pieces) {
-    const cuts = allowedCuts(p);
-    if (wholeTerm(letters(p)) || cuts.some(({ text }) => wholeTerm(text) || PHRASE_RE.test(text))) return false;
+    if (wholeTerm(letters(p)) || cuts(p).some(({ text }) => wholeTerm(text) || PHRASE_RE.test(text))) return false;
   }
   // The whole name runs its words together, so its cuts also take out an allowed word between them ("white NAZIR power").
-  return !whole.some((w) => PHRASE_RE.test(letters(w)) || allowedCuts(w).some(({ text }) => PHRASE_RE.test(text)));
+  return !whole.some((w) => PHRASE_RE.test(letters(w)) || cuts(w).some(({ text }) => PHRASE_RE.test(text)));
 };
 
 /** The name to show other players: the normalized name, ANONYMOUS_NAME if blank, NAME_PLACEHOLDER if blocked. */
