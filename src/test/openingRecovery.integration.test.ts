@@ -121,7 +121,7 @@ it('says on return that an interrupted pack was kept, once, with a way to its ca
   expect(document.querySelector('.toast-region')?.getAttribute('role')).toBe('status');
   // It does not cover or replace the pack to open, and a tap takes the player to the cards.
   expect(document.querySelector('[data-pack-open]')).not.toBeNull();
-  await app.interact(() => document.querySelector<HTMLButtonElement>('.toast')!.click());
+  await app.interact(() => document.querySelector<HTMLButtonElement>('.toast-open')!.click());
   await app.until('the toast opened Cards and left', () => {
     expect(location.hash).toContain('cards');
     expect(toastTexts()).toEqual([]);
@@ -221,7 +221,8 @@ it('refuses a late pack opening when another tab imports player B during mining,
     expect(document.querySelector('.pack-retry-button')?.textContent).toBe('Reload and try again');
   });
 
-  expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  // The pack states the refusal; it is not logged as a failure (#1139).
+  expect(app.takeErrors(/^Could not open pack/)).toEqual([]);
   expect(document.querySelector('.reveal-container')).toBeNull();
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
@@ -260,7 +261,7 @@ it('refuses a late pack opening when another tab imports a backup of the same pl
     expect(document.querySelector('.pack-retry-button')?.textContent).toBe('Reload and try again');
   });
 
-  expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  expect(app.takeErrors(/^Could not open pack/)).toEqual([]);
   expect(document.querySelector('.reveal-container')).toBeNull();
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
@@ -295,7 +296,7 @@ it('refuses a tear after another tab imported player B, even before this tab hea
       'Your save changed in another tab, so this pack stayed sealed. Reload to keep opening packs here.',
     );
   });
-  expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  expect(app.takeErrors(/^Could not open pack/)).toEqual([]);
   expect(document.querySelector('.reveal-container')).toBeNull();
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(read<{ secretKey: string; nextNonce: number }>(PLAYER_KEY)).toMatchObject({ secretKey: '02'.repeat(32), nextNonce: 0 });

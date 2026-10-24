@@ -40,6 +40,11 @@
   height: 100%;
 }
 
+/* Still loading (SharePreviewSheet): the base img rule would otherwise override the hidden attribute. */
+.share-preview img[hidden] {
+  display: none;
+}
+
 .share-preview-wait {
   display: flex;
   flex-direction: column;

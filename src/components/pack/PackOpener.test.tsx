@@ -290,8 +290,8 @@ describe('the controls under the pack (#312)', () => {
     expect(openPack).toHaveBeenCalledTimes(2);
   });
 
-  it('says the save changed and stays sealed when openPack rejects with StaleSaveError', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('says the save changed and stays sealed when openPack rejects with StaleSaveError, and logs no error', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(openPack).mockRejectedValueOnce(new StaleSaveError());
     await render(false);
     openButton()!.focus();
@@ -301,6 +301,8 @@ describe('the controls under the pack (#312)', () => {
     expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
     expect(announced()).toBe(REFUSAL_COPY.blocked.message);
     expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    // A refusal the pack states is not a fault: the multi-tab browser specs fail on any console error.
+    expect(logged).not.toHaveBeenCalled();
     await act(async () => { vi.advanceTimersByTime(100); });
   });
 
@@ -851,10 +853,39 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
     expect(onArrive).toHaveBeenCalledOnce();
   });
 
+  it('takes no presses on the first fall until it reaches its place', async () => {
+    // Framer finishes each animation in its first frame, so the fall's completion needs no clock.
+    MotionGlobalConfig.skipAnimations = true;
+    try {
+      show();
+      expect(stage().hasAttribute('data-falling')).toBe(true);
+      await vi.waitFor(() => expect(stage().hasAttribute('data-falling')).toBe(false));
+    } finally {
+      MotionGlobalConfig.skipAnimations = false;
+    }
+  });
+
+  it('takes presses at once on a return when the pack was torn mid-fall', async () => {
+    show();
+    expect(stage().hasAttribute('data-falling')).toBe(true);
+    // Torn before the fall ends, the fall never completes: its stage flies off instead.
+    await tearIntoReveal();
+    escape();
+    expect(stage().hasAttribute('data-falling')).toBe(false);
+    expect(stage().style.transform).toBe('translateY(24px)');
+  });
+
+  it('takes presses from the first frame when the device asks for less motion, as it is in its place at once', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }));
+    show();
+    expect(stage().hasAttribute('data-falling')).toBe(false);
+  });
+
   it('rises in from the first stage of an opener the page has already seen the pack arrive in', () => {
     const onArrive = vi.fn();
     show({ arrived: true, onArrive });
     expect(stage().style.transform).toBe('translateY(24px)');
+    expect(stage().hasAttribute('data-falling')).toBe(false);
     expect(onArrive).not.toHaveBeenCalled();
   });
 

@@ -686,7 +686,7 @@ export async function expectStill(target: Locator, message: string) {
 
 /**
  * Waits until the pack stage has finished dropping in. It falls from above the header on a spring and, below 900px,
- * paints and hit-tests over the Settings gear on the way, so a tap in that window lands on the stage instead.
+ * paints over the Settings gear on the way; it takes no presses until it first reaches its place (PackOpener's data-falling).
  */
 export async function expectPackDropped(page: Page) {
   await expect.poll(() => page.locator('.pack-display').evaluate((el) => {

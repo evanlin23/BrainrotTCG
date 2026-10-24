@@ -93,6 +93,19 @@ describe('warmUpFirstPack', () => {
     expect(images()).toEqual(['/card_back.webp']);
   });
 
+  it('runs any task the same way: after the pack art settles and the page is idle, once', async () => {
+    fetched();
+    const { warmUpForPack } = await import('./warmUp');
+    const task = vi.fn();
+    warmUpForPack(task);
+    vi.runAllTimers();
+    expect(task).not.toHaveBeenCalled();
+    await load();
+    expect(task).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(task).toHaveBeenCalledOnce();
+  });
+
   it('fetches the card back once the page is idle, not before', async () => {
     const images = fetched();
     const { warmUpFirstPack } = await import('./warmUp');

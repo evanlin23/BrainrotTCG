@@ -477,12 +477,14 @@ PERMISSIONS = {
     'build': {'contents': 'read', 'issues': 'read'},
     'stage': {'contents': 'read'},
     'staging-checks': {'contents': 'read'},
+    'release-gate': {'contents': 'read'},
     'publish': {'contents': 'read'},
     'deploy': {'pages': 'write', 'id-token': 'write'},
     'smoke': {'contents': 'read', 'actions': 'read'},  # actions: read to name the last passing deploy
 }
 NEEDS = {'site': {'independent-verifier'}, 'build': {'site'}, 'stage': {'site', 'build'},
-         'staging-checks': {'site', 'build', 'stage'}, 'publish': {'site', 'build', 'stage', 'staging-checks'},
+         'staging-checks': {'site', 'build', 'stage'}, 'release-gate': {'site'},
+         'publish': {'site', 'build', 'stage', 'staging-checks', 'release-gate'},
          'deploy': {'build', 'publish'}, 'smoke': {'site', 'deploy'}}
 # The production smoke checks are bounded: no other job sets a timeout.
 TIMEOUTS = {'smoke': 15}
@@ -602,6 +604,16 @@ STAGING_CHECKS = [
     staging({'env': {'URL': '${{ needs.site.outputs.staging_url }}', **ACCESS_ENV}, 'run': deployed_run('--once')}),
     staging({'env': {'STAGING_URL': '${{ needs.site.outputs.staging_url }}', **ACCESS_ENV},
              'run': 'npx playwright test -c playwright.staging.config.ts'}),
+]
+# The release-blocker decision (scripts/release-blockers.ts, #706) for this exact commit, against
+# main's tip fetched in the step itself, refusing a commit that isn't on main. Full history, so a
+# resolved blocker's fix commit can be found. publish needs it, and deploy needs publish.
+RELEASE_GATE = [
+    {'uses': 'actions/checkout', 'with': {'persist-credentials': False, 'fetch-depth': 0}},
+    {'uses': 'actions/setup-node', 'with': {'node-version': 22, 'cache': 'npm'}},
+    {'run': 'npm ci'},
+    {'run': ('git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main\n'
+             'npx tsx scripts/release-blockers.ts --candidate "$GITHUB_SHA" --base origin/main --require-on-base\n')},
 ]
 DEPLOY = [TIP, {'uses': 'actions/deploy-pages'}]
 # Read-only checks of production once publish and deploy are done (scripts/production-smoke.ts): no
@@ -734,6 +746,10 @@ def check_deploy(workflow):
     if len(checks) != len(STAGING_CHECKS) or not all(match(step, spec) for step, spec in zip(checks, STAGING_CHECKS)):
         problems.append('deploy.yml: staging-checks must, with staging on, check staging still serves this build, then run '
                         'playwright.staging.config.ts against staging with the sealed files as ./dist, each with the Access token')
+    gate = jobs['release-gate'].get('steps') or []
+    if len(gate) != len(RELEASE_GATE) or not all(match(step, spec) for step, spec in zip(gate, RELEASE_GATE)):
+        problems.append('deploy.yml: release-gate must check out full history without the token, install, fetch main, '
+                        'then run scripts/release-blockers.ts on this commit against main with --require-on-base')
     if len(deploy) != len(DEPLOY) or not all(match(step, spec) for step, spec in zip(deploy, DEPLOY)):
         problems.append('deploy.yml: deploy must only require the tip of main, then deploy Pages')
     smoke = jobs['smoke'].get('steps') or []
