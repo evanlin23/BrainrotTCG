@@ -313,6 +313,38 @@ describe('share preview actions', () => {
     }
   });
 
+  it('shows the preview only once its image has loaded, keeping the drawing note up until then', async () => {
+    await open();
+    const img = document.querySelector<HTMLImageElement>('.share-preview img')!;
+    expect(img.hidden).toBe(true);
+    expect(document.querySelector('.share-preview-wait')?.textContent).toBe('Drawing the image…');
+    // The poster can be copied or saved while the preview loads.
+    expect(button('Save image').disabled).toBe(false);
+
+    await act(async () => img.dispatchEvent(new Event('load')));
+    expect(img.hidden).toBe(false);
+    expect(document.querySelector('.share-preview-wait')).toBeNull();
+  });
+
+  it('offers Retry when the drawn image cannot be shown, and shows the redrawn one', async () => {
+    const makeImage = vi.fn(async () => poster);
+    await open({ makeImage });
+    await act(async () => document.querySelector('.share-preview img')!.dispatchEvent(new Event('error')));
+    expect(document.querySelector('.share-preview img')).toBeNull();
+    expect(document.querySelector('.share-preview-wait')?.textContent).toContain("Couldn't draw the image");
+    // Nothing broken to copy or save.
+    expect(button('Save image').disabled).toBe(true);
+
+    await act(async () => document.querySelector<HTMLButtonElement>('.share-retry-btn')!.click());
+    expect(makeImage).toHaveBeenCalledTimes(2);
+    const img = document.querySelector<HTMLImageElement>('.share-preview img')!;
+    expect(img.hidden).toBe(true);
+    await act(async () => img.dispatchEvent(new Event('load')));
+    expect(img.hidden).toBe(false);
+    expect(document.querySelector('.share-preview-wait')).toBeNull();
+    expect(button('Save image').disabled).toBe(false);
+  });
+
   it('shows actionable failure with Retry when draw fails, preserving text/link sharing, and recovers on Retry', async () => {
     let shouldFail = true;
     const makeImage = vi.fn(async () => {
