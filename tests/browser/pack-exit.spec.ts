@@ -3,6 +3,8 @@ import { monitor, snapshot, untilIdle } from './support';
 
 test('browser Back mid-reveal returns to the packs screen, keeps the pack and stays on the site', async ({ page, baseURL }) => {
   test.setTimeout(60000);
+  // The page's clock is Playwright's, running, so it can be held while the notice is checked below.
+  await page.clock.install();
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
@@ -20,6 +22,10 @@ test('browser Back mid-reveal returns to the packs screen, keeps the pack and st
     // One entry per pack: a second pack replaces the first's, it doesn't stack on it.
     expect(await page.evaluate(() => history.length)).toBe(length + 1);
 
+    // The notice leaves by its own timer, TOAST_MS after it shows, and the next toast takes its place. The
+    // checks below can take longer than that on a loaded machine, so the page's clock stops before Back
+    // and runs again once the notice has been seen.
+    await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 1000));
     await page.goBack();
     await expect(packShell).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.card-reveal-area')).toHaveCount(0);
@@ -28,6 +34,7 @@ test('browser Back mid-reveal returns to the packs screen, keeps the pack and st
     expect(page.url(), 'Back left the page or changed its address').toBe(start);
     await expect.poll(async () => (await snapshot(page)).stats?.packsOpened).toBe(pack);
     await expect(page.locator('.toast').filter({ hasText: 'Pack kept' })).toBeVisible();
+    await page.clock.resume();
   }
 
   // Forward onto the old entry reopens nothing.
