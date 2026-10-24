@@ -152,6 +152,11 @@ export interface HallOfFameEntry extends RankableEntry {
    */
   issue: number;
   githubUser: string;
+  /**
+   * 'relay' when the relay inbox's bot filed the issue (`githubUser` is then 'nostr'), else 'github'.
+   * The page reads provenance from this, so a GitHub user named `nostr` isn't taken for the relay.
+   */
+  submittedVia: 'relay' | 'github';
   submittedAt: string;
   verifiedAt: string;
   /** Set when no receipt was recorded (markers before receipts were): submittedAt is verifiedAt. */
@@ -202,6 +207,7 @@ const toEntry = (pull: VerifiedPull, proof: string, issue: Issue, time: string):
   issue: issue.number,
   // Entries the inbox filed came from Nostr, not from this GitHub account.
   githubUser: issue.user?.login === BOT ? 'nostr' : (issue.user?.login ?? 'unknown'),
+  submittedVia: issue.user?.login === BOT ? 'relay' : 'github',
   submittedAt: time,
   verifiedAt: time,
 });
