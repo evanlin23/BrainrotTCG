@@ -814,13 +814,20 @@ describe('Where it started', () => {
       ENTRY,
       { ...ENTRY, id: 'pull-2', proof: 'proof-2', issue: 8, score: 5_000, githubUser: 'nostr' },
       { ...ENTRY, id: 'pull-3', proof: 'proof-3', issue: 9, score: 1_000, githubUser: 'unknown' },
+      // Published with submittedVia: a GitHub user named nostr isn't taken for the relay.
+      { ...ENTRY, id: 'pull-4', proof: 'proof-4', issue: 10, score: 500, githubUser: 'nostr', submittedVia: 'github' },
+      { ...ENTRY, id: 'pull-5', proof: 'proof-5', issue: 11, score: 400, githubUser: 'nostr', submittedVia: 'relay' },
     ]);
     await act(async () => root.render(<HallOfFamePage />));
-    expect([...document.querySelectorAll('.hof-meta')].map((el) => el.textContent)).toEqual(['Original · via GitHub', 'Original · via relay', 'Original']);
+    expect([...document.querySelectorAll('.hof-meta')].map((el) => el.textContent)).toEqual([
+      'Original · via GitHub', 'Original · via relay', 'Original', 'Original · via GitHub', 'Original · via relay',
+    ]);
     expect(rows().map((a) => a.getAttribute('aria-label'))).toEqual([
       'Number 1: Full House by Alice in Original, score 12345, via GitHub',
       'Number 2: Full House by Alice in Original, score 5000, via relay',
       'Number 3: Full House by Alice in Original, score 1000',
+      'Number 4: Full House by Alice in Original, score 500, via GitHub',
+      'Number 5: Full House by Alice in Original, score 400, via relay',
     ]);
     expect(container.querySelector('.hof-entry a')).toBeNull();
   });
@@ -880,6 +887,16 @@ describe('Past days and the last update', () => {
     await select('All-time');
     expect(rows()).toHaveLength(1);
     expect(opener()?.getAttribute('aria-haspopup')).toBe('dialog');
+  });
+
+  it('shows a blocked display name in a past day as Someone, never the name itself', async () => {
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    loadPublishedRankings.mockResolvedValue(RANKINGS);
+    loadPastMonth.mockResolvedValue([{ day: '2026-10-14', entries: [archived(1, 9_000, '2026-10-14', 'xXfuckXx')] }]);
+    await act(async () => root.render(<HallOfFamePage />));
+    await open();
+    expect(pastRows().map((a) => a.getAttribute('aria-label'))).toEqual(['Number 1: Full House by Someone in Genesis, score 9000, issue 101 on GitHub']);
+    expect(dialog()!.textContent).not.toContain('xXfuckXx');
   });
 
   it("opens the newest closed day of the newest month, and moves between days and months", async () => {

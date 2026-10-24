@@ -16,6 +16,8 @@ export interface HallOfFameEntry extends RankableEntry {
   cards: { cardId: string; isHolo: boolean; finish?: Finish | null; misprint?: boolean }[];
   issue: number;
   githubUser: string;
+  /** How it was filed (see `provenanceText`); missing from snapshots published before it was. */
+  submittedVia?: 'relay' | 'github';
   /** On the relays and checked on this device, but not filed yet (see `loadPending`). */
   pending?: boolean;
   /** A pending entry that this device sent itself: the only one the page calls "Just submitted". */
@@ -23,15 +25,18 @@ export interface HallOfFameEntry extends RankableEntry {
 }
 
 /**
- * Where an entry was submitted from, in plain words for the row's muted line. `githubUser` is the
- * issue author as the deploy recorded it, and 'nostr' marks the relay inbox's own bot filing the
- * issue: neither says who the player is, so this never names a login or calls anyone a verified
- * GitHub user. A real GitHub user named `nostr` collides with the relay marker (the build passes
- * the login through as is); that is fixed in a later slice. Returns null for a missing, 'unknown' or malformed value, and the row then says nothing.
+ * Where an entry was submitted from, in plain words for the row's muted line. `submittedVia` is what
+ * the deploy recorded: 'relay' for a pull the relay inbox's own bot filed, 'github' for one filed from
+ * a GitHub account, whose issue author is `githubUser`. Neither says who the player is, so this never
+ * names a login or calls anyone a verified GitHub user. Snapshots from before `submittedVia` was
+ * published mark relay entries with the `githubUser` 'nostr' instead, and are read that way; a newer
+ * entry is read only by its `submittedVia`, so a real GitHub user named `nostr` reads "via GitHub".
+ * Returns null for a missing, 'unknown' or malformed value, and the row then says nothing.
  */
-export const provenanceText = (githubUser: unknown): string | null => {
+export const provenanceText = ({ githubUser, submittedVia }: { githubUser?: unknown; submittedVia?: unknown }): string | null => {
+  if (submittedVia === 'relay' || (submittedVia === undefined && githubUser === 'nostr')) return 'via relay';
+  if (submittedVia !== undefined && submittedVia !== 'github') return null;
   if (typeof githubUser !== 'string') return null;
-  if (githubUser === 'nostr') return 'via relay';
   // A GitHub login: letters, digits and single hyphens, up to 39 characters.
   return /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(githubUser) && githubUser !== 'unknown' ? 'via GitHub' : null;
 };
@@ -183,6 +188,7 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
         cards: pull.cards.map((c) => ({ cardId: c.cardId, isHolo: c.isHolo, ...(c.finish ? { finish: c.finish } : {}), ...(c.misprint ? { misprint: true } : {}) })),
         issue: -(i + 1), // not filed yet; negative so it never clashes with a real issue
         githubUser: 'nostr',
+        submittedVia: 'relay',
         // The event's own time is whatever the sender set, so it can't place this ahead of anything
         // already filed: it counts as now.
         submittedAt: new Date().toISOString(),

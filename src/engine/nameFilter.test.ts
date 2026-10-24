@@ -90,6 +90,48 @@ describe('isNameAllowed', () => {
     expect(allowed(['Nazir Nazia', 'Booboo Booby', 'PussycatPussyfoot', 'Moby Dick!', 'Moby-Dick', 'Moby Dick 2'])).toEqual([]);
   });
 
+  it('blocks a blocked word wrapped around an allowed word', () => {
+    expect(
+      blocked(['fuNAZIRck', 'funazirck', 'fupussycatck', 'FuPussycatCk', 'cuScunthorpent', 'biMilfordtch', 'nigNazimger', 'fuNazirNazimck']),
+    ).toEqual([]);
+    expect(
+      allowed([
+        'Nazira', 'Benazir Bhutto', 'Nazim Hikmet', 'Milford Sound', 'Milfordshire', 'Pussycat Dolls', 'Thorny Rose',
+        'Scunthorpe United', 'Booboo Bear', 'Boobytrap', 'Sniggering', 'Penistone FC', 'Pussywillow Lane', 'Nazir Ahmed',
+      ]),
+    ).toEqual([]);
+  });
+
+  it('blocks a WHOLE term wrapped around an allowed word, but not an ordinary word holding one', () => {
+    expect(
+      blocked(['seNAZIRx', 'diNAZIRck', 'cuNAZIRm', 'tiNAZIRts', 'coNAZIRck', 'SeNazirNazimx', 'Big diNAZIRck', 'seNAZIRxy']),
+    ).toEqual([]);
+    expect(
+      allowed([
+        'Sussex', 'Dickens', 'Cumberland', 'Titsworth', 'Dickensian', 'Sexton Nazir', 'Nazir Dickens', 'Cumberland Nazim',
+        'Nazirs', 'Benazirs', 'Nazims', 'Milfords', 'Sniggers', 'Scunthorpes', 'Booboos', 'Thornycroft',
+      ]),
+    ).toEqual([]);
+    // A cut that leaves an ALLOWED_WHOLE word ("rappe") passes.
+    expect(allowed(['rapnazirpe'])).toEqual([]);
+  });
+
+  it('blocks a PHRASE wrapped around an allowed word, in one word or across words', () => {
+    expect(
+      blocked([
+        'whitepNAZIRower', 'white NAZIR power', 'siegNAZIRheil', 'killyourNAZIRself', 'chingNAZIRchong', 'whiteBOOBYpride',
+        'porchTHORNYmonkey', 'white.NAZIR.power', 'xXwhitepNAZIRowerXx',
+      ]),
+    ).toEqual([]);
+    expect(
+      allowed([
+        'Nazir White', 'White Nazir', 'Benazir Whiteside', 'White Booby Trap', 'White Thorny Rose', 'Porch Thorny',
+        'Ching Nazir', 'Siegfried Nazir', 'Kill Nazir', 'Nazim Powers', 'Whitney Nazir Powell', 'Siegel Nazir Heilman',
+        'Chingford Nazim',
+      ]),
+    ).toEqual([]);
+  });
+
   it('allows brainrot names, gamer tags and mild swearing', () => {
     expect(
       allowed([
