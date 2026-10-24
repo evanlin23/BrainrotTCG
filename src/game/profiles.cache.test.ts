@@ -329,11 +329,12 @@ describe('saved packs read on demand', () => {
     const player = setUp([RIGHT_NOW]);
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     data.set(PENDING, player.publicKeyHex);
-    resumeReopening();
+    const resumed = resumeReopening();
     await vi.waitFor(() => expect(reads).toHaveLength(1));
     reads[0].fail(new Error('disk'));
     await vi.waitFor(() => expect(myPackCacheState()).toBe('failed'));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The resume has finished (it leaves the run pending) before anything is checked.
+    await resumed;
     expect(reopenStatus()).toBeNull();
     expect(data.get(PENDING)).toBe(player.publicKeyHex);
     expect(errors).toHaveBeenCalledTimes(1);

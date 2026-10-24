@@ -37,11 +37,22 @@ const mount = (url: string, state: unknown = null) => {
     root.render(<Probe />);
   });
 };
-/** jsdom delivers history traversal and hash navigation a task later. */
+/**
+ * jsdom delivers history traversal and hash navigation a task later: popstate, then hashchange when the
+ * hash differs, back to back. Resolves once the next of them has fired.
+ */
+const nextNavigation = () => act(() => new Promise<void>((resolve) => {
+  const done = () => {
+    window.removeEventListener('popstate', done);
+    window.removeEventListener('hashchange', done);
+    resolve();
+  };
+  window.addEventListener('popstate', done);
+  window.addEventListener('hashchange', done);
+}));
+/** Waits for the one navigation the condition needs (the hook's own listeners run first), unless it already holds. */
 const settle = async (check: () => boolean) => {
-  for (let i = 0; i < 50 && !check(); i += 1) {
-    await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
-  }
+  if (!check()) await nextNavigation();
   expect(check()).toBe(true);
 };
 
