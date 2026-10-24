@@ -1808,5 +1808,5 @@ describe('running as a script', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 });

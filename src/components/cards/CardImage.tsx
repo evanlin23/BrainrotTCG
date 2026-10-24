@@ -58,9 +58,14 @@ interface ImageStatus {
   rendered?: string;
   /** The displayed URL whose load event has arrived. */
   loaded?: string;
+  /** The URL whose pixels are decoded (or whose decode was given up on), so the face may swap in. */
+  decoded?: string;
   /** The retry round the image failed in; a later round retries it. */
   failedIn?: number;
 }
+
+/** The longest loaded art waits for its decode before it shows anyway. */
+const DECODE_WAIT_MS = 1000;
 
 /**
  * Keep the same img element and existing holo/misprint layers, changing only its printed frame. The
@@ -87,7 +92,7 @@ const CardImage = ({
   const needsRender = Boolean(finish) && !thumb && !blocked;
   const shown = blocked ? undefined : thumb ?? (needsRender ? status.rendered : src);
   const failed = status.failedIn !== undefined;
-  const state = blocked ? 'blocked' : failed ? 'failed' : !shown ? 'rendering' : status.loaded === shown ? 'ready' : 'loading';
+  const state = blocked ? 'blocked' : failed ? 'failed' : !shown ? 'rendering' : status.decoded === shown ? 'ready' : 'loading';
 
   useEffect(() => {
     if (!finish || !needsRender) return;
@@ -113,13 +118,35 @@ const CardImage = ({
 
   const imageRef = useRef<HTMLImageElement>(null);
   // A fresh status for a URL the img already shows (a card without a finish switching between its
-  // thumbnail and full-size view keeps the same src) gets no new load event: take the load it had.
+  // thumbnail and full-size view keeps the same src) gets no new load event: take the load it had, and
+  // the decode, so no loading frame paints in between.
   useLayoutEffect(() => {
     const img = imageRef.current;
-    if (state === 'loading' && img?.complete && img.naturalWidth > 0 && img.getAttribute('src') === shown) update({ loaded: shown });
+    if (state === 'loading' && status.loaded !== shown && img?.complete && img.naturalWidth > 0 && img.getAttribute('src') === shown) update({ loaded: shown, decoded: shown });
     // `update` only closes over `id`, which changes `state`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, shown]);
+  // Show the art only once it is decoded, so a slow device never swaps the placeholder for an empty
+  // frame (#762). A decode that fails, is missing or hangs past the wait still shows the loaded image,
+  // and moving on to another URL or unmounting cancels the wait.
+  useEffect(() => {
+    if (!shown || status.loaded !== shown || status.decoded === shown) return;
+    let waiting = true;
+    const show = () => {
+      if (!waiting) return;
+      waiting = false;
+      clearTimeout(timer);
+      update({ decoded: shown });
+    };
+    const timer = setTimeout(show, DECODE_WAIT_MS);
+    Promise.resolve(imageRef.current?.decode?.()).then(show, show);
+    return () => {
+      waiting = false;
+      clearTimeout(timer);
+    };
+    // `update` only closes over `id`, which is covered here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, shown, status.loaded, status.decoded]);
   const shimmering = state === 'rendering' || state === 'loading';
   useEffect(() => (shimmering && imageRef.current ? watchOffscreen(imageRef.current) : undefined), [shimmering]);
 

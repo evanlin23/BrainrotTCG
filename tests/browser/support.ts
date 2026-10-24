@@ -226,11 +226,21 @@ export async function monitor(
   page.context().on('requestfinished', (request) => pending.delete(request));
   page.context().on('requestfailed', (request) => pending.delete(request));
   /**
-   * The page or its context is closing. Playwright marks a context closing before it disposes the
-   * context's request client, which drops every fetch in flight and every fetched response not yet
-   * handed over, so a fetch, fulfill or abort refused after this is teardown, not the request failing.
+   * The request's own page, or the whole context, is closing. Playwright marks a context closing before
+   * it disposes the context's request client, which drops every fetch in flight and every fetched
+   * response not yet handed over, so a fetch, fulfill or abort refused after this is teardown, not the
+   * request failing. The route is context-wide, so another page closing excuses nothing: a refusal on
+   * a page that stays open is recorded. A request with no page (a service worker's) is excused only
+   * with its context.
    */
-  const closing = () => page.isClosed() || page.context().isClosed();
+  const closing = (request: Request) => {
+    if (page.context().isClosed()) return true;
+    try {
+      return request.frame().page().isClosed();
+    } catch {
+      return false;
+    }
+  };
   const secrets = Object.values(access?.headers ?? {});
 
   const base = new URL(baseURL);
@@ -472,8 +482,8 @@ export async function monitor(
       let response;
       let url = request.url();
       /**
-       * Answers the request with `answer`, or aborts it. A refusal while the page or context is closing
-       * is teardown: the request stays pending, which only a failing test reports. Any other refusal is
+       * Answers the request with `answer`, or aborts it. A refusal while the request's page or the context
+       * is closing is teardown: the request stays pending, which only a failing test reports. Any other refusal is
        * recorded, since the request it leaves paused holds the page's load with nothing saying why. Once
        * Playwright has refused a fulfill it refuses the abort too, so that request stays pending.
        */
@@ -484,7 +494,7 @@ export async function monitor(
             await call();
             return true;
           } catch (error) {
-            if (closing()) return true;
+            if (closing(request)) return true;
             noteFailed(sanitizeAttempt(method, url, `${step} failed: ${fetchFailureReason(error, secrets)}`));
             return false;
           }
@@ -509,7 +519,7 @@ export async function monitor(
       } catch (error) {
         // The page only sees net::ERR_FAILED, so name the request and why for teardown (#1046). A fetch
         // cut off because the page or context is closing is teardown itself, and stays pending.
-        if (closing()) return;
+        if (closing(request)) return;
         noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, secrets)}`));
         return end();
       }
@@ -574,13 +584,21 @@ export async function releaseTickets(page: Page) {
   await page.evaluate(() => (window as unknown as { __releaseTickets: () => void }).__releaseTickets());
 }
 
-/** Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. */
-export async function expectDecoded(images: Locator, count: number) {
-  await expect(images).toHaveCount(count);
+/**
+ * Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. A wait that
+ * runs out names what the image last showed: its state, whether it had loaded, its size and its address.
+ * Pass a longer `timeout` where the image waits on work the page does first, such as a full-size render.
+ */
+export async function expectDecoded(images: Locator, count: number, { timeout }: { timeout?: number } = {}) {
+  await expect(images).toHaveCount(count, { timeout });
   for (const image of await images.all()) {
-    await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
-      (element.dataset.state ?? 'ready') === 'ready' && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0,
-    )).toBe(true);
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => {
+      const state = element.dataset.state ?? 'ready';
+      if (state === 'ready' && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0) return 'ready';
+      const src = element.getAttribute('src') ?? '';
+      const address = src.startsWith('data:') ? 'data: placeholder' : src.startsWith('blob:') ? 'blob: render' : new URL(src, document.baseURI).pathname;
+      return `${state}, ${element.complete ? 'complete' : 'not complete'}, ${element.naturalWidth}x${element.naturalHeight}, ${address}`;
+    }), { timeout }).toBe('ready');
     await image.evaluate((element: HTMLImageElement) => element.decode());
   }
 }
@@ -747,6 +765,19 @@ export const relaysAnswerEmpty = (page: Page, down: () => boolean = () => false)
     if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
   });
 });
+
+/** Rankings' status once its check of recent pulls has ended with no relay reached, as under `monitor`'s closed sockets. */
+export const FEED_DOWN = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
+
+/**
+ * Waits for Rankings (`main`) to finish checking recent pulls, before a step that leaves it. The check
+ * starts once the list loads: it imports the relay code, and only then reads the withdrawn list. No
+ * request is in flight between the two, so an idle network can pass in the gap, and leaving during the
+ * read rightly aborts it (net::ERR_ABORTED), which `monitor` records. The status names the check's end:
+ * FEED_DOWN under `monitor`'s closed relays, 'Rankings loaded.' under `relaysAnswerEmpty`.
+ */
+export const expectRankingsChecked = (main: Locator, status = FEED_DOWN) =>
+  expect(main.getByRole('status')).toHaveText(status, { timeout: 15000 });
 
 export async function expectRecordedPack(page: Page, nonce = 0, historyCount = 1) {
   const before = await snapshot(page);

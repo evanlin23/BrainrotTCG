@@ -870,10 +870,14 @@ stored compactly in the pack history (`src/game/cardCode.ts`: `sigma*G!` is a ho
 
 `src/game/frameRecolor.ts` uses the shared frame's alpha mask to protect the meme artwork. Large
 card views and the PNG exporter use `src/game/finishImage.ts`, caching full-size results per card/finish
-in a 16-entry LRU. Each view holds its render while mounted; an evicted render's blob URL is revoked
-only after its last holder lets go, so no mounted `<img>` loses its source.
+in a 10-entry LRU. A render is stored as a PNG, so the viewer's own save and share menus hand the
+player a .png, but an uncompressed one (`src/game/storedPng.ts`: stored deflate blocks, filter 0) built
+straight from the pixels, since compressing full-size art took up to seconds of main-thread time on a
+busy machine. That costs about 2.8 MB per full-size render (687×1024 RGBA), so a full cache holds about
+28 MB of blobs, about what 16 compressed renders took. Each view holds its render while mounted; an evicted render's blob URL is revoked only
+after its last holder lets go, so no mounted `<img>` loses its source.
 Every small card view (collection tiles, the pull dialog and pack summary slots, Rankings and pull-row
-thumbnails) loads pre-rendered 344px WebP finishes directly, with no canvas recolouring or PNG
+thumbnails) loads pre-rendered 344px WebP finishes directly, with no canvas recolouring or
 encoding on first load, so a finished card waits on one small request like a plain one (#762). Only
 the full-size viewer, the reveal and exports render finishes from full art. Those renders and the
 thumbnails use the same recolouring function; the thumbnails run it before resizing. `npm run cards`

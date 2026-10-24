@@ -110,5 +110,5 @@ describe('Claude reviewer runs (mocked CLI)', () => {
     const missing = await runClaude(join(scratch, 'no-such-claude'), [], { cwd: scratch, env: {}, seconds: 5, maxTurns: 5, signal: new AbortController().signal });
     expect(missing).toEqual({ turns: 0, reason: 'Claude CLI unavailable' });
     for (const mode of ['extra', 'nobrowser', 'error', 'noreport', 'noinit', 'exit']) expect((await fake(mode)).report).toBeUndefined();
-  }, 20000);
+  });
 });

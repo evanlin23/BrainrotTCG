@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { decodeVarint, encodeVarint, fromBase64Url, toBase64Url, toHex, utf8 } from './bytes';
 import { fingerprint, generateKeypair, isValidName, normalizeName } from './identity';
-import { createRng, generatePack } from './pack';
+import { createRng, generatePack, packFromDraws } from './pack';
 import { decodeProof, derivePack, encodeProof, extractProof, signProof, verifyProof } from './proof';
 import { getPokerHand, POKER_HANDS, scorePack, type HandKey } from './scoring';
 import { handOdds, specialPackChance, versionPackChance } from './odds';
 import { handFromCounts } from './scoring';
 import { computeTicket } from './ticket';
-import { validateSet, type Finish, type SetDefinition } from './types';
+import { ODDS_TOTAL, validateSet, type Finish, type SetDefinition } from './types';
 
 const TEST_SET: SetDefinition = validateSet({
   id: 'test-set',
@@ -114,52 +114,152 @@ describe('scoring', () => {
   });
 });
 
-describe('odds', () => {
-  it('sums to 1 and matches a simulation', () => {
-    const exact = handOdds(TEST_SET);
-    expect(Object.values(exact).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 10);
-    const counts: Record<string, number> = {};
-    const packs = 200_000;
-    for (let i = 0; i < packs; i++) {
-      const pack = generatePack(TEST_SET, sha256(utf8(`hand-${i}`)));
-      const key = handFromCounts([...new Set(pack.map((c) => c.cardId))].map((id) => pack.filter((c) => c.cardId === id).length));
-      counts[key] = (counts[key] ?? 0) + 1;
+/** One card's version: what versionPackChance and specialPackChance look at. */
+type Version = { cardId: string; isHolo: boolean; finish: Finish | null; misprint: boolean };
+const VERSION_FIELDS = ['cardId', 'isHolo', 'finish', 'misprint'] as const;
+
+/** One slot of `set`, rolled by generatePack's rules from scripted draws, with the range each draw asked for. */
+const rollSlot = (set: SetDefinition, draws: readonly number[]) => {
+  const asked: number[] = [];
+  const [card] = packFromDraws({ ...set, packSize: 1 }, { int: (n) => draws[asked.push(n) - 1] });
+  const version: Version = { cardId: card.cardId, isHolo: card.isHolo, finish: card.finish ?? null, misprint: !!card.misprint };
+  return { version, rarity: card.rarity, asked };
+};
+
+/** The draws a slot asks for, with the card draw's range (its rarity's pool) set to `pool`. */
+const withPool = (ranges: readonly number[], pool: number) => ranges.map((n, j) => (j === 1 ? pool : n));
+
+const exactSlots = new Map<SetDefinition, { cards: Map<string, number>; slot: { version: Version; chance: number }[] }>();
+
+/**
+ * The exact chance of every version one slot of `set` can roll, read off generatePack's own rules
+ * (packFromDraws) by trying every value of every draw instead of sampling seeds. The rarity and card
+ * draws are tried together over every value. Each later draw (holo, then with modifiers finish and
+ * misprint) is tried over its whole range with the other draws at the bottom of their ranges with
+ * the rarity draw at each rarity's first value, and then at the top of their ranges: it must ask for
+ * the same draws, move at most one field that no other draw moves, never the card, and split that
+ * field the same way every time. A version's chance is then its card's chance times the share of
+ * each later draw's value. Cached per set.
+ */
+const exactSlot = (set: SetDefinition) => {
+  const cached = exactSlots.get(set);
+  if (cached) return cached;
+  const ranges = rollSlot(set, [0, 0, 0, 0, 0]).asked;
+  expect(ranges[0], 'the rarity draw spans the odds').toBe(ODDS_TOTAL);
+  const cards = new Map<string, number>();
+  const rolled = new Map<string, { version: Version; chance: number }>();
+  // Each rarity's first rarity-draw value, with every other draw at the bottom of its range.
+  const firsts: number[][] = [];
+  let previous: string | undefined;
+  for (let rarity = 0; rarity < ranges[0]; rarity++) {
+    const first = rollSlot(set, [rarity, 0, 0, 0, 0]);
+    const pool = first.asked[1];
+    expect(pool, `rarity draw ${rarity} picks from every ${first.rarity} card`).toBe(set.cards.filter((c) => c.rarity === first.rarity).length);
+    if (first.rarity !== previous) firsts.push(ranges.map((_, j) => (j === 0 ? rarity : 0)));
+    previous = first.rarity;
+    for (let pick = 0; pick < pool; pick++) {
+      const { version, asked } = rollSlot(set, [rarity, pick, 0, 0, 0]);
+      expect(asked, `rarity draw ${rarity}, card draw ${pick}`).toEqual(withPool(ranges, pool));
+      const chance = 1 / ranges[0] / pool;
+      cards.set(version.cardId, (cards.get(version.cardId) ?? 0) + chance);
+      const key = JSON.stringify(version);
+      rolled.set(key, { version, chance: (rolled.get(key)?.chance ?? 0) + chance });
     }
-    for (const [hand, chance] of Object.entries(exact)) {
-      expect(Math.abs((counts[hand] ?? 0) / packs - chance)).toBeLessThan(0.004);
+  }
+  expect(firsts, 'one first value per rarity with odds').toHaveLength(Object.values(set.odds).filter((odds) => odds > 0).length);
+  const topPool = rollSlot(set, [ranges[0] - 1, 0, 0, 0, 0]).asked[1];
+  const ends = [...firsts, ranges.map((n, j) => (j === 1 ? topPool : n) - 1)];
+  const movedBy = new Set<string>();
+  let slot = [...rolled.values()];
+  for (let j = 2; j < ranges.length; j++) {
+    const [low, ...others] = ends.map((end) => {
+      const tally = new Map(VERSION_FIELDS.map((field) => [field, new Map<unknown, number>()]));
+      const asks = new Set<string>();
+      for (let value = 0; value < ranges[j]; value++) {
+        const draws = [...end];
+        draws[j] = value;
+        const { version, asked } = rollSlot(set, draws);
+        asks.add(asked.join());
+        for (const field of VERSION_FIELDS) tally.get(field)!.set(version[field], (tally.get(field)!.get(version[field]) ?? 0) + 1);
+      }
+      const pool = rollSlot(set, end).asked[1];
+      expect([...asks], `draw ${j} with the other draws at ${end}`).toEqual([withPool(ranges, pool).join()]);
+      const moved = VERSION_FIELDS.filter((field) => tally.get(field)!.size > 1);
+      return { moved, split: moved.map((field) => tally.get(field)) };
+    });
+    others.forEach((other, k) => expect(other, `draw ${j} with the other draws at ${ends[k + 1]}`).toEqual(low));
+    expect(low.moved.length, `draw ${j} moves one field`).toBeLessThanOrEqual(1);
+    const field = low.moved[0];
+    if (!field) continue;
+    expect(field).not.toBe('cardId');
+    expect(movedBy.has(field), `${field} moved by two draws`).toBe(false);
+    movedBy.add(field);
+    const split = low.split[0]!;
+    slot = slot.flatMap(({ version, chance }) => [...split].map(([value, count]) => ({ version: { ...version, [field]: value }, chance: chance * count / ranges[j] })));
+  }
+  const result = { cards, slot: slot.filter((s) => s.chance > 0) };
+  exactSlots.set(set, result);
+  return result;
+};
+
+describe('odds', () => {
+  const MODIFIED_SET: SetDefinition = { ...TEST_SET, modifiers: 1 };
+
+  it('rolls every slot of a pack from its own draws, by the same rules', () => {
+    for (const set of [TEST_SET, MODIFIED_SET]) {
+      const perSlot = rollSlot(set, [0, 0, 0, 0, 0]).asked.length;
+      // Scripted draws that differ from slot to slot; the card draw stays 0, inside every pool.
+      const chunks = Array.from({ length: set.packSize }, (_, s) => Array.from({ length: perSlot }, (_, j) => (j === 1 ? 0 : (s * 2_377 + j * 4_391) % ODDS_TOTAL)));
+      const asked: number[] = [];
+      const draws = chunks.flat();
+      const pack = packFromDraws(set, { int: (n) => draws[asked.push(n) - 1] });
+      expect(asked).toHaveLength(set.packSize * perSlot);
+      expect(pack.map(({ cardId, isHolo, finish, misprint, slot }) => ({ slot, version: { cardId, isHolo, finish: finish ?? null, misprint: !!misprint } })))
+        .toEqual(chunks.map((chunk, slot) => ({ slot, version: rollSlot(set, chunk).version })));
     }
   });
 
-  it('gives the chance of a special card in a pack, matching generatePack with and without modifiers', () => {
-    const packs = 100_000;
-    for (const set of [TEST_SET, { ...TEST_SET, modifiers: 1 as const }]) {
-      let special = 0;
-      for (let i = 0; i < packs; i++) {
-        if (generatePack(set, sha256(utf8(`special-${i}`))).some((c) => c.isHolo || c.finish || c.misprint)) special++;
+  it('sums to 1 and matches every pack generatePack can roll', () => {
+    const exact = handOdds(TEST_SET);
+    expect(Object.values(exact).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 10);
+    // Every ordered pack of cards (7^5), each slot from its own draws.
+    const { cards } = exactSlot(TEST_SET);
+    const counts: Record<string, number> = {};
+    const pack: string[] = [];
+    const walk = (chance: number) => {
+      if (pack.length === TEST_SET.packSize) {
+        const key = handFromCounts([...new Set(pack)].map((id) => pack.filter((c) => c === id).length));
+        counts[key] = (counts[key] ?? 0) + chance;
+        return;
       }
-      // About 4 standard errors; leaving out misprints alone would be off by about 0.009.
-      expect(Math.abs(special / packs - specialPackChance(set)!)).toBeLessThan(0.006);
+      for (const [id, p] of cards) {
+        pack.push(id);
+        walk(chance * p);
+        pack.pop();
+      }
+    };
+    walk(1);
+    expect(Object.keys(counts).sort()).toEqual(Object.keys(exact).sort());
+    for (const [hand, chance] of Object.entries(exact)) expect(chance, hand).toBeCloseTo(counts[hand], 12);
+  });
+
+  it('gives the chance of a special card in a pack, matching generatePack with and without modifiers', () => {
+    for (const set of [TEST_SET, MODIFIED_SET]) {
+      const { slot } = exactSlot(set);
+      const plain = slot.filter(({ version: v }) => !v.isHolo && !v.finish && !v.misprint).reduce((sum, s) => sum + s.chance, 0);
+      expect(specialPackChance(set)).toBeCloseTo(1 - plain ** set.packSize, 12);
     }
   });
 
   it('gives the chance of a pack with an exact card version, matching generatePack', () => {
-    const packs = 100_000;
-    for (const set of [TEST_SET, { ...TEST_SET, modifiers: 1 as const }]) {
-      const seen = new Map<string, number>();
-      for (let i = 0; i < packs; i++) {
-        const keys = new Set(generatePack(set, sha256(utf8(`version-${i}`))).map((c) => `${c.cardId}|${c.isHolo}|${c.finish ?? ''}|${!!c.misprint}`));
-        for (const k of keys) seen.set(k, (seen.get(k) ?? 0) + 1);
+    for (const set of [TEST_SET, MODIFIED_SET]) {
+      const { slot } = exactSlot(set);
+      // 7 cards x holo or not, and with modifiers x 5 finishes (or none) x misprint or not.
+      expect(slot).toHaveLength(set.modifiers ? 7 * 2 * 5 * 2 : 7 * 2);
+      expect(slot.reduce((sum, s) => sum + s.chance, 0)).toBeCloseTo(1, 12);
+      for (const { version, chance } of slot) {
+        expect(versionPackChance(set, version), JSON.stringify(version)).toBeCloseTo(1 - (1 - chance) ** set.packSize, 12);
       }
-      let checked = 0;
-      for (const [k, n] of seen) {
-        const [cardId, holo, finish, misprint] = k.split('|');
-        const exact = versionPackChance(set, { cardId, isHolo: holo === 'true', finish: (finish || null) as Finish | null, misprint: misprint === 'true' })!;
-        // Every version seen at least ~500 times; the worst standard error is about 0.0016, so this is about 4.
-        if (exact < 0.005) continue;
-        expect(Math.abs(n / packs - exact)).toBeLessThan(0.006);
-        checked++;
-      }
-      expect(checked).toBeGreaterThan(set.modifiers ? 10 : 8);
     }
   });
 

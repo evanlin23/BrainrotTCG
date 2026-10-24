@@ -9,7 +9,11 @@ If this page disagrees with `package.json` or `.github/workflows/`, those win.
 
 Use Node 22, as CI does. `npm ci` installs from the lockfile; only change `package-lock.json` in a
 dependency change. A fresh checkout or worktree has no `node_modules` and needs `npm ci` before any
-check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
+check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). When a subagent stops, the SubagentStop hook
+`.claude/hooks/clean-agent-worktree.sh` deletes `node_modules`, `dist`, `playwright-report` and
+`blob-report` (not `test-results`, which holds evidence other agents read) from its
+`.claude/worktrees/agent-<id>` worktree unless a process still runs there, so finished worktrees
+don't fill the disk. `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
 
 A full clone is about 230 MiB. [REPO_SIZE.md](REPO_SIZE.md) has a blobless, sparse recipe (52-54 MiB
 of `.git` plus about 58 MiB of working tree on disk, in about 3 s) that skips the PNG source art. Without
@@ -98,7 +102,7 @@ Examples from merged fixes:
 | When | Run |
 | --- | --- |
 | While iterating | `npx vitest run <path>`, `npx tsc --noEmit -p .` |
-| Before pushing | `npm run check` (lint, import boundaries, typecheck, all tests within the test budgets, set locks, card assets), once |
+| Before pushing | `npm run check` (lint, import boundaries, typecheck, all tests within the coverage floors and hang guard, set locks, card assets), once |
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
 | Changed the build or link previews | also `npm run build && npm run check:site`, and the same with `BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
@@ -558,94 +562,74 @@ save), drives the UI with `interact()`, waits for one observable outcome with
 globals and modules. Run one with
 `npx vitest run src/test/packLifecycle.integration.test.ts`; `npm test` runs them all.
 
-## Test budgets
+## Test timing
 
-`npm test`, and so `npm run check` and CI, runs the suite once with V8 coverage and enforces two
-budgets, checked in this order:
+`npm test`, and so `npm run check` and CI, runs the suite once with V8 coverage. Two things can fail
+it besides an assertion: the coverage floors, and a test or hook that hangs. Wall time and heap
+never do.
 
-| Budget | Baseline (October 2026, Node 22.23.3) | Enforced | Set in |
+| Gate | Baseline (October 2026, Node 22.23.3) | Enforced | Set in |
 | --- | --- | --- | --- |
-| Wall time of the whole run | 120.9 to 196.3 s (median 167.7 s) on the four latest successful main runs on CI, at 2,388 to 2,667 tests; 111.2 s at 1,819 tests (`2bf6074`); median 150.8 s (150.7-155.5 s) on a 2-core container at 1,819 tests, 150.0 s at 2,667 | at most 400 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
-| Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 91.2-91.4%, statements 94.7-94.8%, lines 96.5-96.7% on those main runs | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
+| Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 91.2-91.4%, statements 94.7-94.8%, lines 96.5-96.7% on main runs | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
+| Hang guard: one test or hook | slowest test about 6 s with coverage on an idle 4-core container, about 23 s at 4x CPU contention | 120 s for every test and hook, in every Vitest run | `HANG_TIMEOUT_MS` in `scripts/test-budget.ts`, applied as `testTimeout` and `hookTimeout` in `vite.config.ts` |
 
 After the test summary, and before the coverage summary, the run prints
-`Test budget: N tests in M files took Xs (budget 400s)`, and it fails only past the budget. The
-runtime budget holds for every `npm test` run, whatever flags follow `--`: the `testBudget()` plugin
-in `vite.config.ts` adds its reporter after `--reporter` flags replace the configured ones, so
-`npm test -- --reporter=dot` keeps it, and `npm test -- --coverage.enabled=false` drops only the
-floors. Targeted `npx vitest run <path>` runs skip both budgets; adding `--coverage` to one turns
-the floors on, and a partial run won't meet them. Coverage rides in the one test
-run: it stayed within 0.05 points between runs, and earlier measurements put its cost at up to 20%
-wall time. Instrumentation makes the CPU-bound engine simulations about 3x slower, and under heavy
-load two of them once passed the 5 s default timeout, so `npm test` passes `--testTimeout=15000`.
+`Test time: N tests in M files took Xs (report-only)`. It is a figure to read, not a gate: wall time
+depends on the runner and whatever else runs on it, so it can't tell a slow test from a busy
+machine. It holds for every `npm test` run, whatever flags follow `--`: the `testBudget()` plugin
+in `vite.config.ts` adds its reporter after `--reporter` flags replace the configured ones.
+`npm test -- --coverage.enabled=false` drops only the floors. Targeted `npx vitest run <path>` runs
+print no timing line; adding `--coverage` to one turns the floors on, and a partial run won't meet
+them. Coverage rides in the one test run: it stayed within 0.05 points between runs, and it makes
+CPU-bound tests about 3x slower.
 
-### Reference runner and runner conditions
-- **Reference runner**: the GitHub-hosted 4-vCPU Linux runner (Node 22.23.3, Vitest 5.0.4 at first,
-  5.0.5 on the runs below; the job log doesn't print the core count). The main
-  deployment run 39059778425 (build job 117475232914, revision `2bf6074`) ran 1,819 tests in 147
-  files in 111.2 s with coverage, at 90.60% statements, 88.76% branches and 92.05% lines.
-- **Main CI baseline (October 22-23, 2026)**: `ci.yml` doesn't run on main; main's `npm run check`
-  runs in the `build` job of `deploy.yml`, so its `Test budget:` line is the main figure. Method: list
-  the latest successful `deploy.yml` runs on main, download each `build` job log and read the
-  `Test budget:` line, the `RUN v...` header and the coverage summary. Four consecutive runs, all on
-  `ubuntu-26.04` image 20261012.163.1, Node 22.23.3, Vitest 5.0.5, `npm test` with coverage and no
-  other workload in the job:
+Why there is no wall-time budget. The suite used to fail past 150 s, then 300 s, then 400 s, and
+`npm test` passed `--testTimeout=15000` while many tests set their own 20-60 s timeouts. Every one
+of those failed runs whose assertions all passed: CI runs of the same commit differ by up to 1.6x,
+a 2-core or busy container is slower again, and two sampled odds tests (200,000 and 100,000 seeded
+packs, about 5 s each with coverage) passed the 5 s default under load. The fix was by design:
 
-  | Run | Head | Tests / files | Test budget time | Branches / statements / lines | `npm run check` step |
-  | --- | --- | --- | --- | --- | --- |
-  | 39866957487 | `d3b212b` | 2,388 / 171 | 156.3 s | 91.20% / 94.65% / 96.46% | 190 s |
-  | 39870858789 | `88c585b` | 2,452 / 174 | 179.1 s | 91.36% / 94.80% / 96.63% | 216 s |
-  | 39873456480 | `eb35e02` | 2,560 / 179 | 120.9 s | 91.42% / 94.84% / 96.67% | 145 s |
-  | 39876011560 | `819311f` | 2,667 / 181 | 196.3 s | 91.38% / 94.82% / 96.67% | 235 s |
+- **Exact instead of sampled.** `packFromDraws` (`src/engine/pack.ts`) is `generatePack`'s slot
+  rules on any source of draws. The odds tests in `src/engine/engine.test.ts` feed it scripted
+  draws to enumerate every outcome of a slot, so they check the published odds against what the
+  rules actually roll, exactly, in well under a second. One sampled test (40,000 packs through the
+  real RNG) stays as the bridge from seeds to draws. `src/engine/odds.test.ts` brute-forces packs
+  as multisets with multinomial weights instead of every ordering.
+- **One hang guard, no retries.** No test sets its own timeout or a retry. `scripts/test-budget.test.ts`
+  asks Vitest for the files it collects with this config's `include` and `exclude` (under `src/`,
+  `scripts/` and `tests/`), parses each, and fails on any test, suite or hook that sets either:
+  a timeout argument, a `timeout` option in any spelling (`{ timeout }`, `'timeout'`), a `retry`
+  option (reported as a retry), or `testTimeout`, `hookTimeout` or `retry` in `vi.setConfig`, on
+  `it`, `test`, `describe` and `suite`, their chains (`.each` in both forms, `.concurrent`) and the
+  file's own aliases (`test.extend(...)`, `import { it as spec }`). Naming `HANG_TIMEOUT_MS` itself
+  is allowed in any of those slots, since it changes nothing. `HANG_TIMEOUT_MS` (120 s) only names a test
+  that never finishes: it sits about 20x above the slowest test with coverage and 5x above it at 4x
+  contention, so load alone can't reach it. A synchronous child (`spawnSync`, `execFileSync`) blocks the
+  worker, so the hang guard can't stop it; tests that run a Node child that way give it its own
+  `timeout` (60 s for the set, Hall of Fame CLI and `tests/vite-config.test.ts` children, which take
+  about 1 s; 180 s per replay in `scripts/defect-replay.ts`).
+- **Slow tests are found by profile, not by a ceiling.** If the `Test time:` line grows, run
+  `npx vitest run --reporter=json --outputFile=<file>` and sort tests by duration. A test that is
+  slow by design (sampling, real Argon2 work, polling) gets an exact or deterministic replacement
+  that still fails on the bug it guards; never a longer timeout, a retry or a skip.
 
-  Median 167.7 s, range 120.9-196.3 s. The spread is not suite growth: the fastest run came after
-  two slower ones with 4-7% fewer tests, and seconds per test ranged from 47 ms to 74 ms. The same
-  commit (`819311f`) took 196.3 s in the push run above and 190.6 s in main run 39880083163 (a
-  `workflow_dispatch` run, build job 120175204245: 2,667 tests in 181 files, `npm run check` step
-  about 226 s), so the slow end is a stable runner class and not a one-off tail. It is not a slow
-  or hanging file either: the per-file profile is the same in every run. `check-sets.test.ts` is
-  8.4-9.4% of the summed file time in the three runs that include it (it was added at `eb35e02`),
-  the top 10 files are about 51%, and they are mostly the same files. Every file scales by roughly
-  1.5-2x between the fast and the slow runs, so no file is an outlier. The whole `npm run check`
-  step took 145-235 s, about 24-39 s over the test time for lint, types, set locks and card assets.
-- **Earlier growth**: CI runs at 1,926 tests in 151 files took 141.2 s and 112.7 s on the same head
-  (PR #941), and the claude/train-1 integration branch took 157.9 s at 1,990 tests in 155 files
-  (job 119941611004), over the old 150 s budget with every test passing. The slowest files there
-  ran 8-30 s each, spread across many integration and script tests, with no single outlier.
-- **2-core container**: three serial `npm test` runs at `2bf6074` (Node 22.23.3, Vitest 5.0.4, 2 CPU
-  cores by cgroup quota, 8 GiB memory, nothing else running) took 155.5 s, 150.7 s and 150.8 s
-  (median 150.8 s, mean 152.3 s). All 1,819 assertions and the coverage floors passed, but every run
-  exited 1 on the 150 s budget. That gap (150.8 s against 111.2 s at the same revision, `2bf6074`)
-  has not been isolated. It did not reproduce in two later local runs at `819311f` (2,667 tests),
-  which took 150.0 s and 150.6 s, inside the CI range of 120.9-196.3 s; their core count and
-  versions were not recorded. For another local data point, `npm run check` on a 4-core, 15 GiB
-  container (Node 22.22.0, Vitest 5.0.5) took 137.8 s at `e9de5f2` (2,680 tests).
-- **Developer workstations**: no figure has been measured here. To get one, run `npm test` three
-  times on an idle machine and record Node version, core count, memory and the `Test budget:` line.
-- **On 2 cores or a loaded machine**: the budget line can fail while every assertion and floor
-  passes, so read that line before treating a failure as a regression, and rely on CI for the
-  authoritative wall time. `--coverage.enabled=false` does not help: it drops only the floors, and
-  the budget reporter still runs. Don't use `--isolate=false`: it is untested here, and the
-  integration tests rely on per-file isolation (`dispose()`, `vi.resetModules`). During iteration run
-  `npx vitest run <path>`, which skips both budgets.
+Reference figures, for comparison only:
+- **Main CI** (GitHub-hosted 4-vCPU runner, `deploy.yml` `build` job, `npm test` with coverage):
+  120.9-196.3 s (median 167.7 s) at 2,388-2,667 tests in October 2026. The same commit took 196.3 s
+  and 190.6 s; commits 4% apart took 120.9 s and 196.3 s, so the runner, not the suite, drives the
+  spread.
+- **Local 4-core container**, October 23, 2026: `npm test` took 216.8 s for 3,520 tests before the
+  exact odds tests and 229.7 s for 3,521 after (`npm run check` 294 s), with other sessions sharing
+  the machine. The odds tests went from about 5 s each to under 0.4 s; the rest of the run is spread
+  across integration and script tests of 1-6 s each, so the total moves with load more than with
+  any one test.
+- Don't use `--isolate=false`: it is untested here, and the integration tests rely on per-file
+  isolation (`dispose()`, `vi.resetModules`).
 
-The coverage floors sit about 13-16 points below the baseline (91.2% branches, 94.7% statements,
-96.5% lines against 75%, 78%, 80%). The runtime budget is 400 s, about 2.0x the slowest main CI run
-(196.3 s) and 2.4x the median (167.7 s), which is the twice-the-slowest rule below. It was 300 s,
-but the hosted runner took 1.6x as long in one main run as in the one before it (196.3 s against
-120.9 s, on different commits 4% apart in test count; the one same-commit pair, 196.3 s and 190.6 s,
-differs by 1.03x). The suite has also grown 47% (1,819 to 2,667 tests) since audit revision
-`2bf6074`, and 34% since the 300 s budget was set at 1,990 tests (#947). So 300 s was about 1.5x the
-slowest run and would trip at about 4,000 tests (74 ms per test at the slowest rate) on an ordinary
-run. At 400 s the budget trips at about 5,400 tests at that rate. A hung test is caught by the 15 s
-per-test timeout, not by this budget. If a main run passes about 300 s, profile the slowest files
-first. Local runs on a loaded 4-core or 2-core container are slower than CI, so a local overrun
-alone isn't a regression. Ordinary
-work shouldn't trip the floors. To move one, run `npm test` three
-times on an up-to-date branch, set each floor a few points below the lowest figure and the runtime
-budget to about twice the slowest run, and give the old and new numbers in the PR. Lower a floor
-only for removed or unreachable code, never to land untested code. When the runtime budget trips,
-look for a slow or hanging test before raising it.
+The coverage floors sit about 13-16 points below the baseline. Ordinary work shouldn't trip them.
+To move one, run `npm test` three times on an up-to-date branch, set each floor a few points below
+the lowest figure, and give the old and new numbers in the PR. Lower a floor only for removed or
+unreachable code, never to land untested code.
 
 ## Shuffled and repeat runs
 
@@ -653,7 +637,7 @@ look for a slow or hanging test before raising it.
 Actions tab, never for a pull request. It runs `vitest run` with files and tests shuffled by one
 seed, then again with the same seed in the same job. A test that fails only shuffled depends on what
 another test left behind; one that fails in only one of the two runs depends on the clock,
-`Math.random` or load. Both runs leave out coverage and the runtime budget, which per-PR CI owns,
+`Math.random` or load. Both runs leave out coverage, which per-PR CI owns,
 and nothing is retried. The runs sample orders: a green night doesn't prove the suite
 order-independent, and GitHub's schedule is best effort (it has never fired the Hall of Fame inbox
 here), so a night without a run is not a pass.
@@ -663,7 +647,7 @@ The seed is the run id modulo 10^9, or the `seed` input of a manual run. The job
 
 ```sh
 git checkout <revision> && npm ci
-npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=<seed>
+npx vitest run --sequence.shuffle --sequence.seed=<seed>
 ```
 
 Adding the failing file's path to that command keeps the order of the tests within the file but
