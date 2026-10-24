@@ -49,7 +49,7 @@ describe('test run wiring', () => {
   const npmTest = (JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as { scripts: { test: string } }).scripts.test;
 
   // Resolves Vitest's config for `npm test -- <flags>` the way the CLI does, without running tests.
-  it.each([[], ['--reporter=dot'], ['--reporter=json', '--coverage.enabled=false']])('keeps the timing reporter and the hang timeout in npm test %j', async (...flags: string[]) => {
+  it.each([[], ['--reporter=dot'], ['--reporter=json', '--coverage.enabled=false']])('keeps the timing reporter, the hang timeout and no retry in npm test %j', async (...flags: string[]) => {
     const { options } = parseCLI([...npmTest.split(' '), ...flags]);
     const vitest = await createVitest('test', { ...options, root, watch: false });
     try {
@@ -57,13 +57,16 @@ describe('test run wiring', () => {
       expect(vitest.config.reporters.filter((reporter) => Array.isArray(reporter) && reporter[0] === TEST_BUDGET_REPORTER)).toEqual([[TEST_BUDGET_REPORTER, {}]]);
       // A tighter --testTimeout in the script would turn load into failures again.
       expect([vitest.config.testTimeout, vitest.config.hookTimeout]).toEqual([HANG_TIMEOUT_MS, HANG_TIMEOUT_MS]);
+      // A retry in the script or config would hide a flaky test behind a pass.
+      expect(vitest.config.retry).toBe(0);
     } finally { await vitest.close(); }
   });
 
-  it('applies the hang timeout to targeted runs too', async () => {
+  it('applies the hang timeout, and no retry, to targeted runs too', async () => {
     const vitest = await createVitest('test', { root, watch: false });
     try {
       expect([vitest.config.testTimeout, vitest.config.hookTimeout]).toEqual([HANG_TIMEOUT_MS, HANG_TIMEOUT_MS]);
+      expect(vitest.config.retry).toBe(0);
     } finally { await vitest.close(); }
   });
 });
@@ -77,29 +80,76 @@ const isHangGuard = (node: ts.Node) => ts.isIdentifier(node) && node.text === HA
 
 /** Vitest's test and suite functions. A file's own aliases of them are added per file (runnersIn). */
 const RUNNERS = ['it', 'test', 'describe', 'suite'];
+/** Functions taking (fn, timeout): the four hooks, and the two that run after a test and take a timeout as well. */
 const HOOKS = ['beforeAll', 'beforeEach', 'afterAll', 'afterEach'];
+const AFTER_TEST = ['onTestFinished', 'onTestFailed'];
 
-/** What the guard reports, each with its own message. Both fail: no test sets its own timeout or retries. */
-const LIMITS = { timeout: 'sets its own timeout', retry: 'retries a failure' } as const;
+/**
+ * What the guard reports, each with its own message. All fail: no test sets its own timeout, retries,
+ * or changes the config at run time. `opaque` is a conservative flag: the timeout slot or options
+ * object is a variable, a call or a spread, which the guard does not try to evaluate.
+ */
+const LIMITS = {
+  timeout: 'sets its own timeout',
+  retry: 'retries a failure',
+  opaque: 'passes timeout options the guard cannot read (a variable, call or spread); write them out',
+  config: 'changes the test config with vi.setConfig',
+} as const;
 type Limit = keyof typeof LIMITS;
 
-/** The identifier a call chain starts from: `it` for it(...), it.only(...), it.each(...)(...), it.each`...`(...) and it['only'](...). */
-const rootName = (node: ts.Expression): string | undefined => {
+/** The member `v['it']` names, when written as a string. */
+const memberName = (node: ts.ElementAccessExpression) => ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : undefined;
+
+/** Whether `node` is a member of a namespace import of vitest: `v.it`, `v['it']`. */
+const isNamespaceMember = (node: ts.Expression, namespaces: ReadonlySet<string>): node is ts.PropertyAccessExpression | ts.ElementAccessExpression =>
+  (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && ts.isIdentifier(node.expression) && namespaces.has(node.expression.text);
+
+/**
+ * The identifier a call chain starts from: `it` for it(...), it.only(...), it.each(...)(...),
+ * it.each`...`(...) and it['only'](...). A namespace import (`import * as v from 'vitest'`) is
+ * skipped, so v.it.only(...) starts from `it` and v.vi.setConfig(...) from `vi`.
+ */
+const rootName = (node: ts.Expression, namespaces: ReadonlySet<string>): string | undefined => {
   if (ts.isIdentifier(node)) return node.text;
-  if (ts.isTaggedTemplateExpression(node)) return rootName(node.tag);
+  if (ts.isTaggedTemplateExpression(node)) return rootName(node.tag, namespaces);
+  if (isNamespaceMember(node, namespaces)) return ts.isPropertyAccessExpression(node) ? node.name.text : memberName(node);
   if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) || ts.isCallExpression(node)
-    || ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node) || ts.isAsExpression(node)) return rootName(node.expression);
+    || ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node) || ts.isAsExpression(node)) return rootName(node.expression, namespaces);
   return undefined;
 };
 
-/** The name a call ends on: `beforeEach` for beforeEach(...) and test.beforeEach(...). */
-const calleeName = (node: ts.Expression) => ts.isIdentifier(node) ? node.text : ts.isPropertyAccessExpression(node) ? node.name.text : undefined;
+/** The name a call ends on: `beforeEach` for beforeEach(...), test.beforeEach(...) and test['beforeEach'](...). */
+const calleeName = (node: ts.Expression) =>
+  ts.isIdentifier(node) ? node.text : ts.isPropertyAccessExpression(node) ? node.name.text : ts.isElementAccessExpression(node) ? memberName(node) : undefined;
+
+/** A module specifier of vitest itself, in import('vitest') and require('vitest') too. */
+const isVitestSpecifier = (node: ts.Node | undefined) => node !== undefined && ts.isStringLiteralLike(node) && node.text === 'vitest';
+
+/** The names a file binds to the whole vitest module: `import * as v`, `await import('vitest')` and `require('vitest')`. */
+const namespacesIn = (sourceFile: ts.SourceFile) => {
+  const names = new Set<string>();
+  const collect = (node: ts.Node) => {
+    if (ts.isImportDeclaration(node) && isVitestSpecifier(node.moduleSpecifier)) {
+      const bindings = node.importClause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) names.add(bindings.name.text);
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      let value = node.initializer;
+      while (ts.isAwaitExpression(value) || ts.isParenthesizedExpression(value)) value = value.expression;
+      if (ts.isCallExpression(value) && isVitestSpecifier(value.arguments[0])
+        && (value.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(value.expression) && value.expression.text === 'require'))) names.add(node.name.text);
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(sourceFile);
+  return names;
+};
 
 /**
  * Vitest's runners plus the names this file gives them: `const slow = test.extend(...)`, chains of
- * those in any order, and `import { it as spec }`.
+ * those in any order, `import { it as spec }` and `const slow = v.test.extend(...)`.
  */
-const runnersIn = (sourceFile: ts.SourceFile) => {
+const runnersIn = (sourceFile: ts.SourceFile, namespaces: ReadonlySet<string>) => {
   const names = new Set(RUNNERS);
   const aliases: { name: string; value: ts.Expression }[] = [];
   const collect = (node: ts.Node) => {
@@ -111,7 +161,7 @@ const runnersIn = (sourceFile: ts.SourceFile) => {
   for (let grew = true; grew;) {
     grew = false;
     for (const { name, value } of aliases) {
-      const root = rootName(value);
+      const root = rootName(value, namespaces);
       if (!names.has(name) && root !== undefined && names.has(root)) { names.add(name); grew = true; }
     }
   }
@@ -127,51 +177,82 @@ const keyName = (property: ts.ObjectLiteralElementLike) => {
   return undefined;
 };
 
-/** What an options object sets: one of `timeoutKeys` as anything but the hang guard (`{ timeout }` included), or any retry. */
-const limitsIn = (options: ts.ObjectLiteralExpression, timeoutKeys: readonly string[]) =>
+/**
+ * What an options object sets: `timeout` as anything but the hang guard (`{ timeout }` included), any
+ * retry, and anything the guard can't read: a spread (`{ ...opts }`) or a computed key it can't resolve.
+ */
+const limitsIn = (options: ts.ObjectLiteralExpression) =>
   options.properties.flatMap((property): Limit[] => {
     const key = keyName(property);
     if (key === 'retry') return ['retry'];
-    if (key === undefined || !timeoutKeys.includes(key)) return [];
+    if (key === undefined) return ['opaque'];
+    if (key !== 'timeout') return [];
     return ts.isPropertyAssignment(property) && isHangGuard(property.initializer) ? [] : ['timeout'];
   });
 
-/** What a timeout slot holds: nothing for the function or the hang guard, an options object's limits, and anything else (30_000, a variable) is a timeout. */
+const isFunction = (node: ts.Expression) => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
+
+/**
+ * What a timeout slot holds: nothing for the function or the hang guard, an options object's limits,
+ * a number or other literal is a timeout, and any other expression (a variable, a call) is opaque.
+ */
 const limitsOf = (node: ts.Expression | undefined): Limit[] => {
-  if (!node || ts.isArrowFunction(node) || ts.isFunctionExpression(node) || isHangGuard(node)) return [];
-  return ts.isObjectLiteralExpression(node) ? limitsIn(node, ['timeout']) : ['timeout'];
+  if (!node || isFunction(node) || isHangGuard(node)) return [];
+  if (ts.isObjectLiteralExpression(node)) return limitsIn(node);
+  return ts.isIdentifier(node) || ts.isCallExpression(node) || ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) ? ['opaque'] : ['timeout'];
 };
 
-const limitsOfCall = (call: ts.CallExpression, runners: ReadonlySet<string>): Limit[] => {
-  const root = rootName(call.expression);
+const limitsOfCall = (call: ts.CallExpression, runners: ReadonlySet<string>, namespaces: ReadonlySet<string>): Limit[] => {
+  const root = rootName(call.expression, namespaces);
   const callee = calleeName(call.expression);
   const args = call.arguments;
-  // beforeEach(fn, 10_000) and beforeEach(fn, { timeout }), bare or on a test: test.beforeEach(...).
-  if (callee !== undefined && HOOKS.includes(callee) && (ts.isIdentifier(call.expression) || (root !== undefined && runners.has(root)))) return limitsOf(args[1]);
-  // vi.setConfig({ testTimeout, hookTimeout, retry }).
-  if (callee === 'setConfig' && (root === 'vi' || root === 'vitest')) return args[0] && ts.isObjectLiteralExpression(args[0]) ? limitsIn(args[0], ['testTimeout', 'hookTimeout']) : [];
+  // beforeEach(fn, 10_000) and beforeEach(fn, { timeout }), bare, through a namespace import or on a test: test.beforeEach(...).
+  if (callee !== undefined && HOOKS.includes(callee) && (ts.isIdentifier(call.expression) || isNamespaceMember(call.expression, namespaces) || (root !== undefined && runners.has(root)))) return limitsOf(args[1]);
+  // onTestFinished(fn, 5) and onTestFailed(fn, { timeout }), on any receiver: they are also reached through the test context (`ctx.onTestFinished`).
+  if (callee !== undefined && AFTER_TEST.includes(callee)) return limitsOf(args[1]);
+  // vi.setConfig(...) with any argument: a literal could name a timeout or retry, a variable or spread anything, and no test needs it.
+  if (callee === 'setConfig' && (root === 'vi' || root === 'vitest')) return args.length > 0 ? ['config'] : [];
   if (root === undefined || !runners.has(root)) return [];
   // it(name, options, fn), and the same for test, describe, suite, their chains (it.each(...)(...),
   // it.each`...`(...), describe.concurrent(...)) and aliases: the function is the third argument.
-  if (args[1] && ts.isObjectLiteralExpression(args[1])) return limitsIn(args[1], ['timeout']);
+  if (args[1] && ts.isObjectLiteralExpression(args[1])) return limitsIn(args[1]);
+  // it(name, opts, fn): a variable or call in the options slot, before a function. With no function
+  // after it, it is the test function itself (it('i', runCase)), or the timeout of it(name, fn, 5).
+  if (args[1] && args[2] && isFunction(args[2]) && !isFunction(args[1]) && !isHangGuard(args[1])) return limitsOf(args[1]);
   // it(name, fn, 30_000) and it(name, fn, options).
   return limitsOf(args[2]);
 };
 
 /**
- * Where `source` gives a test, suite or hook its own timeout, or a retry, as `file:line message`.
- * Only the hang guard (HANG_TIMEOUT_MS, set for every test and hook in vite.config.ts) may be named:
- * a per-test ceiling fails a test on a busy runner rather than on a bug, and a retry hides a flake
- * (docs/DEVELOPMENT.md, Test timing).
+ * Where `source` gives a test, suite or hook its own timeout, a retry, or changes the config with
+ * vi.setConfig, as `file:line message`. Only the hang guard (HANG_TIMEOUT_MS, set for every test and
+ * hook in vite.config.ts) may be named: a per-test ceiling fails a test on a busy runner rather than
+ * on a bug, and a retry hides a flake (docs/DEVELOPMENT.md, Test timing).
+ *
+ * Covered: the timeout and options slots of it, test, describe and suite, their chains (.each in both
+ * forms, .concurrent, .only) and the file's own aliases (test.extend(...), `import { it as spec }`);
+ * the timeout slot of beforeAll, beforeEach, afterAll, afterEach, onTestFinished and onTestFailed;
+ * any vi.setConfig call with an argument; and all of these through a namespace import
+ * (`import * as v from 'vitest'`, `await import('vitest')`, `require('vitest')`).
+ *
+ * Conservative, so it can flag what it can't evaluate: an options object that is a variable or call,
+ * or has a spread, is reported (as unreadable) rather than followed, and vi.setConfig is reported
+ * whatever it is given. A guarded test must write its options out.
+ *
+ * Not covered, because finding them needs types or data flow rather than syntax: `vi` or a hook
+ * renamed on import (`import { vi as v }`) or destructured (`const { it } = await import('vitest')`),
+ * a runner passed around as a value (`const run = it; run(...)`), and the CLI or environment
+ * (`--testTimeout`, `--retry`): the 'test run wiring' tests above check the resolved config for those.
  */
 const ownLimits = (file: string, source: string) => {
   const found: string[] = [];
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, /\.[jt]sx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-  const runners = runnersIn(sourceFile);
+  const namespaces = namespacesIn(sourceFile);
+  const runners = runnersIn(sourceFile, namespaces);
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
       const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-      for (const limit of new Set(limitsOfCall(node, runners))) found.push(`${file}:${line} ${LIMITS[limit]}`);
+      for (const limit of new Set(limitsOfCall(node, runners, namespaces))) found.push(`${file}:${line} ${LIMITS[limit]}`);
     }
     ts.forEachChild(node, visit);
   };
@@ -190,7 +271,6 @@ describe('one timeout for every test, and no retries', () => {
       ["it.each([[1]])('c %s', async () => {}, 60_000);", ['timeout']],
       ["it.concurrent('d', () => {}, { timeout: 1 });", ['timeout']],
       ['beforeEach(() => {}, 10_000);', ['timeout']],
-      ['vi.setConfig({ testTimeout: 1000 });', ['timeout']],
       // Suites.
       ["describe('s1', { timeout: 5000 }, () => {});", ['timeout']],
       ["describe('s2', () => {}, 5);", ['timeout']],
@@ -212,7 +292,47 @@ describe('one timeout for every test, and no retries', () => {
       ["it('r1', { retry: 2 }, () => {});", ['retry']],
       ["describe('r2', () => {}, { retry: 1 });", ['retry']],
       ["it('r3', { timeout: 1, retry: 1 }, () => {});", ['timeout', 'retry']],
-      ['vi.setConfig({ hookTimeout: 1, retry: 3 });', ['timeout', 'retry']],
+      // Options the guard can't read are flagged rather than evaluated: a variable, a call or a spread, in either argument order.
+      ["const opts = { timeout: 5 }; it('o1', () => {}, opts);", ['opaque']],
+      ["const opts = { timeout: 5 }; it('o2', opts, () => {});", ['opaque']],
+      ["test('o3', { ...opts }, () => {});", ['opaque']],
+      ["it('o4', () => {}, { ...opts });", ['opaque']],
+      ["it('o5', { concurrent: true, ...opts }, () => {});", ['opaque']],
+      ["it('o6', () => {}, makeOptions());", ['opaque']],
+      ["describe('o7', opts, () => {});", ['opaque']],
+      ['beforeEach(() => {}, opts);', ['opaque']],
+      ['afterAll(() => {}, { ...opts });', ['opaque']],
+      ["it('o8', { retry: 1, ...opts }, () => {});", ['retry', 'opaque']],
+      // vi.setConfig with any argument, and on vitest.
+      ['vi.setConfig({ testTimeout: 1000 });', ['config']],
+      ['vi.setConfig({ hookTimeout: 1, retry: 3 });', ['config']],
+      [`vi.setConfig({ testTimeout: ${HANG_GUARD} });`, ['config']],
+      ['vi.setConfig({ fakeTimers: {} });', ['config']],
+      ['vi.setConfig(cfg);', ['config']],
+      ['vi.setConfig({ ...cfg });', ['config']],
+      ['vitest.setConfig(cfg);', ['config']],
+      ["vi['setConfig'](cfg);", ['config']],
+      // The timeout slot of onTestFinished and onTestFailed, bare or on the test context.
+      ['onTestFinished(() => {}, 5000);', ['timeout']],
+      ['onTestFailed(() => {}, { timeout: 5 });', ['timeout']],
+      ['onTestFinished(() => {}, opts);', ['opaque']],
+      ['ctx.onTestFinished(() => {}, 5);', ['timeout']],
+      ['onTestFailed(async () => {}, { ...opts });', ['opaque']],
+      // Calls through a namespace import of vitest, however it is loaded.
+      ["import * as v from 'vitest'; v.it('n1', () => {}, 5000);", ['timeout']],
+      ["v.test('n2', { timeout: 5 }, () => {});", ['timeout']],
+      ["v.it.each([[1]])('n3', () => {}, 5);", ['timeout']],
+      ["v['it']('n4', { retry: 2 }, () => {});", ['retry']],
+      ['v.describe.concurrent("n5", () => {}, 5);', ['timeout']],
+      ['v.beforeEach(() => {}, 5);', ['timeout']],
+      ['v.onTestFinished(() => {}, 5);', ['timeout']],
+      ['v.vi.setConfig({ retry: 1 });', ['config']],
+      ["const slowV = v.test.extend({}); slowV('n6', () => {}, 5);", ['timeout']],
+      ["const w = await import('vitest'); w.it('n7', () => {}, 5);", ['timeout']],
+      ["const r = require('vitest'); r.test('n8', () => {}, 5);", ['timeout']],
+      ["v.it('n9', () => {}, " + HANG_GUARD + "); v.beforeEach(() => {}); v.vi.fn();", []],
+      // Not vitest: a namespace of another module, and a member that only looks like a runner.
+      ["import * as z from 'zod'; z.it('p1', () => {}, 5); z.vi.setConfig(cfg); z.beforeEach(() => {}, 5);", []],
       // Allowed: waits and child processes keep their own timeouts, test data may hold one, and the hang guard may be named in any slot.
       ["it('e', async () => { await vi.waitFor(() => {}, { timeout: 1000 }); spawnSync('git', [], { timeout: 5000 }); });", []],
       ["it.each([{ timeout: 3 }])('f', ({ timeout }) => {});", []],
@@ -222,8 +342,8 @@ describe('one timeout for every test, and no retries', () => {
       [`describe('g4', { timeout: ${HANG_GUARD} }, () => {});`, []],
       [`afterAll(async () => {}, ${HANG_GUARD});`, []],
       [`beforeEach(() => {}, { timeout: ${HANG_GUARD} });`, []],
-      [`vi.setConfig({ testTimeout: ${HANG_GUARD}, hookTimeout: ${HANG_GUARD} });`, []],
-      ['vi.setConfig({ fakeTimers: {} });', []],
+      [`onTestFinished(() => {}, ${HANG_GUARD}); onTestFailed(() => {}, { timeout: ${HANG_GUARD} });`, []],
+      ["onTestFinished(() => {}); vi.setConfig; vi.fn(setConfigLater);", []],
       ["it('h', { concurrent: true }, runCase); test('i', runCase); beforeAll(setUp);", []],
       ["const quick = it.extend({}); quick('j', () => {}); /x/.test('y'); pattern.test(path);", []],
     ];
