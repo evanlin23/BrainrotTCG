@@ -208,7 +208,7 @@ const HallOfFamePage = () => {
 
   const renderEntry = (entry: HallOfFameEntry, rank: number) => {
     const who = visitorName(entry.name);
-    const via = provenanceText(entry.githubUser);
+    const via = provenanceText(entry);
     // The top rows are what a phone shows first: their art goes ahead, and rows further down wait to be scrolled near (#762).
     const order = rank < ON_FIRST_SCREEN ? { fetchPriority: 'high' } as const : { loading: 'lazy' } as const;
     return (

@@ -15,6 +15,10 @@
  *   inside a few ALLOWED_PHRASES ("Moby Dick", but not "Moby Dick.head").
  * - PHRASES are blocked anywhere in the name with its spaces removed: phrases usually written as
  *   separate words, and a few common run-together names built on a WHOLE term ("bigdick").
+ * - A word or name holding an ALLOWED word is also checked with its ALLOWED words cut out (again
+ *   until none is left), against STRONG, WHOLE and PHRASES, so wrapping a term around one doesn't
+ *   hide it: "fuNAZIRck" reads "fuck", "seNAZIRx" reads "sex" and "white NAZIR power" reads
+ *   "whitepower". A WHOLE cut that is an ALLOWED_WHOLE word passes ("rapNAZIRpe" reads "rappe").
  * Hate numbers are blocked only as a number of their own. Mild swearing (shit, damn, crap, ass, hell)
  * is allowed; slurs, sexual terms and hate are not.
  *
@@ -127,6 +131,8 @@ const STRONG_EXACT_RE = new RegExp(`^(?:${STRONG.map(pattern).join('|')})$`);
 const PHRASE_RE = new RegExp(PHRASES.map(pattern).join('|'));
 const WHOLE_RE = new RegExp(`^(?:${WHOLE.map(pattern).join('|')})(?:s+|z+)?$`);
 const ALLOWED_FOLDED = ALLOWED.map((w) => fold(w, true));
+// Longest first, so the longer of two overlapping allowed words is cut ("booboo" before "booby").
+const ALLOWED_CUT_RE = new RegExp([...ALLOWED_FOLDED].sort((a, b) => b.length - a.length).join('|'), 'g');
 const ALLOWED_WHOLE_SET = new Set(ALLOWED_WHOLE.map((w) => fold(w, true)));
 // Longest first, so "dick van dyke" goes before "van dyke". It must start and end a word (letters
 // after punctuation belong to the same word), so "Moby Dick.head" keeps its "dickhead".
@@ -138,11 +144,19 @@ const ALLOWED_PHRASE_RE = new RegExp(
   'g',
 );
 
-/** Whether a STRONG term matches in a word other than wholly inside one ALLOWED word ("Nazir", not "Pornazir"). */
-const strongOutsideAllowed = (word: string) => {
-  if (!STRONG_RE.test(word)) return false;
+/**
+ * Whether a STRONG term matches in a word other than wholly inside one ALLOWED word ("Nazir", not
+ * "Pornazir"), or around one: the word with its allowed words cut out is checked again, so
+ * "fuNAZIRck" reads "fuck".
+ */
+const strongOutsideAllowed = (word: string): boolean => {
   const spans: [number, number][] = [];
   for (const a of ALLOWED_FOLDED) for (let i = word.indexOf(a); i >= 0; i = word.indexOf(a, i + 1)) spans.push([i, i + a.length]);
+  if (spans.length) {
+    const cut = word.replace(ALLOWED_CUT_RE, '');
+    if (cut !== word && strongOutsideAllowed(cut)) return true;
+  }
+  if (!STRONG_RE.test(word)) return false;
   if (!spans.length) return true;
   for (let start = 0; start < word.length; start++) {
     // A match from here is excused only if it ends within an allowed word that covers its start.
@@ -152,6 +166,17 @@ const strongOutsideAllowed = (word: string) => {
   }
   return false;
 };
+
+/** The word with its ALLOWED words cut out, again until none is left ("seNAZIRx" -> "sex"); empty if it holds none. */
+const allowedCuts = (word: string): string[] => {
+  const cuts: string[] = [];
+  // Each cut is shorter than the last, so this ends within the word's length.
+  for (let w = word, cut = w.replace(ALLOWED_CUT_RE, ''); cut !== w; w = cut, cut = w.replace(ALLOWED_CUT_RE, '')) cuts.push(cut);
+  return cuts;
+};
+
+/** Whether a piece is a WHOLE term on its own (with an optional plural), other than an ALLOWED_WHOLE word. */
+const wholeTerm = (piece: string) => WHOLE_RE.test(piece) && !ALLOWED_WHOLE_SET.has(piece);
 
 /** Runs of two or more one-letter tokens joined ("f u c k" -> "fuck"). */
 const joinSingles = (tokens: readonly string[]) => {
@@ -202,8 +227,9 @@ export const isNameAllowed = (name: string): boolean => {
   if (NUMBER_RE.test(plain(name))) return false;
   const { words, pieces, whole } = readings(name);
   for (const w of words) if (strongOutsideAllowed(w)) return false;
-  for (const p of pieces) if (WHOLE_RE.test(p) && !ALLOWED_WHOLE_SET.has(p)) return false;
-  return !whole.some((w) => PHRASE_RE.test(w));
+  for (const p of pieces) if (wholeTerm(p) || allowedCuts(p).some((cut) => wholeTerm(cut) || PHRASE_RE.test(cut))) return false;
+  // The whole name runs its words together, so its cuts also take out an allowed word between them ("white NAZIR power").
+  return !whole.some((w) => PHRASE_RE.test(w) || allowedCuts(w).some((cut) => PHRASE_RE.test(cut)));
 };
 
 /** The name to show other players: the normalized name, ANONYMOUS_NAME if blank, NAME_PLACEHOLDER if blocked. */
