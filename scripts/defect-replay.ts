@@ -160,7 +160,7 @@ export const META: readonly MetaCase[] = [
 ];
 
 /**
- * What the replay guards: the unit gate's config, setup, dependencies and test budget, this harness, and each case's owning
+ * What the replay guards: the unit gate's config, setup, dependencies and test timing, this harness, and each case's owning
  * test and fixed code. CI runs the replay on a pull request that changes any of them.
  */
 export const GATE_PATHS: readonly string[] = [...new Set([
@@ -249,7 +249,7 @@ const vitest = (tree: string, file: string, out: string): Run => {
   rmSync(out, { force: true });
   const env: NodeJS.ProcessEnv = { ...process.env, HTTP_PROXY: 'http://127.0.0.1:9', HTTPS_PROXY: 'http://127.0.0.1:9', NO_PROXY: '', CI: '1' };
   for (const key of ['GITHUB_TOKEN', 'GH_TOKEN', 'NODE_AUTH_TOKEN', 'npm_config_proxy', 'npm_config_https_proxy']) delete env[key];
-  const ran = spawnSync('npx', ['vitest', 'run', file, '--testTimeout=15000', '--reporter=json', `--outputFile=${out}`], { cwd: tree, env, encoding: 'utf8', timeout: 180_000 });
+  const ran = spawnSync('npx', ['vitest', 'run', file, '--reporter=json', `--outputFile=${out}`], { cwd: tree, env, encoding: 'utf8', timeout: 180_000 });
   try {
     return { exit: ran.status, report: JSON.parse(readFileSync(out, 'utf8')) as VitestReport };
   } catch {

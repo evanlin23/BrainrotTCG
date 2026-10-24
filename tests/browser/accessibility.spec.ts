@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { expectRankingsChecked, monitor } from './support';
 
 // A keyboard-only pass over the app (#73): Tab reaches every tab and the gear with a visible focus
 // ring, Enter opens each page with its heading focused, every control has a name, and the card guide
@@ -7,6 +7,13 @@ import { monitor } from './support';
 // trap of their own; the sheet is where a trap belongs.
 
 const PAGES = ['Cards', 'Rankings', 'Profile', 'Settings'] as const;
+/** A page with nothing left to finish once its skeleton is gone. */
+const shownAlready = () => Promise.resolve();
+// What each page still finishes before the keyboard leaves it: Rankings checks recent pulls once its
+// list is in, and leaving mid-check aborts a read (support.ts, expectRankingsChecked).
+const SETTLED: Record<(typeof PAGES)[number], (main: Locator) => Promise<void>> = {
+  Cards: shownAlready, Rankings: expectRankingsChecked, Profile: shownAlready, Settings: shownAlready,
+};
 
 const nav = (page: Page) => page.getByRole('navigation', { name: 'Main', exact: true });
 const control = (page: Page, name: string) => (name === 'Settings'
@@ -54,6 +61,7 @@ test('a keyboard reaches every page and the card guide, with focus shown and eve
 
   for (const name of PAGES) {
     const target = control(page, name);
+    const settled = SETTLED[name];
     await tabTo(page, target);
     await expectFocusRing(target);
     await page.keyboard.press('Enter');
@@ -64,6 +72,7 @@ test('a keyboard reaches every page and the card guide, with focus shown and eve
     await expect(target).toHaveAttribute('aria-current', 'page');
     await expect(shown.locator('.page-skeleton')).toHaveCount(0);
     expect(await unnamedControls(page)).toEqual([]);
+    await settled(shown);
   }
 
   // Back to the packs screen, then the card guide sheet by keyboard.

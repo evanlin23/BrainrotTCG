@@ -244,6 +244,24 @@ for (const stage of ['fetching', 'fulfilling'] as const) {
   });
 }
 
+// missing_scenario (review of #1143): the guard's route is context-wide, but it judged teardown by the page it
+// monitors. With two monitors on one context (tests/browser/multi-tab.spec.ts), the later one's route answers
+// every page, so a failed fetch on a page that stayed open was excused once the other page had closed.
+test('a failed fetch on an open page is recorded although the monitored page of the same context has closed', async ({ page }) => {
+  const other = await page.context().newPage();
+  await monitor(other, primaryUrl, 0, { failOnUnexpected: false });
+  // The later monitor's route handles every page of the context, including `other`.
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  await other.goto(primaryUrl);
+  await page.close();
+
+  // Not awaited: an excused refusal leaves this fetch unanswered, and the record below is what must show.
+  await other.evaluate(() => { void fetch('/hang-up'); });
+
+  await expect.poll(() => errors.failed).toEqual([`[fetch failed: socket hang up (ECONNRESET)] GET ${primaryOrigin}/hang-up`]);
+});
+
 test('a CSP report the guard cannot read is still recorded', async ({ page }) => {
   const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
   await page.goto(primaryUrl);

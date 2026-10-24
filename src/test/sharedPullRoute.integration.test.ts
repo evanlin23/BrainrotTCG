@@ -74,7 +74,7 @@ it("retires verified pull A when only the hash changes to pending pull B, then c
   const link = (writeText.mock.calls[0] as unknown as [string])[0];
   expect(link).toBe(pullUrl(proofB, previewFor(checkedB.cardsWithMeta)));
   expect(link).not.toContain(proofA);
-}, 60_000);
+});
 
 it('does not let a late completion of A overwrite B after a hash-only route change', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET }, { tickets: holdTickets({ a: 3_000, b: 8_000 }) });
@@ -94,4 +94,4 @@ it('does not let a late completion of A overwrite B after a hash-only route chan
   });
   expect(text()).not.toContain('Alpha Ripper');
   expect(text()).not.toContain(`#${NONCE_A}`);
-}, 60_000);
+});
