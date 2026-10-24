@@ -237,9 +237,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   }, [isOpening, particlesOn]);
 
   // Mine the next pack's ticket while this one is on screen. Its art is fetched only if nothing covers
-  // Open when this runs, so a cover's change runs it again.
+  // Open when this runs, so a cover's change runs it again. A fetch already under way carries on
+  // through those changes; only unmounting stops it, so no picture loads into a page that is gone.
+  const mounted = useRef<AbortController | null>(null);
   useEffect(() => {
-    if (!isOpening) prefetchNextPack(set, disabled);
+    const controller = new AbortController();
+    mounted.current = controller;
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
+    if (!isOpening) prefetchNextPack(set, disabled, mounted.current?.signal);
   }, [isOpening, set, disabled]);
 
   // From the tear on, the ticket is spent: the app mustn't swap sets (or open a sheet over it) until
