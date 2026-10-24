@@ -23,6 +23,9 @@ async function settledPack(page: Page, ancestorTransform?: string) {
   await expectDecoded(packShell.locator('img'), 2);
   await packShell.scrollIntoViewIfNeeded();
   await expectStill(packShell, 'the pack stops moving');
+  // The pack takes presses once its fall has reached its place, which a transform pinned over the drop-in
+  // hides from the eye.
+  await expect(page.locator('.pack-display')).not.toHaveAttribute('data-falling');
   return packShell;
 }
 
