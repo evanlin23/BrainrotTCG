@@ -632,11 +632,18 @@ export async function expectDecoded(images: Locator, count: number, { timeout }:
  * Resolves once the page has painted a frame and then gone idle. Input events hand React their state
  * synchronously, so whatever a gesture or an event was going to show has been rendered by then: use it
  * to check that nothing followed, in place of a pause.
+ *
+ * The idle step has a deadline (`IDLE_DEADLINE`). Without one, requestIdleCallback is never promised
+ * to run: Chromium only grants idle time between frames, and the packs screen runs its foil and lift
+ * animations for good, so on a loaded machine frames come back to back (13 to 19 a second, measured)
+ * and the callback can starve for a minute, hanging the wait after a Forward or Back. With the
+ * deadline it runs in the first idle period, or at the deadline if the page never has one.
  */
+const IDLE_DEADLINE = 500;
 export function untilIdle(page: Page) {
-  return page.evaluate(() => new Promise<void>((done) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => requestIdleCallback(() => done())));
-  }));
+  return page.evaluate((deadline) => new Promise<void>((done) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestIdleCallback(() => done(), { timeout: deadline })));
+  }), IDLE_DEADLINE);
 }
 
 /** Scales the root font like a player's text-size setting, and waits for fonts to settle. */
