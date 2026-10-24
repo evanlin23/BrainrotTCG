@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { GROUPED_TOAST_MS, STORAGE_KEYS, TOAST_MS } from '../../src/constants/config';
+import { STORAGE_KEYS } from '../../src/constants/config';
+import { GROUPED_TOAST_MS, TOAST_MS } from '../../src/constants/toast';
 import { monitor, expectDecoded, expectPackDropped, expectSummaryTakesClicks } from '../browser/support';
 
 /**
