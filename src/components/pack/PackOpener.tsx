@@ -47,8 +47,12 @@ const Lifted = ({ className, ...props }: ComponentProps<typeof Motion.div>) => {
   return <Motion.div {...props} className={`lifted ${className ?? ''}`} data-leaving={present ? undefined : ''} />;
 };
 
-/** Where the sealed pack's stage rests. */
-const STAGE_AT_REST = { y: 0, opacity: 1, rotate: 0 };
+/**
+ * Where the sealed pack's stage rests. It names the scale its exit grows: a stage the player brings back
+ * after the exit finished but before React took it away is the same element, at the exit's end, and
+ * framer leaves a value no state names where it is, so it stayed at 1.25 for good.
+ */
+const STAGE_AT_REST = { y: 0, opacity: 1, rotate: 0, scale: 1 };
 
 /**
  * Focus follows the stage (#312) onto a control that just appeared, unless the player has put it
