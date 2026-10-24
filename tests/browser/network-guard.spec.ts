@@ -38,6 +38,13 @@ test.beforeAll(async () => {
 ${pagesBeaconTag('0123456789abcdef0123456789abcdef')}</body></html>`);
       return;
     }
+    if (url.pathname === '/holds-load.html') {
+      // A document whose load waits on a subresource the server never answers, as a font asked for
+      // before load held the reloaded app on production.
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<!doctype html><html><head><meta charset="utf-8"><title>Holds Load</title></head><body><img src="/stall?key=not-for-logs" alt=""></body></html>');
+      return;
+    }
     if (url.pathname === '/asset.json' && req.method === 'GET') {
       primaryAssetHits++;
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -172,6 +179,19 @@ test('a monitored request the server never answers is named as pending while the
 
   await expect.poll(() => errors.pending).toEqual([`[fetching] GET ${primaryOrigin}/stall`]);
   expect(errors.failed).toEqual([]);
+});
+
+// missing_scenario (deploy run 40051793039): the guard's fetch had no deadline, so a production fetch
+// of the logo font that stalled on the way to the site held page.reload at "navigated to" until the
+// journey ran out. Bounded, the stall fails as a named timeout and the page's load completes.
+test('a guard fetch that outlives its deadline fails as a named timeout and lets the page load', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false, fetchTimeout: 500 });
+  const response = await page.goto(`${primaryUrl}holds-load.html`);
+
+  expect(response?.status()).toBe(200);
+  expect(errors.failed).toEqual([`[fetch failed: Timeout 500ms exceeded.] GET ${primaryOrigin}/stall`]);
+  expect(errors.pending).toEqual([]);
+  expect(errors).toContain(`net::ERR_FAILED ${primaryOrigin}/stall?key=not-for-logs`);
 });
 
 test('a fulfill Playwright refuses is recorded, and the request it leaves paused stays pending', async ({ page }) => {
