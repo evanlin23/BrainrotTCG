@@ -47,8 +47,12 @@ const Lifted = ({ className, ...props }: ComponentProps<typeof Motion.div>) => {
   return <Motion.div {...props} className={`lifted ${className ?? ''}`} data-leaving={present ? undefined : ''} />;
 };
 
-/** Where the sealed pack's stage rests. */
-const STAGE_AT_REST = { y: 0, opacity: 1, rotate: 0 };
+/**
+ * Where the sealed pack's stage rests. It names the scale its exit grows: a stage the player brings back
+ * after the exit finished but before React took it away is the same element, at the exit's end, and
+ * framer leaves a value no state names where it is, so it stayed at 1.25 for good.
+ */
+const STAGE_AT_REST = { y: 0, opacity: 1, rotate: 0, scale: 1 };
 
 /**
  * Focus follows the stage (#312) onto a control that just appeared, unless the player has put it
@@ -129,6 +133,17 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setLanded(true);
     onArrive?.();
   };
+  // The first fall passes over the header and any warning above the stage. Until it first reaches its place
+  // the stage takes no presses (PackOpener.css), so a tap aimed at the Settings gear or a banner's Download
+  // then reaches them, not the pack falling past. From there it only settles, so a tap on the pack lands.
+  // Reduced motion puts it in its place at once, so it never passes over them.
+  const [falling, setFalling] = useState(!arrived);
+  const reachedPlace = useRef(arrived);
+  const markInPlace = () => {
+    if (reachedPlace.current) return;
+    reachedPlace.current = true;
+    setFalling(false);
+  };
   /** Why the last tear didn't open a pack, shown under it with a way to try again. */
   const refusal = stage.kind === 'sealed' ? stage.refusal : null;
   /** The player left a torn pack while its ticket was still being worked out: keep it, don't show it. */
@@ -168,7 +183,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       // Usually instant: the ticket was mined while the pack was on screen.
       pack = await openPack(set, mountedSave);
     } catch (error) {
-      console.error('Could not open pack', error);
+      // Another tab replacing the save mid-open is a refusal the pack states, as when it lands before the
+      // tear; only a real failure is an error (#1139).
+      if (!(error instanceof StaleSaveError)) console.error('Could not open pack', error);
       const { from } = send({ type: 'failed', refusal: error instanceof PlayerUnreadableError ? 'unreadable' : error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed' });
       // Already back on the packs screen: nothing was dealt, so there's nothing to say.
       if (from.kind === 'waiting' && from.leaving === 'left') landingRef.current.resetCutState();
@@ -220,9 +237,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   }, [isOpening, particlesOn]);
 
   // Mine the next pack's ticket while this one is on screen. Its art is fetched only if nothing covers
-  // Open when this runs, so a cover's change runs it again.
+  // Open when this runs, so a cover's change runs it again. A fetch already under way carries on
+  // through those changes; only unmounting stops it, so no picture loads into a page that is gone.
+  const mounted = useRef<AbortController | null>(null);
   useEffect(() => {
-    if (!isOpening) prefetchNextPack(set, disabled);
+    const controller = new AbortController();
+    mounted.current = controller;
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
+    if (!isOpening) prefetchNextPack(set, disabled, mounted.current?.signal);
   }, [isOpening, set, disabled]);
 
   // From the tear on, the ticket is spent: the app mustn't swap sets (or open a sheet over it) until
@@ -259,6 +283,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const handleCutComplete = useCallback(() => {
     const torn = send({ type: 'tear' });
     if (torn.stage === torn.from) return;
+    // A key can tear the pack mid-fall. The fall's watch reads the stage each frame, which must stop
+    // before the wait for the cards, the longest stall on a slow phone (#266).
+    reachedPlace.current = true;
+    setFalling(false);
     if (openTimeoutRef.current) {
       window.clearTimeout(openTimeoutRef.current);
     }
@@ -775,7 +803,27 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
             ref={stageRef}
             onScroll={markStageScrolled}
             {...stageEntrance(landed, reducedMotion)}
-            onAnimationStart={markLanded}
+            onAnimationStart={(definition) => {
+              markLanded();
+              if (definition !== STAGE_AT_REST || reachedPlace.current) return;
+              // Each frame, how far above its place the stage is drawn. An onUpdate prop could say, but it
+              // takes all of the stage's animations off the compositor (framer-motion), and under reduced
+              // motion the torn pack's exit then never ends. The completion catches a fall that stops short.
+              const element = stageRef.current;
+              const watch = () => {
+                if (reachedPlace.current || !element?.isConnected) return;
+                const { transform } = getComputedStyle(element);
+                const matrix = /^matrix(3d)?\((.*)\)$/.exec(transform);
+                const y = transform === 'none' ? 0 : matrix ? Number(matrix[2].split(',')[matrix[1] ? 13 : 5]) : NaN;
+                if (y >= 0) markInPlace();
+                else requestAnimationFrame(watch);
+              };
+              requestAnimationFrame(watch);
+            }}
+            onAnimationComplete={(definition) => {
+              if (definition === STAGE_AT_REST) markInPlace();
+            }}
+            data-falling={(falling && !reducedMotion) || undefined}
             animate={shown ? STAGE_AT_REST : false}
             // Quick, on its own timing: the drop-in spring's long tail left the screen blank before the reveal.
             exit={{ scale: 1.25, opacity: 0, transition: { duration: 0.25, ease: 'easeIn' } }}
@@ -823,6 +871,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 celebrating={celebratingCardId === currentCard?.uniqueId}
                 skipping={skipping}
                 setName={set.name}
+                firstPack={openCue}
               />
             ) : (
               <PackSummaryUI

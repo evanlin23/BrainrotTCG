@@ -85,7 +85,7 @@ it('ignores the old auto-open key on the sealed pack and during a reveal', async
   expect(progress()).toBe('1');
   expect($('.summary-card')).toBeNull();
   expect(stats()?.packsOpened ?? 0).toBe(0);
-}, 30_000);
+});
 
 it('leaves a spent reveal only by its Back to packs button, exactly once: empty space and flings stay', async () => {
   app = await mountedApp(preferences());
@@ -121,7 +121,7 @@ it('leaves a spent reveal only by its Back to packs button, exactly once: empty 
     expect($('.reveal-progress')).toBeNull();
     expect(stats()?.packsOpened).toBe(index + 1);
   }
-}, 30_000);
+});
 
 it('does not leave or record a reveal from behind a page, and the reveal is still there when it closes', async () => {
   app = await mountedApp(preferences());
@@ -143,7 +143,7 @@ it('does not leave or record a reveal from behind a page, and the reveal is stil
   await app.interact(() => button('Back to packs').click());
   await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
   expect(stats()?.packsOpened).toBe(1);
-}, 30_000);
+});
 
 it('leaves a reveal with Escape as Back to packs does, and says the face-down cards were kept', async () => {
   app = await mountedApp(preferences());
@@ -158,7 +158,7 @@ it('leaves a reveal with Escape as Back to packs does, and says the face-down ca
   await app.until('a notice says the pack was kept', () => expect(toasts()).toContain('Pack kept'));
   expect(toasts()).toContain('Its cards are in Cards');
   // Tapping the notice opens the cards it names.
-  await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.toast')].find((el) => el.textContent?.includes('Pack kept'))!.click());
+  await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.toast-open')].find((el) => el.textContent?.includes('Pack kept'))!.click());
   await app.until('Cards opens from the notice', () => expect(pageTitle()).toBe('Cards'));
   expect(location.hash).toBe('#/cards');
 
@@ -171,7 +171,7 @@ it('leaves a reveal with Escape as Back to packs does, and says the face-down ca
   await app.settle(1000);
   expect($('.reveal-progress')).toBeNull();
   expect(stats()?.packsOpened).toBe(1);
-}, 30_000);
+});
 
 it('does not say a pack was kept when its save failed', async () => {
   app = await mountedApp(preferences());
@@ -191,7 +191,7 @@ it('does not say a pack was kept when its save failed', async () => {
   await app.settle(1000);
   expect(toasts(), 'a pack whose save failed was said to be kept').not.toContain('Pack kept');
   expect(app.takeErrors(/^Failed to save to localStorage key /).length).toBeGreaterThan(0);
-}, 30_000);
+});
 
 it('lets Escape close a sheet over the reveal without closing the reveal', async () => {
   app = await mountedApp(preferences());
@@ -211,7 +211,7 @@ it('lets Escape close a sheet over the reveal without closing the reveal', async
   await escape();
   await app.until('the next Escape closes the reveal', () => expect(sealed()).not.toBeNull());
   expect(stats()?.packsOpened).toBe(1);
-}, 30_000);
+});
 
 it('shares from the summary, which leads with the result and puts its actions after the cards', async () => {
   app = await mountedApp(preferences());
@@ -233,7 +233,7 @@ it('shares from the summary, which leads with the result and puts its actions af
   await app.until('share sheet opens for this pack', () => expect(button('Copy link')).toBeDefined());
   expect([...document.querySelectorAll('[role="dialog"]')].some((dialog) => dialog.textContent?.includes('Share your pull'))).toBe(true);
   expect(stats()?.packsOpened).toBe(1);
-}, 30_000);
+});
 
 it('hides the app chrome from the tear through the summary, and brings it back when the pack is left', async () => {
   app = await mountedApp(preferences());
@@ -249,7 +249,7 @@ it('hides the app chrome from the tear through the summary, and brings it back w
   await app.interact(() => button('Next pack').click());
   await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
   expect(focusMode(), 'the packs screen kept the chrome hidden').toBe(false);
-}, 30_000);
+});
 
 it('lets the X end a big pull\'s hold and leave, recording the pack once; nothing else gets past the hold', async () => {
   app = await mountedApp(preferences({ nextNonce: 22, pauseBigPulls: true }));
@@ -291,7 +291,7 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
   await app.reload();
   expect(localStorage.getItem(STORAGE_KEYS.STATS)).toBe(before);
   expect(sealed()).not.toBeNull();
-}, 30_000);
+});
 
 it('holds the last pack\'s notices while a big pull is on show, and shows them all once it ends', async () => {
   // Nonce 21 has no big pull; the next pack, nonce 22, does.
@@ -302,19 +302,21 @@ it('holds the last pack\'s notices while a big pull is on show, and shows them a
   await app.until('the first pack is kept', () => expect(toasts()).toContain('Pack kept'));
   await app.until('a fresh pack is ready', () => expect(sealed()).not.toBeNull());
   await reveal();
-  const before = toasts();
-  expect(before, 'a notice is up when the big pull lands').not.toBe('');
+  // The pack in hand holds the notices (the tear and reveal are not covered by one).
+  expect(toasts(), 'no notice over the opening pack').toBe('');
   await app.interact(() => button('Skip opening animation').click());
   await app.until('the big pull is on show', () => expect($('.showcase-ribbon')).not.toBeNull());
-  // Gone the frame the ribbon shows, and nothing new shows over the showcase.
+  // Nothing shows over the showcase.
   expect(toasts()).toBe('');
   await app.settle(1500);
   expect($('.showcase-ribbon')).not.toBeNull();
   expect(toasts()).toBe('');
-  // When it ends, the held notice comes back first, in full.
+  // When the pack is done, the held notice comes back, in full.
   await app.until('the showcase ends', () => expect($('.showcase-ribbon')).toBeNull());
-  await app.until('the held notice shows', () => expect(toasts()).toBe(before));
-}, 30_000);
+  expect(toasts()).toBe('');
+  await escape();
+  await app.until('the held notice shows', () => expect(toasts()).toContain('Pack kept'));
+});
 
 it('keeps notices held between two big pulls that Skip shows back to back (#460)', async () => {
   // Nonce 973 leaves a notice behind; nonce 974 deals two big pulls, the last two cards.
@@ -344,7 +346,7 @@ it('keeps notices held between two big pulls that Skip shows back to back (#460)
   expect(frames.slice(first, last + 1).filter((frame) => frame.toast), 'a notice showed between the showcases').toEqual([]);
   // The held notice comes back once they are over.
   await app.until('the held notice shows', () => expect(toasts()).toContain('Pack kept'));
-}, 60_000);
+});
 
 it('still shows the save warning at once over a big pull, since it needs action (#460)', async () => {
   app = await mountedApp(preferences({ nextNonce: 22, pauseBigPulls: true }));
@@ -357,7 +359,7 @@ it('still shows the save warning at once over a big pull, since it needs action 
   await app.interact(() => window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' })));
   expect($('.showcase-ribbon'), 'the showcase ended').not.toBeNull();
   expect($('.app > p[role="alert"].save-warning')?.textContent).toContain('This save changed in another tab');
-}, 30_000);
+});
 
 it('leaves the summary with Escape, as Next pack does, without recording it again', async () => {
   app = await mountedApp(preferences());
@@ -372,7 +374,7 @@ it('leaves the summary with Escape, as Next pack does, without recording it agai
   await app.settle(1000);
   expect(stats()?.packsOpened).toBe(1);
   expect(toasts(), 'a pack seen to the end said it was kept').not.toContain('Pack kept');
-}, 30_000);
+});
 
 it('opens and records one pack when Open pack and Enter land together, before the tear re-renders (#266)', async () => {
   app = await mountedApp(preferences());
@@ -390,7 +392,7 @@ it('opens and records one pack when Open pack and Enter land together, before th
   expect(stats()?.packsOpened).toBe(1);
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]')).toHaveLength(1);
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1') ?? '{}').nextNonce).toBe(1);
-}, 30_000);
+});
 
 it('puts a torn pack back sealed when it is left before its ticket is spent', async () => {
   app = await mountedApp(preferences());
@@ -410,7 +412,7 @@ it('puts a torn pack back sealed when it is left before its ticket is spent', as
   expect(stats()?.packsOpened ?? 0).toBe(0);
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).nextNonce, 'leaving before the tear landed spent a ticket').toBe(0);
   await reveal();
-}, 30_000);
+});
 
 it('leaves a torn pack whose ticket is on its way at once, and records it once, face up, when it lands', async () => {
   app = await mountedApp(preferences(), { tickets: () => ({ delayMs: 4000 }) });
@@ -438,7 +440,7 @@ it('leaves a torn pack whose ticket is on its way at once, and records it once, 
   expect(stats()?.packsOpened, 'the late pack was recorded twice').toBe(1);
   expect($('.reveal-progress'), 'the late pack opened over the packs screen').toBeNull();
   expect(sealed()).not.toBeNull();
-}, 30_000);
+});
 
 describe('browser Back in a pack', () => {
   const packEntry = () => (history.state as { brainrotPack?: boolean } | null)?.brainrotPack === true;
@@ -476,7 +478,7 @@ describe('browser Back in a pack', () => {
     expect(sealed()).not.toBeNull();
     expect($('.reveal-progress')).toBeNull();
     expect(stats()?.packsOpened).toBe(2);
-  }, 30_000);
+  });
 
   it('steps back over the entry when the X, Escape or the summary leaves, so Back then leaves the page', async () => {
     app = await mountedApp(preferences());
@@ -500,7 +502,7 @@ describe('browser Back in a pack', () => {
       expect(focusMode(), `${leave} kept the chrome hidden`).toBe(false);
     }
     expect(stats()?.packsOpened).toBe(3);
-  }, 30_000);
+  });
 
   it('does not leave the summary from under its share sheet, as the summary\'s own buttons don\'t', async () => {
     app = await mountedApp(preferences());
@@ -526,7 +528,7 @@ describe('browser Back in a pack', () => {
     await app.until('Back leaves the summary', () => expect(sealed()).not.toBeNull());
     expect(focusMode()).toBe(false);
     expect(stats()?.packsOpened).toBe(1);
-  }, 30_000);
+  });
 
   it('lands on the whole packs screen from the summary, with the pack kept once, and Forward and Back again behave (#720)', async () => {
     app = await mountedApp(preferences());
@@ -578,7 +580,7 @@ describe('browser Back in a pack', () => {
     await app.settle(2000);
     wholeScreen('after the second pack');
     expect(recorded()).toEqual({ packs: 2, history: 2, nextNonce: 2 });
-  }, 30_000);
+  });
 
   it('steps back over a pack\'s entry the page was loaded on, so the first Back leaves the page', async () => {
     app = await mountedApp(preferences());
@@ -600,5 +602,5 @@ describe('browser Back in a pack', () => {
     await app.until('Back returns to the packs screen', () => expect(sealed()).not.toBeNull());
     await app.until('Back lands below the pack', () => expect(history.state).toEqual({ below: true }));
     expect(stats()?.packsOpened).toBe(1);
-  }, 30_000);
+  });
 });

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
-import { monitor, relaysAnswerEmpty } from './support';
+import { expectRankingsChecked, monitor, relaysAnswerEmpty } from './support';
 
 // Rankings pages its rows, and Profile's best pulls lead with the best packs. The leaderboard is a synthetic
 // list served in place of hall-of-fame.json: its proofs are fake, and the page never re-derives a
@@ -191,6 +191,8 @@ for (const { width, height, text, label, score = 546_000, stacked } of [
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
+      // Leaving mid-check would abort its read of recent pulls (support.ts, expectRankingsChecked).
+      await expectRankingsChecked(rankings, 'Rankings loaded.');
       await row.click();
       await expect(page).toHaveURL(/#\/pull\/row-fixture-proof$/);
       expect(errors).toEqual([]);

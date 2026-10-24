@@ -87,9 +87,10 @@ export const toCardsWithMeta = (pulled: readonly PulledCardLike[], set?: SetDefi
  * page, a shared pull, a profile or a share sheet `covered` the Open screen: that screen draws its own
  * card art, which a download for a later pack would slow on a thin connection (#762). `covered` is the
  * value at the call, so a cover that opens while the ticket is mined doesn't stop the fetch. Call
- * again once it's uncovered (the ticket is cached).
+ * again once it's uncovered (the ticket is cached). Once `signal` aborts (the caller unmounted), no
+ * picture is fetched; the ticket still mines, into the cache.
  */
-export const prefetchNextPack = (set: SetDefinition, covered?: boolean) => {
+export const prefetchNextPack = (set: SetDefinition, covered?: boolean, signal?: AbortSignal) => {
   // No pack opens while the player record can't be read, so mine nothing for this tab's stand-in key.
   if (playerUnreadable()) return;
   void getTicket(setKey(set), getPlayer().publicKey, peekNonce())
@@ -97,14 +98,16 @@ export const prefetchNextPack = (set: SetDefinition, covered?: boolean) => {
       // And its cards' pictures, so they're cached before the tear (and there if the connection drops),
       // once the sealed pack's own art is in, with the ready-made thumbnail a finished card's summary
       // tile shows (#620).
-      if (covered) return;
+      if (covered || signal?.aborted) return;
       const urls = generatePack(set, packSeedFromTicket(ticket)).flatMap((card) => {
         const image = getCard(`${card.setId}/${card.cardId}`)?.image;
         return image ? [image, cardFinishThumbUrl(image, card.finish)] : [];
       });
-      afterPackArt(() => {
+      const stop = afterPackArt(() => {
+        signal?.removeEventListener('abort', stop);
         for (const url of urls) if (url) new Image().src = url;
       });
+      signal?.addEventListener('abort', stop, { once: true });
     })
     .catch(() => undefined);
 };

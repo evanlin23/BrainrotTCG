@@ -59,19 +59,19 @@ jobs:
           echo "seed=$seed" >> "$GITHUB_OUTPUT"
           echo "Shuffle seed: $seed (revision $GITHUB_SHA)"
       - run: npm ci
-      # The unit suite as `npm test` runs it, without coverage or the runtime budget, which per-PR
+      # The unit suite as `npm test` runs it, without coverage, which per-PR
       # CI owns. Both runs use the same order.
       - id: first
         name: Shuffled run
         env:
           SEED: ${{ steps.seed.outputs.seed }}
-        run: npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed="$SEED"
+        run: npx vitest run --sequence.shuffle --sequence.seed="$SEED"
       - id: repeat
         name: Repeat run, same seed
         if: ${{ !cancelled() && (steps.first.outcome == 'success' || steps.first.outcome == 'failure') }}
         env:
           SEED: ${{ steps.seed.outputs.seed }}
-        run: npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed="$SEED"
+        run: npx vitest run --sequence.shuffle --sequence.seed="$SEED"
       - name: Summary
         if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
         env:
@@ -86,7 +86,7 @@ jobs:
             echo "| --- | --- | --- | --- |"
             echo "| $SEED | \`$GITHUB_SHA\` | $FIRST | $REPEAT |"
             echo
-            echo "Replay: \`git checkout $GITHUB_SHA && npm ci && npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=$SEED\`"
+            echo "Replay: \`git checkout $GITHUB_SHA && npm ci && npx vitest run --sequence.shuffle --sequence.seed=$SEED\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Runs when the test job did not pass. It never checks out or runs the repository's code.
@@ -121,7 +121,7 @@ jobs:
             echo "- Shuffled run: ${FIRST:-not run}; repeat run, same seed: ${REPEAT:-not run}"
             if [ -n "$SEED" ]; then
               echo
-              echo "Replay: \`git checkout $GITHUB_SHA && npm ci && npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=$SEED\`"
+              echo "Replay: \`git checkout $GITHUB_SHA && npm ci && npx vitest run --sequence.shuffle --sequence.seed=$SEED\`"
             fi
             echo
             echo "The failing tests are in the run's log. File each root cause as its own issue and link it here."

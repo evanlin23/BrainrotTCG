@@ -2,7 +2,9 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } fr
 import { Settings2 } from 'lucide-react';
 import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
-import AchievementToasts, { type ToastItem } from './components/achievements/AchievementToasts';
+import { useAnySheetOpen } from './components/ui/openSheets';
+import { usePrefersReducedMotion } from './hooks/usePrefersReducedMotion';
+import type { ToastItem } from './components/achievements/AchievementToasts';
 import AppNav from './components/ui/AppNav';
 import KeptAsideActions from './components/ui/KeptAsideActions';
 import AppPage, { type PageSection } from './components/ui/Page';
@@ -18,6 +20,7 @@ import { DEFAULT_SET_ID, SETS } from './content/sets';
 import type { SetDefinition } from './engine';
 import { canOpenSharedSet } from './game/sharedPullSet';
 import { isCardOwned } from './game/versions';
+import { warmUpForPack } from './game/warmUp';
 import { takePendingPacks, type OpenedPack } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
 import { downloadSaveFile, exportSaveFile, importSaveFile, NEW_PLAYER_PARTIAL_NOTE, PARTIAL_IMPORT_NOTE, STALE_SAVE_WARNING, startNewPlayer } from './game/saveFile';
@@ -34,6 +37,7 @@ import { usePackCacheVersion } from './hooks/usePackCache';
 import { playerUnreadable, sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
+import { flushReopenCache } from './game/reopenCache';
 import { isStaging, STAGING_NOTE } from './game/staging';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
@@ -48,7 +52,10 @@ import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
 
 // Keep loaders stable. A page or sheet is requested when its route or state opens it, or a moment
 // earlier when the player points at, focuses or presses what opens it: never at startup (unless the
-// address opens it) or on idle.
+// address opens it) or on idle. The toasts are neither: one is due within seconds of a pack, so
+// their fetch is warmed once the sealed pack's art has settled and the page is idle (game/warmUp).
+/** The toasts and their styles stay off the first screen's load: fetched ahead of the first pack once idle, or when the first is due. */
+const loadToasts = sheetLoader(() => import('./components/achievements/AchievementToasts'));
 const loadProfilePage = sheetLoader(() => import('./components/profile/ProfilePage'));
 const loadPublicProfile = sheetLoader(() => import('./components/profile/ProfileViewerPage'));
 const loadHallOfFame = sheetLoader(() => import('./components/pages/HallOfFamePage'));
@@ -305,6 +312,14 @@ function App() {
     setSettings(newSettings);
   }, []);
 
+  // Work left on a timer when the app goes away: the reload it no longer needs is dropped, and the
+  // reopen cache's batched write lands now rather than after the page is gone.
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    flushReopenCache();
+  }, []);
+
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
   const handleImportSave = useCallback((data: string, keepCopy = true, expectedSave?: SaveMark): string | null => {
     if (!samePlayer() || (expectedSave && !sameSave(expectedSave, saveMark()))) {
@@ -319,7 +334,7 @@ function App() {
       // The app still holds the save from before; only a reload shows what storage now holds.
       if (before !== null && window.confirm(`${error}\n\nDownload the save from before the import first? OK downloads it, then reloads.`)) {
         downloadSaveFile(before);
-        setTimeout(reloadPage, 1000); // give the download a moment to start
+        reloadTimer.current = setTimeout(reloadPage, 1000); // give the download a moment to start
       } else {
         if (before === null) window.alert(error);
         reloadPage();
@@ -406,6 +421,34 @@ function App() {
     [saveFailed, staleSave, notificationQueue],
   );
   const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
+  // Any sheet at all (the summary's card close-up too): a toast over one covers its title or takes a tap meant for it (#803).
+  const anySheetOpen = useAnySheetOpen();
+  const reducedMotion = usePrefersReducedMotion();
+  // Once loaded they stay mounted, so the last toast can still fade or fly out. A failed fetch is asked
+  // again when the next toast is due; the queue keeps what was waiting.
+  const [toastsLoaded, setToastsLoaded] = useState(!!loadToasts.loaded);
+  const toastsDue = visibleNotifications.length > 0;
+  // Ahead of the first pack, so opening one offline still gets its toast; a failure is left to the due-fetch below.
+  useEffect(() => {
+    if (toastsLoaded) return;
+    let live = true;
+    const cancel = warmUpForPack(() => {
+      loadToasts().then(() => live && setToastsLoaded(true), () => {});
+    });
+    return () => {
+      live = false;
+      cancel();
+    };
+  }, [toastsLoaded]);
+  useEffect(() => {
+    if (toastsLoaded || !toastsDue) return;
+    let live = true;
+    loadToasts().then(() => live && setToastsLoaded(true), () => {});
+    return () => {
+      live = false;
+    };
+  }, [toastsLoaded, toastsDue, visibleNotifications]);
+  const AchievementToasts = toastsLoaded ? loadToasts.loaded : undefined;
   // A sheet (Share, or a shared link) leaves no tab current; Settings is none of the tabs either.
   const activeTab = shareTarget || viewProof || viewProfile || brokenLink ? null : route;
   // A new player sees only the logo and the pack until their first pack is saved (#222, #312): no tabs,
@@ -495,14 +538,19 @@ function App() {
         </div>
       </header>
 
-      {/* Right under the header, and the save warning when it shows: a toast never covers either. */}
-      <AchievementToasts
-        queue={visibleNotifications}
-        onDismiss={dismissNotifications}
-        onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
-        paused={isAnyModalOpen || onPage}
-        held={packShowcase}
-      />
+      {/* Right under the header, and the save warning when it shows: a toast takes no room, and on the home screen lies over the header's wordmark. Held while a pack is torn and revealed, so it is never over the pack. */}
+      <div className="toast-region" role="status" aria-live="polite">
+        {AchievementToasts && (
+          <AchievementToasts
+            queue={visibleNotifications}
+            onDismiss={dismissNotifications}
+            onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
+            paused={isAnyModalOpen || onPage || anySheetOpen || packBusy}
+            held={packShowcase}
+            reduced={reducedMotion}
+          />
+        )}
+      </div>
 
       {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}
       <main ref={mainRef} className="app-main" hidden={onPage} inert={onPage}>

@@ -117,7 +117,7 @@ describe('saved packs read on demand', () => {
     expect(myStats()).toEqual(profileStats(packs));
     expect(myProgress()).toMatchObject({ level: myStats()!.level, xp: myStats()!.xp });
     expect(myProfileInfo()).toMatchObject({ packs: 4, missing: 1, cache: 'ready' });
-  }, 30_000);
+  });
 
   it('shows a failed first read as failed (not zero), and keeps what it showed when a later read fails', async () => {
     setUp([RIGHT_NOW, RIGHT_NOW]);
@@ -156,7 +156,7 @@ describe('saved packs read on demand', () => {
     // Your own unread pack still holds back the history's achievements.
     expect(historyPacksState()).toBe('failed');
     expect(historyAchievementsReady()).toBe(false);
-  }, 30_000);
+  });
 
   it("drops a read whose player changed mid-read, and reads the new player's packs instead", async () => {
     const before = setUp([RIGHT_NOW]);
@@ -193,7 +193,7 @@ describe('saved packs read on demand', () => {
     await reads[2].finish();
     expect(await next).toBe('ready');
     expect(historyPacksState()).toBe('ready');
-  }, 30_000);
+  });
 
   it.each(['finishes', 'fails'] as const)(
     "leaves the new player's read alone when the old player's read %s after it started (#699)",
@@ -232,7 +232,6 @@ describe('saved packs read on demand', () => {
       expect(historyPacksState()).toBe('ready');
       expect(errors).not.toHaveBeenCalled();
     },
-    30_000,
   );
 
   it("keeps your own stats when another player's saved pack can't be read, and holds back only the history", async () => {
@@ -275,7 +274,7 @@ describe('saved packs read on demand', () => {
     await reads[2].finish();
     expect(await retry).toBe('ready');
     expect(historyPacksState()).toBe('ready');
-  }, 30_000);
+  });
 
   it("resolves as loading when aborted while reading another player's packs, with your own still ready", async () => {
     const before = setUp([RIGHT_NOW]);
@@ -395,7 +394,7 @@ describe('the shared ticket list', () => {
     // Another player: nothing of the first player's list is shown.
     setUp([RIGHT_NOW]);
     expect(expectFresh()).toMatchObject({ stats: null, own: 'loading', info: { packs: 1 } });
-  }, 30_000);
+  });
 
   it("swaps to another player's list when only the player record changes", async () => {
     // One history holding a pack each from two players, the same ticket count and the same store:
@@ -421,7 +420,7 @@ describe('the shared ticket list', () => {
     const second = expectFresh();
     expect(second.stats).toEqual(profileStats([packs[1]]));
     expect(second.stats).not.toEqual(first.stats);
-  }, 30_000);
+  });
 
   it('keeps one list through repeated reads and repeated notifications, and builds one per change', async () => {
     setUp([]);
@@ -448,7 +447,7 @@ describe('the shared ticket list', () => {
     expect(next).not.toBe(stats);
     expect(myStats()).toBe(next);
     expect(expectFresh().stats).toEqual(profileStats([a.pack, b.pack, c.pack]));
-  }, 30_000);
+  });
 
   it('builds the list again when only the ticket count moves on', async () => {
     setUp([]);
@@ -461,7 +460,7 @@ describe('the shared ticket list', () => {
     // Another tab took ticket 2 and hasn't written its history yet: the same history, one more ticket.
     storePlayer(secret, 3);
     expect(expectFresh().info).toMatchObject({ packs: 3 });
-  }, 30_000);
+  });
 
   it('builds the list again after a changed set version, a cache loss, a re-open landing and a reset', async () => {
     setUp([]);
@@ -493,5 +492,5 @@ describe('the shared ticket list', () => {
     data.delete(STORAGE_KEYS.HISTORY);
     storePlayer('fe'.repeat(32), 0);
     expect(expectFresh()).toMatchObject({ stats: profileStats([]), progress: { level: 1, xp: 0, gained: 0 }, info: null });
-  }, 30_000);
+  });
 });

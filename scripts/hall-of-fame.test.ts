@@ -210,7 +210,7 @@ let dir: string;
 const output = () => path.join(dir, 'hall-of-fame.json');
 const withdrawnFile = () => path.join(dir, 'hall-of-fame-withdrawn.json');
 const withdrawn = () => JSON.parse(readFileSync(withdrawnFile(), 'utf8')) as string[];
-const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string; verifiedAt: string; receipt?: string }[];
+const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedVia: string; submittedAt: string; verifiedAt: string; receipt?: string }[];
 beforeEach(() => {
   home = process.cwd();
   dir = mkdtempSync(path.join(os.tmpdir(), 'hall-of-fame-'));
@@ -286,12 +286,18 @@ describe('build (deploy workflow)', () => {
       },
     });
     await build(output());
-    expect(entries().map((e) => [e.issue, e.githubUser, e.submittedAt])).toEqual([[1, 'alice', '2026-10-02T00:00:00Z']]);
+    expect(entries().map((e) => [e.issue, e.githubUser, e.submittedVia, e.submittedAt])).toEqual([[1, 'alice', 'github', '2026-10-02T00:00:00Z']]);
     expect(entries()[0]).toMatchObject({ id: idOf(fourOfAKind), proof: fourOfAKind, setId: 'lockdown-lore', hand: '4 of a Kind', score: 15000 });
     // Issue 3's markers are read once, for the withdrawn list only.
     expect(gh.requests.filter((r) => r.path === '/issues/3/comments')).toHaveLength(1);
     expect(gh.requests.map((r) => r.path)).not.toContain('/issues/4/comments');
     expect(gh.writes()).toEqual([]);
+  });
+
+  it('records a GitHub user named nostr as filed from GitHub, not from the relay inbox', async () => {
+    fakeGitHub({ published: [], issues: [issue(1, fourOfAKind, { login: 'nostr' })], comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } });
+    await build(output());
+    expect(entries().map((e) => [e.issue, e.githubUser, e.submittedVia])).toEqual([[1, 'nostr', 'github']]);
   });
 
   it('credits a pull to its earliest receipt among the issues it lists, even when another was verified first', async () => {
@@ -1802,5 +1808,5 @@ describe('running as a script', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 });

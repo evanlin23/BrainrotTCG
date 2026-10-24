@@ -21,4 +21,16 @@ describe('afterPackArt', () => {
     await Promise.resolve();
     expect(early).toHaveBeenCalledOnce();
   });
+
+  it('never runs a task that was cancelled before the art settled, and leaves the others alone', async () => {
+    const dropped = vi.fn();
+    const kept = vi.fn();
+    const cancel = afterPackArt(dropped);
+    afterPackArt(kept);
+    cancel();
+    packArtSettled();
+    await Promise.resolve();
+    expect(dropped).not.toHaveBeenCalled();
+    expect(kept).toHaveBeenCalledOnce();
+  });
 });

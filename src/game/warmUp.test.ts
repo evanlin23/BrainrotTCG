@@ -93,6 +93,19 @@ describe('warmUpFirstPack', () => {
     expect(images()).toEqual(['/card_back.webp']);
   });
 
+  it('runs any task the same way: after the pack art settles and the page is idle, once', async () => {
+    fetched();
+    const { warmUpForPack } = await import('./warmUp');
+    const task = vi.fn();
+    warmUpForPack(task);
+    vi.runAllTimers();
+    expect(task).not.toHaveBeenCalled();
+    await load();
+    expect(task).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(task).toHaveBeenCalledOnce();
+  });
+
   it('fetches the card back once the page is idle, not before', async () => {
     const images = fetched();
     const { warmUpFirstPack } = await import('./warmUp');
@@ -139,6 +152,74 @@ describe('warmUpFirstPack', () => {
     show('visible');
     vi.runAllTimers();
     expect(images()).toEqual(['/card_back.webp']);
+  });
+
+  describe('cancel', () => {
+    it('stops a warm-up still waiting for the sealed pack art', async () => {
+      const images = fetched();
+      const { warmUpFirstPack } = await import('./warmUp');
+      const cancel = warmUpFirstPack();
+      cancel();
+      await load();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.runAllTimers();
+      expect(images()).toEqual([]);
+    });
+
+    it('stops one waiting for the page to go idle', async () => {
+      const task = vi.fn();
+      vi.stubGlobal('requestIdleCallback', undefined);
+      const { warmUpForPack } = await import('./warmUp');
+      const cancel = warmUpForPack(task);
+      await load();
+      expect(vi.getTimerCount()).toBe(1);
+      cancel();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.runAllTimers();
+      expect(task).not.toHaveBeenCalled();
+    });
+
+    it('cancels the browser idle callback where there is one', async () => {
+      const cancelIdle = vi.fn();
+      vi.stubGlobal('requestIdleCallback', () => 7);
+      vi.stubGlobal('cancelIdleCallback', cancelIdle);
+      const { warmUpForPack } = await import('./warmUp');
+      const cancel = warmUpForPack(vi.fn());
+      await load();
+      expect(cancelIdle).not.toHaveBeenCalled();
+      cancel();
+      expect(cancelIdle).toHaveBeenCalledWith(7);
+    });
+
+    it('stops one waiting for a hidden tab to be shown, and removes its listener', async () => {
+      const task = vi.fn();
+      const added = vi.spyOn(document, 'addEventListener');
+      const removed = vi.spyOn(document, 'removeEventListener');
+      const { warmUpForPack } = await import('./warmUp');
+      visibility = 'hidden';
+      const cancel = warmUpForPack(task);
+      await load();
+      const listening = added.mock.calls.filter(([event]) => event === 'visibilitychange');
+      expect(listening).toHaveLength(1);
+      cancel();
+      expect(removed).toHaveBeenCalledWith('visibilitychange', listening[0][1]);
+      show('visible');
+      vi.runAllTimers();
+      expect(task).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('is safe to call twice, or after the task ran', async () => {
+      const task = vi.fn();
+      const { warmUpForPack } = await import('./warmUp');
+      const cancel = warmUpForPack(task);
+      await load();
+      vi.runAllTimers();
+      expect(task).toHaveBeenCalledOnce();
+      cancel();
+      cancel();
+      expect(task).toHaveBeenCalledOnce();
+    });
   });
 
   it('fetches nothing when the visitor saves data', async () => {
@@ -210,6 +291,39 @@ describe('warmUpArgon2 (#776)', () => {
       expect(fetches).toEqual([1]);
     },
   );
+
+  it('fetches nothing once cancelled, whether it waits for the art or for idle', async () => {
+    const { warmUpArgon2 } = await import('./warmUp');
+    warmUpArgon2()();
+    artLoaded();
+    await Promise.resolve();
+    await idle();
+    expect(fetches).toEqual([]);
+
+    history.replaceState(null, '', '/#/cards');
+    warmUpArgon2()();
+    await idle();
+    expect(fetches).toEqual([]);
+  });
+
+  it('cancels the idle wait when stopped after the art settles, so it never fetches', async () => {
+    const idleTasks = new Map<number, () => void>();
+    vi.stubGlobal('requestIdleCallback', (task: () => void) => {
+      idleTasks.set(idleTasks.size + 1, task);
+      return idleTasks.size;
+    });
+    vi.stubGlobal('cancelIdleCallback', (handle: number) => idleTasks.delete(handle));
+    const { warmUpArgon2 } = await import('./warmUp');
+    const stop = warmUpArgon2();
+    artLoaded();
+    await Promise.resolve();
+    expect(idleTasks.size).toBe(1);
+    stop();
+    expect(idleTasks.size).toBe(0);
+    idleTasks.forEach((task) => task());
+    await idle();
+    expect(fetches).toEqual([]);
+  });
 
   it('fetches it when the visitor saves data, which skips the card back', async () => {
     vi.stubGlobal('navigator', { ...navigator, connection: { saveData: true } });

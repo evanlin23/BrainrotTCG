@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { reducedMotionCss } from './scripts/reduced-motion-css.ts'
-import { testBudget } from './scripts/test-budget.ts'
+import { HANG_TIMEOUT_MS, testBudget } from './scripts/test-budget.ts'
 import { CANONICAL_SITE_URL, robotsTxt, siteFromEnv, sitemapXml } from './scripts/crawler-files.ts'
 
 const buildRevision = () => {
@@ -95,9 +95,16 @@ export default defineConfig({
       GIT_CONFIG_KEY_1: 'gc.auto',
       GIT_CONFIG_VALUE_1: '0',
     },
-    // `npm test` turns coverage on for app code only, and the budget reporter (added by testBudget(),
-    // after any --reporter flag) checks the run's wall time. Both budgets sit below the measured
-    // baseline: docs/DEVELOPMENT.md, Test budgets.
+    // One timeout for every test and hook, only to name a test that hangs: no test sets its own, and
+    // wall time fails nothing else (docs/DEVELOPMENT.md, Test timing).
+    testTimeout: HANG_TIMEOUT_MS,
+    hookTimeout: HANG_TIMEOUT_MS,
+    // Never retry a failed test: a retry turns a flake into a pass. Vitest's default is no key at all,
+    // so it is set to 0 here for scripts/test-budget.test.ts to check in the resolved config.
+    retry: 0,
+    // `npm test` turns coverage on for app code only, and the timing reporter (added by testBudget(),
+    // after any --reporter flag) prints the run's wall time without judging it. The coverage floors
+    // sit below the measured baseline: docs/DEVELOPMENT.md, Test timing.
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],

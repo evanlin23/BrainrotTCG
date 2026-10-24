@@ -111,7 +111,7 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
     expect(images.map((image) => [...image.classList].filter((name) => name !== 'card-image'))).toEqual([[], ['finish-gold'], [], [], []]);
   });
   expect(snapshot()).toEqual(before);
-}, 30_000);
+});
 
 const SEED = {
   'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Mounted fixture', nextNonce: 0, createdAt: 1 }),
@@ -186,7 +186,7 @@ it('keeps an opened pack on the pending shelf until a collection holding it is s
   expect(storedCards()).toBe(5);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(9);
   expect(read<Record<string, unknown>>(STORAGE_KEYS.ACHIEVEMENTS)).not.toHaveProperty('packs_10');
-}, 60_000);
+});
 
 it('counts a pack left on the shelf in the old format once, however many loads it waits', async () => {
   const set = getSet('right-now', 2)!;
@@ -212,7 +212,7 @@ it('counts a pack left on the shelf in the old format once, however many loads i
   expect(storedCards()).toBe(5);
   expectShelvesEmpty();
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
-}, 60_000);
+});
 
 it('keeps a pack still owed when another opens, and adds each once', async () => {
   const set = getSet('right-now', 2)!;
@@ -239,7 +239,7 @@ it('keeps a pack still owed when another opens, and adds each once', async () =>
   await app.reload();
   expect(storedCards()).toBe(10);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
-}, 60_000);
+});
 
 it('counts a pack on the next load when the stats counting it could not be stored', async () => {
   app = await mountedApp({ ...SEED, [STORAGE_KEYS.STATS]: packsOpened(8) });
@@ -263,7 +263,7 @@ it('counts a pack on the next load when the stats counting it could not be store
   expectShelvesEmpty();
   await app.reload();
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(9);
-}, 60_000);
+});
 
 it('keeps a pack taken off the shelf in this tab, and says so, when neither the collection nor the shelf can take it', async () => {
   const set = getSet('right-now', 2)!;
@@ -291,7 +291,7 @@ it('keeps a pack taken off the shelf in this tab, and says so, when neither the 
   await app.reload();
   expect(storedCards()).toBe(10);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
-}, 60_000);
+});
 
 it('says the shelf holds a counted copy when the stats counting it, and then the uncounted copy, could not be stored', async () => {
   const set = getSet('right-now', 2)!;
@@ -323,7 +323,7 @@ it('says the shelf holds a counted copy when the stats counting it, and then the
   expect(storedCards()).toBe(10);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
   expectShelvesEmpty();
-}, 60_000);
+});
 
 it('adds every unmarked pack waiting at load, from both shelf forms, counting each once', async () => {
   const set = getSet('right-now', 2)!;
@@ -347,7 +347,7 @@ it('adds every unmarked pack waiting at load, from both shelf forms, counting ea
   await app.reload();
   expect(storedCards()).toBe(15);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
-}, 60_000);
+});
 
 it("adds an older tab's pack once when that tab stores it while this tab's collection is blocked", async () => {
   const set = getSet('right-now', 2)!;
@@ -383,7 +383,7 @@ it("adds an older tab's pack once when that tab stores it while this tab's colle
   expect(storedCards()).toBe(5);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
   expectShelvesEmpty();
-}, 60_000);
+});
 
 it("adds a pack in both shelf forms once, in one load", async () => {
   const set = getSet('right-now', 2)!;
@@ -403,4 +403,4 @@ it("adds a pack in both shelf forms once, in one load", async () => {
   await app.reload();
   expect(storedCards()).toBe(5);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
-}, 60_000);
+});

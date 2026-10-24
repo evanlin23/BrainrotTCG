@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { monitor, recordShownToasts } from './support';
 
 /**
  * Toasts and the pack's X (#614): on a phone, focus mode hides the header, so the toast region used to
@@ -14,6 +14,8 @@ const PHONES = [{ width: 360, height: 640 }, { width: 390, height: 844 }];
 test.skip(({ isMobile }) => !isMobile, 'phone widths only');
 
 async function toSummaryWithToast(page: Page, baseURL: string) {
+  // Each toast is held by the page from the moment it shows, so a stall between steps can't let it leave on its own timer.
+  await recordShownToasts(page, { hold: true });
   const errors = await monitor(page, baseURL);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
@@ -48,13 +50,15 @@ for (const viewport of PHONES) {
       const errors = await toSummaryWithToast(page, baseURL!);
 
       // While each toast is still up (never waiting for it to expire): clear of the X, which takes the touch.
-      // The grouped achievements come first, then the level-up.
-      for (const kicker of [/achievements? unlocked/i, /^Level up$/]) {
+      // The grouped achievements come first, then the level-up. A held toast stays until it is sent away, so the
+      // grouped one goes with its own X for the level-up to follow, which stays up for the tap below.
+      for (const [index, kicker] of [/achievements? unlocked/i, /^Level up$/].entries()) {
         await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 30000 });
         const seen = await measure(page);
         expect(seen.hit).toBe('close');
         expect(seen.overlaps).toBe(false);
         expect(seen.toastTop).toBeGreaterThanOrEqual(seen.closeBottom);
+        if (index === 0) await page.locator('.toast-dismiss').tap();
       }
       const close = await page.locator('.pack-close').boundingBox();
       await page.touchscreen.tap(close!.x + close!.width / 2, close!.y + close!.height / 2);

@@ -19,6 +19,8 @@ export const STORAGE_KEYS = {
   SELECTED_SET: 'brainrot-selected-set-v1',
   /** How many times the new-player opening cue (a finger tearing along the seam) has played on this device; never part of a save (see game/openCue.ts). */
   OPEN_CUE_PLAYS: 'brainrot-open-cue-plays-v1',
+  /** How many times the first-card cue (the back lifting once, on a new player's first card) has played on this device; never part of a save (see game/firstCardCue.ts). */
+  FIRST_CARD_CUE_PLAYS: 'brainrot-first-card-cue-plays-v1',
   /** Old notable-pulls log; migrated into HISTORY on load. */
   PULLS: 'brainrot-pulls-v1',
   HISTORY: 'brainrot-history-v1',
@@ -50,10 +52,3 @@ export const MILESTONES = {
   ACCOUNT_VALUE: [10000, 100000, 1000000],
   HOLOS_IN_PACK: [2, 3, 4, 5],
 } as const;
-
-/**
- * How long a toast stays up (WCAG 2.2.1: time to read, decide and tap, not a glance), single and
- * grouped. Kept here so browser specs can read the same numbers the component uses.
- */
-export const TOAST_MS = 8000;
-export const GROUPED_TOAST_MS = 10_000;

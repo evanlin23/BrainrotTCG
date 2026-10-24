@@ -75,20 +75,54 @@ class Workflows(unittest.TestCase):
         self.assertBroken('deploy.yml', 'needs: [build, publish]', 'needs: build', 'job deploy must need exactly')
 
     def test_publish_without_site(self):
-        self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks]', 'needs: [build, stage, staging-checks]',
+        self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks, release-gate]', 'needs: [build, stage, staging-checks, release-gate]',
                           'job publish must need exactly')
 
     def test_publish_without_build(self):
-        self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks]', 'needs: [site, stage, staging-checks]',
+        self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks, release-gate]', 'needs: [site, stage, staging-checks, release-gate]',
                           'job publish must need exactly')
 
     def test_publish_without_staging(self):
         # Production must wait for staging to be served and checked.
-        for needs in ('[site, build]', '[site, build, stage]', '[site, build, staging-checks]'):
+        for needs in ('[site, build, release-gate]', '[site, build, stage, release-gate]', '[site, build, staging-checks, release-gate]'):
             with self.subTest(needs):
                 self.setUp()
-                self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks]', f'needs: {needs}',
+                self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks, release-gate]', f'needs: {needs}',
                                   'job publish must need exactly')
+
+    def test_publish_without_release_gate(self):
+        # Production waits for the release-blocker decision; staging doesn't.
+        self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks, release-gate]',
+                          'needs: [site, build, stage, staging-checks]', 'job publish must need exactly')
+
+    def test_release_gate_weakened(self):
+        gate = 'npx tsx scripts/release-blockers.ts --candidate "$GITHUB_SHA" --base origin/main --require-on-base'
+        for old, new in (
+                # Promoting a commit that isn't on main, or judging it against its own branch's record.
+                (gate, gate.replace(' --require-on-base', '')),
+                (gate, gate.replace('--base origin/main', '--base "$GITHUB_SHA"')),
+                (gate, gate.replace('"$GITHUB_SHA"', 'HEAD')),
+                (gate, f'{gate} || true'),
+                # Comparing against whatever main was at checkout, not its current tip.
+                ('          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main\n', ''),
+                # Without full history a resolved blocker's fix commit can't be found.
+                ('          fetch-depth: 0\n', ''),
+                ('          fetch-depth: 0\n', '          fetch-depth: 1\n'),
+                ('      - name: Refuse a release while a release blocker is open\n',
+                 "      - name: Refuse a release while a release blocker is open\n        if: needs.site.outputs.host == 'cloudflare'\n")):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', old, new, 'release-gate must', 'release-gate')
+
+    def test_release_gate_holds_no_secret(self):
+        self.assertBroken('deploy.yml', '      - run: npm ci\n',
+                          '      - run: npm ci\n        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n',
+                          'uses a secret outside', 'release-gate')
+        self.setUp()
+        self.assertBroken('deploy.yml', '      contents: read\n', '      contents: write\n',
+                          'job release-gate permissions must be', 'release-gate')
+        problems = self.deploy_problems(lambda jobs: jobs['release-gate'].update(environment='cloudflare-production'))
+        self.assertIn('deploy.yml: job release-gate must run in environment None', problems)
 
     def test_staging_checks_before_staging(self):
         self.assertBroken('deploy.yml', 'needs: [site, build, stage]', 'needs: [site, build]', 'job staging-checks must need exactly')
@@ -121,9 +155,13 @@ class Workflows(unittest.TestCase):
 
     def test_github_host_path_broken(self):
         for old, new, expected in (
-                ('    needs: [site, build, stage, staging-checks]\n',
-                 "    needs: [site, build, stage, staging-checks]\n    if: needs.site.outputs.host == 'cloudflare'\n",
+                ('    needs: [site, build, stage, staging-checks, release-gate]\n',
+                 "    needs: [site, build, stage, staging-checks, release-gate]\n    if: needs.site.outputs.host == 'cloudflare'\n",
                  "job publish has ['if']"),
+                ('    needs: site\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n    steps:\n      # Full history',
+                 "    needs: site\n    if: needs.site.outputs.host == 'cloudflare'\n    runs-on: ubuntu-latest\n    permissions:\n"
+                 "      contents: read\n    steps:\n      # Full history",
+                 "job release-gate has ['if']"),
                 ('    needs: [site, build]\n', "    needs: [site, build]\n    if: needs.site.outputs.staging_url != ''\n",
                  "job stage has ['if']"),
                 ('    needs: [site, build, stage]\n', "    needs: [site, build, stage]\n    if: needs.site.outputs.staging_url != ''\n",
@@ -364,11 +402,27 @@ class Workflows(unittest.TestCase):
             'status reads one outcome twice': lambda steps: steps[-1]['env'].update(BROWSER_OUTCOME='${{ steps.http.outcome }}'),
             'status of another check': lambda steps: steps[5].update(id='checks'),
             'status before the checks': lambda steps: steps.insert(3, steps.pop()),
+            'no traces': lambda steps: steps.pop(6),
+            'traces always': lambda steps: steps[6].update({'if': 'always()'}),
+            'traces on success': lambda steps: steps[6].pop('if'),
+            'traces of the whole checkout': lambda steps: steps[6]['with'].update(path='.'),
+            'traces kept longer': lambda steps: steps[6]['with'].update({'retention-days': 90}),
+            'traces before the checks': lambda steps: steps.insert(5, steps.pop(6)),
+            'traces after the status': lambda steps: steps.append(steps.pop(6)),
         }
         for label, change in changes.items():
             with self.subTest(label):
                 problems = self.deploy_problems(lambda jobs: change(jobs['smoke']['steps']))
                 self.assertTrue(any('smoke must' in p for p in problems), problems)
+
+    def test_traces_upload_only_from_the_production_smoke(self):
+        """staging-checks sends the Access token, which its traces would record, so it uploads none."""
+        def upload(jobs):
+            traces = next(s for s in jobs['smoke']['steps'] if dc.action(s) == 'actions/upload-artifact')
+            jobs['staging-checks']['steps'].append({**traces, 'with': {**traces['with'], 'path': 'test-results/staging/'}})
+        problems = self.deploy_problems(upload)
+        self.assertTrue(any('staging-checks must' in p for p in problems), problems)
+        self.assertTrue(any('staging-checks' in p and 'runs after a failure' in p for p in problems), problems)
 
     def test_wrangler_runs_more(self):
         self.assertBrokenIn(('stage', 'publish'), '--commit-dirty=true\n', '--commit-dirty=true && npm test\n')

@@ -391,7 +391,7 @@ describe('loadPending', () => {
     it('shows it while today’s top 50 has room', async () => {
       const onEntry = await pending(board(49));
       expect(onEntry).toHaveBeenCalledTimes(1);
-      expect(onEntry.mock.calls[0][0]).toMatchObject({ score: 10_000, pending: true, submittedAt: '2026-10-16T12:00:00.000Z' });
+      expect(onEntry.mock.calls[0][0]).toMatchObject({ score: 10_000, pending: true, submittedAt: '2026-10-16T12:00:00.000Z', githubUser: 'nostr', submittedVia: 'relay' });
     });
 
     it("leaves out a pull whose display name isn't allowed, without checking it (the inbox never files it)", async () => {
@@ -486,19 +486,34 @@ describe('loadPending', () => {
 describe('provenanceText', () => {
   it('says relay for an entry the relay inbox filed', async () => {
     const { provenanceText } = await import('./hallOfFameList');
-    expect(provenanceText('nostr')).toBe('via relay');
+    expect(provenanceText({ githubUser: 'nostr', submittedVia: 'relay' })).toBe('via relay');
+  });
+
+  it('reads a snapshot from before submittedVia was published by its nostr marker', async () => {
+    const { provenanceText } = await import('./hallOfFameList');
+    expect(provenanceText({ githubUser: 'nostr' })).toBe('via relay');
+    expect(provenanceText({ githubUser: 'alice' })).toBe('via GitHub');
+    expect(provenanceText({ githubUser: 'unknown' })).toBeNull();
   });
 
   it('says GitHub issue for an issue author, without naming the login', async () => {
     const { provenanceText } = await import('./hallOfFameList');
-    expect(provenanceText('alice')).toBe('via GitHub');
-    expect(provenanceText('a-b-9')).toBe('via GitHub');
+    expect(provenanceText({ githubUser: 'alice', submittedVia: 'github' })).toBe('via GitHub');
+    expect(provenanceText({ githubUser: 'a-b-9', submittedVia: 'github' })).toBe('via GitHub');
+  });
+
+  it('never takes a GitHub user named nostr for the relay', async () => {
+    const { provenanceText } = await import('./hallOfFameList');
+    expect(provenanceText({ githubUser: 'nostr', submittedVia: 'github' })).toBe('via GitHub');
   });
 
   it('says nothing for a missing, unknown or odd value', async () => {
     const { provenanceText } = await import('./hallOfFameList');
     for (const odd of [undefined, null, 7, {}, '', 'unknown', 'not a login', '-alice', 'alice-', 'a--b', 'x'.repeat(40), '<b>hi</b>']) {
-      expect(provenanceText(odd)).toBeNull();
+      expect(provenanceText({ githubUser: odd })).toBeNull();
+      expect(provenanceText({ githubUser: odd, submittedVia: 'github' })).toBeNull();
     }
+    expect(provenanceText({})).toBeNull();
+    for (const via of [null, 7, '', 'Relay', 'nostr', {}]) expect(provenanceText({ githubUser: 'alice', submittedVia: via })).toBeNull();
   });
 });

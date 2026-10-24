@@ -135,4 +135,4 @@ it('reaches best pulls, the name editor, settings and rankings as pages, and eac
   expect(location.hash).toBe('');
   // Checking unfiled submissions reaches for the relays, which the harness blocks.
   app.takeErrors(/^Unexpected external I\/O: WebSocket$/);
-}, 60_000);
+});

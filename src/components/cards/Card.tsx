@@ -18,9 +18,11 @@ interface CardProps {
     slowFlip?: boolean;
     /** Before the flip, light the back's edge in the card's rarity colour (rare and up). */
     tell?: boolean;
+    /** The first-card cue: the face-down back lifts toward the viewer, once, as if to flip (DESIGN.md Flow 3). */
+    liftCue?: boolean;
 }
 
-const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardProps) => {
+const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false, liftCue = false }: CardProps) => {
     const cardRef = useRef<HTMLDivElement>(null);
     const [tilt, setTilt] = useState({ rotateX: 0, rotateY: 0 });
     const [hasShined, setHasShined] = useState(false);
@@ -72,6 +74,7 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
         !isFlipped && tell && card.isHolo ? 'tell-holo' : '',
         !isFlipped && tell && card.finish ? 'tell-finish' : '',
         !isFlipped && tell && !card.finish && card.misprint ? 'tell-misprint' : '',
+        !isFlipped && liftCue ? 'lift-cue' : '',
         card.isHolo ? 'holo' : '',
         hasShined ? 'shine-played' : ''
     ].filter(Boolean).join(' ');
@@ -110,8 +113,7 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
                     {card.misprint && <CardImage src={card.image} finish={card.finish} alt="" aria-hidden="true" className="misprint-ghost" draggable="false" />}
                     {card.isHolo && <div className="holo-shine-overlay"></div>}
                     <div className="holo-overlay"></div>
-                    {/* The reveal's announcement already says New and the finish, so the stickers stay silent. */}
-                    {card.isNew && <span className="new-sticker" aria-hidden="true">New</span>}
+                    {/* The reveal's lower row says New and its announcement says the finish, so the face carries only the silent modifier sticker. */}
                     {modifierLabel(card, false) && <span className="modifier-sticker" aria-hidden="true">{modifierLabel(card, false)}</span>}
                 </div>
             </motion.div>

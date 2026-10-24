@@ -1,6 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { expectDecoded, expectPackDropped, fingerFor, monitor, snapshot, untilIdle } from './support';
+import { expectDecoded, expectPackDropped, expectRankingsChecked, fingerFor, monitor, recordShownToasts, snapshot, untilIdle } from './support';
 
 // Cards, Rankings, Profile and Settings are hash-routed pages over the packs screen (#312). Each one
 // is reached by its address, by its tab and by Back, at a phone and a desktop size; packs and shared
@@ -10,11 +10,17 @@ const vectors = JSON.parse(readFileSync(new URL('../../spec/vectors.json', impor
   valid: { note: string; proof: string }[];
 };
 
+const skeletonGone = (main: Locator) => expect(main.locator('.page-skeleton')).toHaveCount(0, { timeout: 15000 });
+// `settled`: what a page has finished before a step leaves it. Rankings goes on to check recent pulls
+// once its list is in, and leaving mid-check aborts a read (support.ts, expectRankingsChecked).
 const PAGES = [
-  { route: 'cards', name: 'Cards', chunk: 'CollectionBrowser' },
-  { route: 'rankings', name: 'Rankings', chunk: 'HallOfFamePage' },
-  { route: 'profile', name: 'Profile', chunk: 'ProfilePage' },
-  { route: 'settings', name: 'Settings', chunk: 'SettingsPage' },
+  { route: 'cards', name: 'Cards', chunk: 'CollectionBrowser', settled: skeletonGone },
+  {
+    route: 'rankings', name: 'Rankings', chunk: 'HallOfFamePage',
+    settled: async (main: Locator) => { await skeletonGone(main); await expectRankingsChecked(main); },
+  },
+  { route: 'profile', name: 'Profile', chunk: 'ProfilePage', settled: skeletonGone },
+  { route: 'settings', name: 'Settings', chunk: 'SettingsPage', settled: skeletonGone },
 ] as const;
 const CHUNK = new RegExp(`/assets/(${PAGES.map(({ chunk }) => chunk).join('|')})-[^/]+\\.js$`);
 
@@ -88,7 +94,7 @@ for (const target of PAGES) {
     const chunks = watchChunks(page);
     await page.goto(`./#/${target.route}`);
     await onPage(page, baseURL!, target, false);
-    await expect(pageNamed(page, target.name).locator('.page-skeleton')).toHaveCount(0, { timeout: 15000 });
+    await target.settled(pageNamed(page, target.name));
     expect(chunks).toEqual([target.chunk]);
     await pageNamed(page, target.name).getByRole('button', { name: `Close ${target.name}`, exact: true }).click();
     await expect(page.locator('main.page')).toHaveCount(0);
@@ -132,13 +138,15 @@ test('tabs and the gear open each page in turn, and Back walks them back to Open
   for (const target of PAGES) {
     await (target.name === 'Settings' ? gear(page) : tab(page, target.name)).click();
     await onPage(page, baseURL!, target, true);
-    await expect(pageNamed(page, target.name).locator('.page-skeleton')).toHaveCount(0, { timeout: 15000 });
+    await target.settled(pageNamed(page, target.name));
   }
   expect([...new Set(chunks)].sort()).toEqual(PAGES.map(({ chunk }) => chunk).sort());
 
   for (const target of PAGES.slice(0, -1).reverse()) {
     await page.goBack();
     await onPage(page, baseURL!, target, false);
+    // Coming back remounts the page, which checks recent pulls again before the next Back leaves it.
+    await target.settled(pageNamed(page, target.name));
   }
   await page.goBack();
   await onOpen(page, baseURL!);
@@ -211,6 +219,7 @@ test('a new player who turns on Show every page gets the tabs and the pack picke
   for (const target of PAGES.filter(({ route }) => route !== 'settings')) {
     await tab(page, target.name).click();
     await onPage(page, baseURL!, target, true);
+    await target.settled(pageNamed(page, target.name));
   }
   await tab(page, 'Open').click();
   await expect(opener(page)).toBeVisible();
@@ -302,6 +311,7 @@ test.describe('with reduced motion', () => {
     await tab(page, 'Rankings').click();
     await onPage(page, baseURL!, PAGES[1], true);
     await expect(pageNamed(page, 'Rankings').locator('.hall-of-fame')).toBeVisible({ timeout: 15000 });
+    await PAGES[1].settled(pageNamed(page, 'Rankings'));
     await page.goBack();
     await onOpen(page, baseURL!);
     expect(errors).toEqual([]);
@@ -333,6 +343,7 @@ test('Back from a page opened over a pack returns to the pack, and the next Back
   await onPage(page, baseURL!, PAGES[0], false);
   await tab(page, 'Rankings').click();
   await onPage(page, baseURL!, PAGES[1], true);
+  await PAGES[1].settled(pageNamed(page, 'Rankings'));
   await page.goBack();
   await onPage(page, baseURL!, PAGES[0], false);
   await page.goBack();
@@ -357,6 +368,8 @@ test('Back from a page opened over a pack returns to the pack, and the next Back
 
 test('a page reached from a toast over a pack summary hands focus back to the summary when it closes', async ({ page, baseURL }) => {
   test.setTimeout(60000);
+  // The toast is held by the page from the moment it shows, so a stall while the pack opens can't let it leave on its own timer.
+  await recordShownToasts(page, { hold: true });
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.goto('./');
   await expect(opener(page)).toBeEnabled();

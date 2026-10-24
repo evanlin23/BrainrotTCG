@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import { BEACON_URL, pagesBeaconTag, RUM_URL } from '../../scripts/cloudflare-analytics';
-import { BEACON_STUB, monitor } from './support';
+import { BEACON_STUB, guardConnectionHeaders, monitor, teardownMessages } from './support';
 
 let primaryServer: Server;
 let externalServer: Server;
@@ -53,6 +53,10 @@ ${pagesBeaconTag('0123456789abcdef0123456789abcdef')}</body></html>`);
     if (url.pathname === '/hang-up') {
       // Drops the connection without answering, so the guard's fetch fails.
       req.socket.destroy();
+      return;
+    }
+    if (url.pathname === '/stall') {
+      // Never answers and keeps the connection open: a request the server just sits on.
       return;
     }
     if (url.pathname === '/write' && req.method === 'POST') {
@@ -121,6 +125,7 @@ test.beforeEach(() => {
 });
 
 test.afterAll(async () => {
+  primaryServer.closeAllConnections();
   await new Promise((resolve) => primaryServer.close(resolve));
   await new Promise((resolve) => externalServer.close(resolve));
 });
@@ -157,7 +162,137 @@ test('a monitored request whose fetch fails is recorded with its method, URL and
   expect(errors.blocked).toEqual([]);
 });
 
-test('each monitored request asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
+// missing_scenario: a request that never finished held a journey's wait (deploy of bc12640) or the
+// page's load (deploy of 80aa840) until the test ran out, and nothing said which request it was. The
+// guard keeps every request it took on until the browser finishes it; teardown twins are below.
+test('a monitored request the server never answers is named as pending while the page waits', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  await page.evaluate(() => { void fetch('/stall?key=not-for-logs'); });
+
+  await expect.poll(() => errors.pending).toEqual([`[fetching] GET ${primaryOrigin}/stall`]);
+  expect(errors.failed).toEqual([]);
+});
+
+// missing_scenario (deploy run 40051793039): the guard's fetch had no deadline, so a production fetch
+// of the logo font that stalled on the way to the site held page.reload at "navigated to" until the
+// journey ran out. Bounded, the stall fails as a named timeout and the page's load completes.
+// The short deadline applies to every fetch the guard makes, so the document that holds the load is
+// fulfilled by a page route, which runs before the guard's: only the stalled request is under 500 ms.
+test('a guard fetch that outlives its deadline fails as a named timeout and lets the page load', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false, fetchTimeout: 500 });
+  // A document whose load waits on a subresource the server never answers, as a font asked for
+  // before load held the reloaded app on production.
+  await page.route('**/holds-load.html', (route) => route.fulfill({
+    contentType: 'text/html',
+    body: '<!doctype html><html><head><meta charset="utf-8"><title>Holds Load</title></head><body><img src="/stall?key=not-for-logs" alt=""></body></html>',
+  }));
+  const response = await page.goto(`${primaryUrl}holds-load.html`);
+
+  expect(response?.status()).toBe(200);
+  expect(errors.failed).toEqual([`[fetch failed: Timeout 500ms exceeded.] GET ${primaryOrigin}/stall`]);
+  expect(errors.pending).toEqual([]);
+  expect(errors).toContain(`net::ERR_FAILED ${primaryOrigin}/stall?key=not-for-logs`);
+});
+
+test('a fulfill Playwright refuses is recorded, and the request it leaves paused stays pending', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  // Page routes run before the guard's: this one hands the guard a response that is already released,
+  // so Playwright takes the guard's fulfill and then refuses it, as it does a protocol error.
+  await page.route('**/asset.json', async (route) => {
+    const fetch = route.fetch.bind(route);
+    route.fetch = async (options) => {
+      const response = await fetch(options);
+      await response.dispose();
+      return response;
+    };
+    await route.fallback();
+  });
+  await page.goto(primaryUrl);
+  await page.evaluate(() => { void fetch('/asset.json'); });
+
+  // Playwright refuses the abort after that too, so the request stays paused until the page closes.
+  await expect.poll(() => errors.failed).toEqual([
+    `[fulfill failed: Fetch response has been disposed] GET ${primaryOrigin}/asset.json`,
+    `[abort failed: Route is already handled!] GET ${primaryOrigin}/asset.json`,
+  ]);
+  expect(errors.pending).toEqual([`[fulfilling] GET ${primaryOrigin}/asset.json`]);
+});
+
+test('a request still pending when a passing test closes its page does not fail the test', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl);
+  await page.goto(primaryUrl);
+  await page.evaluate(() => { void fetch('/stall'); });
+  await expect.poll(() => errors.pending).toEqual([`[fetching] GET ${primaryOrigin}/stall`]);
+
+  await page.close();
+  expect(test.info().errors).toEqual([]);
+  expect(test.info().status).toBe('passed');
+});
+
+// missing_scenario (review of #1143): the test fixture closes the context, which disposes its request
+// client before the page closes. A fetch still running, or a fetched response not yet handed to the
+// browser, is then refused, and the guard recorded that as a failed request, failing a passing test.
+for (const stage of ['fetching', 'fulfilling'] as const) {
+  test(`a request whose context closes while ${stage} leaves a passing test passed`, async ({ page }) => {
+    const errors = await monitor(page, primaryUrl);
+    let closed: Promise<void> | undefined;
+    // Page routes run before the guard's: this one closes the context the way the fixture does, and
+    // waits for the request client to be disposed, before the guard's fetch runs or after it returns.
+    await page.route('**/asset.json', async (route) => {
+      const fetch = route.fetch.bind(route);
+      route.fetch = async (options) => {
+        const close = async () => {
+          closed = page.context().close({ reason: 'Test ended.' });
+          await page.context().request.dispose({ reason: 'Test ended.' });
+        };
+        if (stage === 'fetching') await close();
+        const response = await fetch(options);
+        if (stage === 'fulfilling') await close();
+        return response;
+      };
+      await route.fallback();
+    });
+    await page.goto(primaryUrl);
+    await page.evaluate(() => { void fetch('/asset.json'); });
+    await expect.poll(() => closed !== undefined).toBe(true);
+    await closed;
+
+    expect(errors.failed).toEqual([]);
+    expect(errors.pending).toEqual([`[${stage}] GET ${primaryOrigin}/asset.json`]);
+    expect(test.info().errors).toEqual([]);
+    expect(test.info().status).toBe('passed');
+  });
+}
+
+// missing_scenario (review of #1143): the guard's route is context-wide, but it judged teardown by the page it
+// monitors. With two monitors on one context (tests/browser/multi-tab.spec.ts), the later one's route answers
+// every page, so a failed fetch on a page that stayed open was excused once the other page had closed.
+test('a failed fetch on an open page is recorded although the monitored page of the same context has closed', async ({ page }) => {
+  const other = await page.context().newPage();
+  await monitor(other, primaryUrl, 0, { failOnUnexpected: false });
+  // The later monitor's route handles every page of the context, including `other`.
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  await other.goto(primaryUrl);
+  await page.close();
+
+  // Not awaited: an excused refusal leaves this fetch unanswered, and the record below is what must show.
+  await other.evaluate(() => { void fetch('/hang-up'); });
+
+  await expect.poll(() => errors.failed).toEqual([`[fetch failed: socket hang up (ECONNRESET)] GET ${primaryOrigin}/hang-up`]);
+});
+
+test('a CSP report the guard cannot read is still recorded', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  const status = await page.evaluate(() => fetch('/__network-guard/csp-report', { method: 'POST', body: 'not json' }).then((res) => res.status));
+
+  expect(status).toBe(204);
+  expect(errors.blocked).toEqual([`[malformed csp report] CSP ${primaryOrigin}/__network-guard/csp-report`]);
+});
+
+test('each monitored request to the local preview asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
   const errors = await monitor(page, primaryUrl);
   await page.goto(primaryUrl);
   const bodies = await page.evaluate(async () => {
@@ -170,6 +305,20 @@ test('each monitored request asks for its own connection, so none reuses a socke
   expect(pings.map((ping) => ping.connection)).toEqual(['close', 'close']);
   expect(new Set(pings.map((ping) => ping.port)).size, 'the two requests arrived on separate sockets').toBe(2);
   expect(errors).toEqual([]);
+});
+
+test('only loopback origins get a connection per request; production and staging keep their sockets alive', () => {
+  for (const url of ['http://127.0.0.1:4173/BrainrotTCG/', 'http://localhost:5173/assets/app.js', 'http://[::1]:4173/']) {
+    expect(guardConnectionHeaders(url), url).toEqual({ connection: 'close' });
+  }
+  for (const url of [
+    'https://evanlin23.github.io/BrainrotTCG/assets/RubikGlitch-Latin-qpVGezE5.woff2',
+    'https://staging.example.com/',
+    'https://127.0.0.1.example.com/',
+    'not a url',
+  ]) {
+    expect(guardConnectionHeaders(url), url).toEqual({});
+  }
 });
 
 test('redirect escape to external provider is refused with 403 and zero external provider requests', async ({ page }) => {
@@ -411,6 +560,28 @@ test('allowWebSocket function: allowed unless it returns false or throws', async
   expect(await openSocket(page, `ws://${host}/throw`)).not.toBe('open');
   await expect.poll(() => errors.blocked.filter((b) => b.includes('disallowed websocket')).length).toBe(2);
   expect(seen).toHaveLength(3);
+});
+
+// What teardown adds, from the guard's records and the test's status at close. A pending request is
+// named only in a test that is failing anyway: its own wait, or another record, failed it.
+test('teardown names the requests still pending only in a test that is already failing', () => {
+  const pending = [`[fetching] GET ${primaryOrigin}/stall`, `[fulfilling] GET ${primaryOrigin}/asset.json`];
+  const waiting = `Monitored requests still waiting when the page closed (2):\n${pending.join('\n')}`;
+  const failed = `[fetch failed: socket hang up (ECONNRESET)] GET ${primaryOrigin}/hang-up`;
+  const blocked = `GET https://example.com/ [blocked]`;
+
+  expect(teardownMessages({ blocked: [], failed: [], pending: [], status: 'failed' })).toEqual([]);
+  expect(teardownMessages({ blocked: [], failed: [], pending, status: 'passed' })).toEqual([]);
+  expect(teardownMessages({ blocked: [], failed: [], pending, status: 'failed' })).toEqual([waiting]);
+  expect(teardownMessages({ blocked: [], failed: [], pending, status: 'timedOut' })).toEqual([waiting]);
+  expect(teardownMessages({ blocked: [], failed: [failed], pending: pending.slice(0, 1), status: 'passed' })).toEqual([
+    `Monitored request failed in the network guard (1):\n${failed}`,
+    `Monitored request still waiting when the page closed (1):\n${pending[0]}`,
+  ]);
+  expect(teardownMessages({ blocked: [blocked], failed: [], pending, status: 'passed' })).toEqual([
+    `Unexpected browser I/O blocked by network guard (1 attempt):\n${blocked}`,
+    waiting,
+  ]);
 });
 
 // Teardown failure is the core acceptance: test.fail() passes only if the guard fails the test

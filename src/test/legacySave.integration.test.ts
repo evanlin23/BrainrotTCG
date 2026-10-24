@@ -128,7 +128,7 @@ it('migrates a pre-versioning save on load without losing its cards or pulls, th
   await app.reload();
   expect(await history()).toHaveLength(2);
   expect(JSON.stringify(Object.entries(localStorage).sort())).toBe(saved);
-}, 60_000);
+});
 
 it('cold-starts and reloads cleanly when legacy stats contains null/malformed highestPackCards elements (#660)', async () => {
   const DAMAGED_SAVE = {
@@ -164,7 +164,7 @@ it('cold-starts and reloads cleanly when legacy stats contains null/malformed hi
   expect(JSON.stringify(Object.entries(localStorage).sort())).toBe(saved);
   const afterReloadStats = stored<Stats & { highestPackCardsUnreadable?: unknown[] }>(STORAGE_KEYS.STATS);
   expect(afterReloadStats.highestPackCardsUnreadable).toEqual([null]);
-}, 60_000);
+});
 
 it('hydrates readable cards and preserves unreadable items when legacy highestPackCards has mixed elements (#660)', async () => {
   const MIXED_SAVE = {
@@ -198,7 +198,7 @@ it('hydrates readable cards and preserves unreadable items when legacy highestPa
     expect([...document.querySelectorAll('.pulls-page .pulls-legacy h2')].map((h) => h.textContent)).toEqual(['Best before verifiable pulls']);
   });
   await app.interact(() => button('Close Profile').click());
-}, 60_000);
+});
 
 it('survives an existing malformed cached card code across startup and reload without an error loop (#652)', async () => {
   const malformedHistory = JSON.stringify([{
@@ -232,7 +232,7 @@ it('survives an existing malformed cached card code across startup and reload wi
 
   // Raw stored data in localStorage was preserved
   expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBe(malformedHistory);
-}, 60_000);
+});
 
 it('refuses a Settings import whose history holds a line break in a cached code, and reloads cleanly (#652)', async () => {
   // The issue's fixture: a history-only file into a fresh browser, with an LF inside a card id.
@@ -257,4 +257,4 @@ it('refuses a Settings import whose history holds a line break in a cached code,
   expect(document.body.textContent).not.toContain('Something went wrong');
   expect(document.querySelector('main.app-main')).not.toBeNull();
   expect(await history()).toEqual([]);
-}, 60_000);
+});
