@@ -25,6 +25,8 @@ interface SharePreviewSheetProps {
 const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, onClose, actions, children }: SharePreviewSheetProps) => {
   const [image, setImage] = useState<{ blob: Blob; src: string } | null>(null);
   const [failed, setFailed] = useState(false);
+  /** The src whose image has loaded: the preview shows only a loaded image (see the figure below). */
+  const [shownSrc, setShownSrc] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [shareFailed, setShareFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -77,6 +79,7 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
     }, isFailure ? 4000 : 1800);
   };
 
+  const shown = image !== null && shownSrc === image.src;
   const imageCopies = canCopyImage();
   const onCopyLink = async () => {
     if (url && (await copyText(url))) flash('Link copied');
@@ -160,10 +163,27 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
           </p>
           {actions}
 
+          {/*
+            The image stays hidden until it has loaded, and the waiting note stays up meanwhile, so the
+            preview appears in one paint with its pixels. Shown before it loaded, the image arrives in a
+            later paint that redraws only its own box, and the rounded corners blend the frame twice
+            (the screenshot baselines caught a 3-pixel difference, #1135).
+          */}
           <figure className="share-preview">
-            {image ? (
-              <img src={image.src} alt="The image you'll share" />
-            ) : (
+            {image && (
+              <img
+                src={image.src}
+                alt="The image you'll share"
+                hidden={!shown}
+                onLoad={() => setShownSrc(image.src)}
+                onError={() => {
+                  console.error('Could not show the share image');
+                  setImage((current) => (current?.src === image.src ? null : current));
+                  setFailed(true);
+                }}
+              />
+            )}
+            {!shown && (
               <span className="share-preview-wait" role="status">
                 {failed ? (
                   <>
