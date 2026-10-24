@@ -242,9 +242,11 @@ describe('claiming the next ticket number', () => {
    */
   const fakeLocks = (beforeGrant?: (name: string) => void) => {
     const held = new Set<string>();
+    /** Requests waiting for a name to be let go of, woken in the order they asked. */
+    const waiting = new Map<string, (() => void)[]>();
     const request = vi.fn(async (name: string, options: { ifAvailable?: boolean }, callback: (lock: { name: string } | null) => unknown) => {
       await Promise.resolve();
-      while (held.has(name) && !options.ifAvailable) await new Promise((resolve) => setTimeout(resolve, 0));
+      while (held.has(name) && !options.ifAvailable) await new Promise<void>((wake) => waiting.set(name, [...(waiting.get(name) ?? []), wake]));
       if (held.has(name)) return callback(null);
       held.add(name);
       beforeGrant?.(name);
@@ -252,6 +254,10 @@ describe('claiming the next ticket number', () => {
         return await callback({ name });
       } finally {
         held.delete(name);
+        // A browser grants the next request in a task of its own, after the holder's promise has settled.
+        const next = waiting.get(name);
+        waiting.delete(name);
+        if (next) setTimeout(() => next.forEach((wake) => wake()), 0);
       }
     });
     const query = vi.fn(async () => ({ held: [...held].map((name) => ({ name, mode: 'exclusive' as const })), pending: [] }));
@@ -330,9 +336,16 @@ describe('claiming the next ticket number', () => {
     // A number skipped is a gap in the history, and a profile proof can't cover a gap.
     store.set(PLAYER_KEY, JSON.stringify(original));
     const locks = fakeLocks();
-    // A slow query() leaves time for the other tab's claim to start meanwhile.
-    const query = vi.fn(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); return locks.query(); });
-    vi.stubGlobal('navigator', { locks: { request: locks.request, query } });
+    // The first tab's query() answers only once the other tab's claim has asked for its turn, so the two overlap.
+    let requests = 0;
+    let secondTabAsked: () => void = () => {};
+    const bothAsked = new Promise<void>((resolve) => { secondTabAsked = resolve; });
+    const request = vi.fn((...args: Parameters<typeof locks.request>) => {
+      if (++requests === 2) secondTabAsked();
+      return locks.request(...args);
+    });
+    const query = vi.fn(async () => { await bothAsked; return locks.query(); });
+    vi.stubGlobal('navigator', { locks: { request, query } });
     vi.resetModules();
     const tabA = await import('./player');
     vi.resetModules();
