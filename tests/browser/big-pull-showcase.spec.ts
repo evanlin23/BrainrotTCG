@@ -1,10 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
-import { TOAST_MS } from '../../src/constants/config';
 import { monitor } from './support';
 
 /**
  * A big pull's showcase (#312): the ribbon sits above the card, never over its art, the halo glows
- * behind it, and the last pack's notices wait until it ends. The fixture key's nonce 21 deals no big
+ * behind it, and the last pack's notices wait until it ends (one comes back once it has). The fixture key's nonce 21 deals no big
  * pull; nonce 22 deals a valuable card last, which Skip stops on.
  */
 const packShell = (page: Page) => page.getByRole('button', { name: /^Open pack/ });
@@ -120,7 +119,7 @@ test('shows a big pull with its ribbon clear of the card, and holds notices unti
   for (const px of shot.fonts) expect(px, 'ribbon text is under 12px').toBeGreaterThanOrEqual(12);
   expect(shot.toasts, 'a notice showed over the showcase').toBe(0);
 
-  // No notice showed at any moment of the showcase, and the one it held comes back first afterwards.
+  // No notice showed at any moment of the showcase.
   await expect(page.locator('.showcase-ribbon')).toHaveCount(0, { timeout: 10000 });
   const frames = () => page.evaluate(() => (window as unknown as { showcaseFrames: Frame[] }).showcaseFrames);
   const recorded = await frames();
@@ -128,16 +127,12 @@ test('shows a big pull with its ribbon clear of the card, and holds notices unti
   const end = recorded.length - 1 - [...recorded].reverse().findIndex((f) => f.ribbon);
   expect(start, 'the showcase was never recorded').toBeGreaterThan(0);
   expect(recorded.slice(start, end + 1).filter((f) => f.toast), 'a notice showed over the showcase').toEqual([]);
-  // The hold begins at the skip, a few frames before the ribbon (#460), so the notice it held is the
-  // last one up before the showcase, and it left in the frame after.
-  const before = recorded.slice(0, start);
-  const heldIndex = before.length - 1 - [...before].reverse().findIndex((f) => f.toast);
-  expect(heldIndex, 'no notice was up when the skip began').toBeLessThan(before.length);
-  const held = recorded[heldIndex];
-  // A notice still on its own time was held; one already timing out may have left first.
-  const stillUp = recorded[heldIndex + 1].at - held.at < TOAST_MS - 100;
-  await expect.poll(async () => (await frames()).slice(end + 1).find((f) => f.toast)?.toast ?? null, { timeout: 5000 })
-    .toEqual(stillUp ? held.toast : expect.any(String));
+  // A notice was up when the pack took the screen, and one comes back once the showcase ends: the one the pack
+  // only held, in full, or (when that one had been seen and was let go) the next in the queue. Which of the
+  // two it was depends on how long the runner took to get from the notice to the tear, so only that one
+  // does is asserted here; the held notice's identity is the fake-clock integration test's.
+  expect(recorded.slice(0, start).some((f) => f.toast), 'no notice was up when the pack took the screen').toBe(true);
+  await expect.poll(async () => (await frames()).slice(end + 1).some((f) => f.toast), { message: 'a notice comes back after the showcase', timeout: 5000 }).toBe(true);
   expect(errors).toEqual([]);
 });
 
