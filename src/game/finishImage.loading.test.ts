@@ -169,38 +169,17 @@ describe('finish image request deadlines', () => {
 });
 
 describe('finish image encoding', () => {
-  it('wraps the recoloured pixels, unchanged, in a top-down 32-bit RGBA bitmap', async () => {
-    const { encodeBitmap } = await import('./finishImage');
-    // Two pixels: opaque red, then half-transparent blue.
-    const data = new Uint8ClampedArray([255, 0, 0, 255, 0, 0, 255, 128]);
-    const blob = encodeBitmap({ width: 2, height: 1, data } as unknown as ImageData);
-    expect(blob.type).toBe('image/bmp');
-    const bytes = new DataView(await blob.arrayBuffer());
-    expect(bytes.byteLength).toBe(122 + 8);
-    expect(String.fromCharCode(bytes.getUint8(0), bytes.getUint8(1))).toBe('BM');
-    expect(bytes.getUint32(2, true)).toBe(130);
-    expect(bytes.getUint32(10, true)).toBe(122);
-    expect(bytes.getUint32(14, true)).toBe(108);
-    expect(bytes.getInt32(18, true)).toBe(2);
-    expect(bytes.getInt32(22, true)).toBe(-1);
-    expect(bytes.getUint16(26, true)).toBe(1);
-    expect(bytes.getUint16(28, true)).toBe(32);
-    expect(bytes.getUint32(30, true)).toBe(3);
-    expect(bytes.getUint32(34, true)).toBe(8);
-    expect([54, 58, 62, 66].map((offset) => bytes.getUint32(offset, true))).toEqual([0xff, 0xff00, 0xff0000, 0xff000000]);
-    expect(String.fromCharCode(...[73, 72, 71, 70].map((offset) => bytes.getUint8(offset)))).toBe('sRGB');
-    expect([...new Uint8Array(bytes.buffer, 122)]).toEqual([...data]);
-  });
-
-  it('encodes the render it shows without waiting on an asynchronous encoder', async () => {
+  // The PNG's bytes themselves are pinned in finishImage.png.test.ts.
+  it('encodes the render it shows as a PNG without waiting on an asynchronous encoder', async () => {
     const finishedCardImage = await importFinishedCardImage();
     const image = finishedCardImage('/card.webp', 'GOLD');
     images[0].load();
     images[1].load();
     await expect(image).resolves.toBe('blob:finished-card');
     const [blob] = createObjectURL.mock.calls[0] as [Blob];
-    expect(blob.type).toBe('image/bmp');
-    expect(blob.size).toBe(122 + 4);
+    expect(blob.type).toBe('image/png');
+    // Signature, IHDR, IDAT (zlib header, one stored block of a filter byte and one pixel, Adler-32), IEND.
+    expect(blob.size).toBe(8 + 25 + 12 + (2 + 5 + 5 + 4) + 12);
     expect(vi.getTimerCount()).toBe(0);
   });
 
