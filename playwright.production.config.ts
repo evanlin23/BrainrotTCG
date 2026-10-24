@@ -10,7 +10,8 @@ import { defineConfig, devices } from '@playwright/test';
  * network guard (tests/browser/support.ts) refuses every write and every request to another origin,
  * so nothing reaches a relay, the Hall of Fame or analytics (Cloudflare Web Analytics' beacon script
  * gets an inert stand-in, so the smoke isn't counted as a visit). It opens no pack and imports no save.
- * Traces and screenshots stay on the runner, which is discarded with the job.
+ * A failed run's traces and screenshots are uploaded from outputDir for 7 days (deploy.yml smoke).
+ * They record request headers, which hold no secret here: production gets no Access token.
  */
 const PRODUCTION_URL = process.env.PRODUCTION_URL?.replace(/\/*$/, '/');
 if (!PRODUCTION_URL) throw new Error('PRODUCTION_URL must name the production address');
