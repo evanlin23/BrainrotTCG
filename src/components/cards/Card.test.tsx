@@ -45,13 +45,13 @@ describe('card faces for screen readers', () => {
     expect(back().getAttribute('aria-hidden')).toBe('true');
   });
 
-  it('leaves holo out for a plain card, and the finish to the announcement, so the stickers stay silent', () => {
+  it('leaves holo out for a plain card, and the finish to the announcement, so the modifier sticker stays silent and New is not on the art', () => {
     render(meta({ finish: 'GOLD', misprint: true, isNew: true }), true);
     expect(front().querySelector('img.card-full-image')!.getAttribute('alt')).toBe(`${legendary.name}, Legendary`);
     const sticker = front().querySelector('.modifier-sticker')!;
     expect(sticker.textContent).toBe('Gold · Misprint');
     expect(sticker.getAttribute('aria-hidden')).toBe('true');
-    expect(front().querySelector('.new-sticker')!.getAttribute('aria-hidden')).toBe('true');
+    expect(front().querySelector('.new-sticker')).toBeNull();
   });
 
   it('leaves the back image unnamed, since the flip button already says which card it is', () => {

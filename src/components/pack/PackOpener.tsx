@@ -864,6 +864,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 celebrating={celebratingCardId === currentCard?.uniqueId}
                 skipping={skipping}
                 setName={set.name}
+                firstPack={openCue}
               />
             ) : (
               <PackSummaryUI
