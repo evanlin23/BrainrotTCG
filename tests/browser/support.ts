@@ -755,6 +755,19 @@ export const relaysAnswerEmpty = (page: Page, down: () => boolean = () => false)
   });
 });
 
+/** Rankings' status once its check of recent pulls has ended with no relay reached, as under `monitor`'s closed sockets. */
+export const FEED_DOWN = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
+
+/**
+ * Waits for Rankings (`main`) to finish checking recent pulls, before a step that leaves it. The check
+ * starts once the list loads: it imports the relay code, and only then reads the withdrawn list. No
+ * request is in flight between the two, so an idle network can pass in the gap, and leaving during the
+ * read rightly aborts it (net::ERR_ABORTED), which `monitor` records. The status names the check's end:
+ * FEED_DOWN under `monitor`'s closed relays, 'Rankings loaded.' under `relaysAnswerEmpty`.
+ */
+export const expectRankingsChecked = (main: Locator, status = FEED_DOWN) =>
+  expect(main.getByRole('status')).toHaveText(status, { timeout: 15000 });
+
 export async function expectRecordedPack(page: Page, nonce = 0, historyCount = 1) {
   const before = await snapshot(page);
   expect(before.stats.packsOpened).toBe(1);
