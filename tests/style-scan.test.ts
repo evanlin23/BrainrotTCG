@@ -174,13 +174,7 @@ it('spots what the colour scan means', () => {
 // Radii: 4 / 6 / 10 / 14 / pill, as --radius-sm, -md, -lg, -xl and -pill.
 const RADIUS_OK = /^(?:var\(--radius-(?:sm|md|lg|xl|pill)\)|0|50%|inherit)$/;
 /** Off-ladder radii the scan allows, each with the reason it can't be a step. */
-const RADIUS_ALLOWLIST = [
-  {
-    sheet: 'styles/Sets.css',
-    radius: '1.6cqw',
-    reason: "The set ribbon is part of the pack art, so its corner scales with the pack's width.",
-  },
-];
+const RADIUS_ALLOWLIST: { sheet: string; radius: string; reason: string }[] = [];
 
 it('keeps every corner on the radius ladder, apart from a short allowlist with reasons', () => {
   expect(['sm', 'md', 'lg', 'xl', 'pill'].map((step) => tokens[`--radius-${step}`])).toEqual(['4px', '6px', '10px', '14px', '999px']);

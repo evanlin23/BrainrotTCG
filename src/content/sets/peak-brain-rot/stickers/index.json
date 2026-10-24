@@ -1,0 +1,24 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "shikanoko-nokonoko": {
+      "art": "art/shikanoko-nokonoko.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.308,
+        "mainShare": 0.994,
+        "edges": 1,
+        "solidity": 0.55
+      },
+      "crop": [
+        156,
+        71,
+        435,
+        675
+      ],
+      "mask": "shikanoko-nokonoko.png",
+      "source": "2fdeb13f70c182ca"
+    }
+  }
+}

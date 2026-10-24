@@ -1,0 +1,24 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "tung-tung-tung-sahur": {
+      "art": "art/tung-tung-tung-sahur.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.265,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.573
+      },
+      "crop": [
+        223,
+        228,
+        214,
+        491
+      ],
+      "mask": "tung-tung-tung-sahur.png",
+      "source": "0887c6b0c525d2d3"
+    }
+  }
+}
