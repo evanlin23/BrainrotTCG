@@ -22,7 +22,6 @@ vi.stubGlobal('navigator', { hardwareConcurrency: 8 }); // two optional tickets 
 
 const SET = getSet('right-now', 2)!;
 const OLD_SET = getSet('right-now', 1)!;
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** A stand-in ticket: the same bytes for a nonce every time, so a test can work out the packs it gives. */
 const standIn = async (_set: string, _key: Uint8Array, nonce: number) => new Uint8Array(32).fill(nonce + 7);
@@ -79,14 +78,26 @@ beforeEach(() => {
   pools = 0;
   vi.mocked(createTicketPool).mockImplementation(() => {
     pools++;
+    // As the real pool does: closing rejects every ticket still pending, and any asked for afterwards, so
+    // none is answered once the pool is closed. (The call is counted each time, as the real close is idempotent.)
+    const pending = new Set<(error: Error) => void>();
+    const stopped = new Error('Ticket pool closed');
+    let shut = false;
     return {
       size: 1,
       ticket: (_set, _key, nonce) =>
-        new Promise<Uint8Array>((resolve) => {
-          mining.push({ nonce, finish: () => resolve(new Uint8Array(32).fill(nonce)) });
+        new Promise<Uint8Array>((resolve, reject) => {
+          if (shut) return reject(stopped);
+          pending.add(reject);
+          mining.push({ nonce, finish: () => (pending.delete(reject), resolve(new Uint8Array(32).fill(nonce))) });
           onAsk?.();
         }),
-      close: closePool,
+      close: () => {
+        shut = true;
+        for (const reject of pending) reject(stopped);
+        pending.clear();
+        closePool();
+      },
     };
   });
 });
@@ -186,7 +197,7 @@ describe('verifying a shared profile', () => {
     expect(closed).toBe(0);
     stop.abort();
     expect(closed).toBe(1);
-    mining[0].finish(); // frees its optional-work slot
+    // The pool rejected its pending ticket, which frees the optional-work slot and ends the check, which closes again.
     await closedTimes(2);
   });
 });
@@ -250,9 +261,8 @@ describe('verifying a profile again', () => {
     verifyProfileLive(proof(0xb2), (p) => reports.push(p), stop.signal);
     await vi.waitFor(() => expect(mining).toHaveLength(1));
     stop.abort();
-    mining[0].finish();
-    await flush();
-    await flush();
+    // The pool rejected its pending ticket and the check ended (it closes the pool once more as it does): nothing more is reported.
+    await closedTimes(2);
     expect(reports).toHaveLength(1);
     expect(reports[0].done).toBe(false);
   });

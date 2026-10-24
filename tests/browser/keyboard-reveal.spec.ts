@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { expectRecordedPack, monitor } from './support';
+import { expectRecordedPack, monitor, recordShownToasts } from './support';
 
 /**
  * A whole pack by keyboard alone (#12): Tab reaches the Open pack button, Space tears the pack, and the
@@ -365,6 +365,7 @@ for (const mode of MOTION_MODES) {
         localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0, ...(motion ? { motion } : {}) }));
       }, { origin: new URL(baseURL!).origin, motion: mode.motion });
       await logMotion(page);
+      const toastsShown = await recordShownToasts(page);
       const errors = await monitor(page, baseURL!);
       await page.goto('./');
       await expect(page.locator('.app-logo')).toBeVisible();
@@ -396,11 +397,13 @@ for (const mode of MOTION_MODES) {
       const saved = await expectRecordedPack(page, 21);
       expect({ cards: saved.history[0].c, score: saved.history[0].x, hand: saved.stats.highestPackHandName }).toEqual(SAVED_PACK);
 
-      // Settled: the first pack unlocks an achievement, and its toast fades in after the save. Wait for it, then
-      // let what is finite finish, including a fade that only starts while another ends; then nothing loops or
-      // runs on. The last look follows the check that found no finite animation in the same task, so nothing can
-      // start between them. The motion log is read only after this, so it holds everything that ran.
-      await expect(page.locator('.toast-region .toast')).toBeVisible();
+      // Settled: the first pack unlocks an achievement, and its toast fades in after the save. Wait until the page
+      // has shown one (its log, not a look at the screen: the toast leaves by its own timer, and the steps above can
+      // take longer than that on a loaded machine), then let what is finite finish, including a fade that only starts
+      // while another ends; then nothing loops or runs on. The last look follows the check that found no finite
+      // animation in the same task, so nothing can start between them. The motion log is read only after this, so it
+      // holds everything that ran.
+      await expect.poll(toastsShown, { message: 'the toasts shown so far' }).not.toEqual([]);
       const left = await page.evaluate(async () => {
         const timing = (a: Animation) => a.effect!.getComputedTiming();
         const finite = () => document.getAnimations().filter((a) => timing(a).iterations !== Infinity && a.playState === 'running');
