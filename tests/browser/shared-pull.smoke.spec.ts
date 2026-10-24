@@ -5,7 +5,7 @@ import { decodeProof, verifyProof } from '../../src/engine/proof';
 import type { PulledCard, SetDefinition } from '../../src/engine/types';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPreviewPath, headline, previewPath, type ModifiedCard } from '../../src/game/previewLinks';
-import { expectDecoded, monitor, snapshot } from './support';
+import { expectDecoded, expectRankingsChecked, monitor, snapshot } from './support';
 
 const json = <T,>(path: string): T => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8')) as T;
 const vectors = json<typeof import('../../spec/vectors.json')>('../../spec/vectors.json');
@@ -43,7 +43,8 @@ const loadFailures = (errors: string[], baseURL: string, finishedCardIds: readon
 };
 
 // Opening a shared pull verifies its Argon2id ticket in a worker, which is slow on a cold mobile run.
-// Rejections use the same budget so the two paths are held to one standard.
+// Rejections use the same budget so the two paths are held to one standard, and so does the card
+// viewer's full-size finish render, which runs on the page's main thread.
 const VIEWER_TIMEOUT = 20000;
 
 // Built-browser journeys verify Argon2id tickets and walk every card, so each gets the same budget.
@@ -202,6 +203,8 @@ async function walkDestinations(page: Page, baseURL: string, settle: () => Promi
   await arrive('Rankings', '#/rankings');
   await expect(pageNamed('Rankings').locator('.hall-of-fame')).toBeVisible();
   await expect(navItem('Rankings')).toHaveAttribute('aria-current', 'page');
+  // settle() can pass in the gap before Rankings reads the withdrawn list, so wait for its check to end.
+  await expectRankingsChecked(pageNamed('Rankings'));
   await page.goBack();
   await backToOpening();
 
@@ -320,7 +323,7 @@ for (const { vector, entry } of cases) {
       await card.click();
       const detail = page.getByRole('dialog', { name: definition.name, exact: true });
       await expect(detail).toBeVisible();
-      await expectDecoded(detail.locator('.card-viewer-card img'), misprint ? 2 : 1);
+      await expectDecoded(detail.locator('.card-viewer-card img'), misprint ? 2 : 1, { timeout: VIEWER_TIMEOUT });
       await expect(detail.locator('.card-viewer-card img').first()).toBeVisible();
       for (const label of modifiers) await expect(detail.locator('.card-viewer-identity')).toContainText(label as string);
       // Viewing another player's signed proof never grants permission to sign their cards.

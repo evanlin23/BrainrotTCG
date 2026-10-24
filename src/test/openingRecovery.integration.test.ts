@@ -221,7 +221,8 @@ it('refuses a late pack opening when another tab imports player B during mining,
     expect(document.querySelector('.pack-retry-button')?.textContent).toBe('Reload and try again');
   });
 
-  expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  // The pack states the refusal; it is not logged as a failure (#1139).
+  expect(app.takeErrors(/^Could not open pack/)).toEqual([]);
   expect(document.querySelector('.reveal-container')).toBeNull();
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
@@ -260,7 +261,7 @@ it('refuses a late pack opening when another tab imports a backup of the same pl
     expect(document.querySelector('.pack-retry-button')?.textContent).toBe('Reload and try again');
   });
 
-  expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  expect(app.takeErrors(/^Could not open pack/)).toEqual([]);
   expect(document.querySelector('.reveal-container')).toBeNull();
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
@@ -295,7 +296,7 @@ it('refuses a tear after another tab imported player B, even before this tab hea
       'Your save changed in another tab, so this pack stayed sealed. Reload to keep opening packs here.',
     );
   });
-  expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  expect(app.takeErrors(/^Could not open pack/)).toEqual([]);
   expect(document.querySelector('.reveal-container')).toBeNull();
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(read<{ secretKey: string; nextNonce: number }>(PLAYER_KEY)).toMatchObject({ secretKey: '02'.repeat(32), nextNonce: 0 });
