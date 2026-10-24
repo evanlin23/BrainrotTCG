@@ -9,7 +9,8 @@
  * look-alike letters, leetspeak, punctuation or spaces between letters, repeated letters, camelCase
  * and xX decorations), then matches a curated list in two tiers:
  * - STRONG terms are blocked anywhere inside a word ("xXfuckXx", "hotpussy"), except wholly inside
- *   one ALLOWED word ("Pussycat", "Thorny", but not "Pornazir").
+ *   one ALLOWED word ("Pussycat", "Thorny", but not "Pornazir"), and a word is checked again with its
+ *   ALLOWED words cut out, so one can't be wrapped in a blocked term ("fuNAZIRck").
  * - WHOLE terms are short words that hide inside ordinary ones ("Dickens", "cocktail", "Sussex",
  *   "Scunthorpe", "grape"), so they are blocked only as a whole word (plurals included), and not
  *   inside a few ALLOWED_PHRASES ("Moby Dick", but not "Moby Dick.head").
@@ -127,6 +128,8 @@ const STRONG_EXACT_RE = new RegExp(`^(?:${STRONG.map(pattern).join('|')})$`);
 const PHRASE_RE = new RegExp(PHRASES.map(pattern).join('|'));
 const WHOLE_RE = new RegExp(`^(?:${WHOLE.map(pattern).join('|')})(?:s+|z+)?$`);
 const ALLOWED_FOLDED = ALLOWED.map((w) => fold(w, true));
+// Longest first, so the longer of two overlapping allowed words is cut ("booboo" before "booby").
+const ALLOWED_CUT_RE = new RegExp([...ALLOWED_FOLDED].sort((a, b) => b.length - a.length).join('|'), 'g');
 const ALLOWED_WHOLE_SET = new Set(ALLOWED_WHOLE.map((w) => fold(w, true)));
 // Longest first, so "dick van dyke" goes before "van dyke". It must start and end a word (letters
 // after punctuation belong to the same word), so "Moby Dick.head" keeps its "dickhead".
@@ -138,11 +141,19 @@ const ALLOWED_PHRASE_RE = new RegExp(
   'g',
 );
 
-/** Whether a STRONG term matches in a word other than wholly inside one ALLOWED word ("Nazir", not "Pornazir"). */
-const strongOutsideAllowed = (word: string) => {
-  if (!STRONG_RE.test(word)) return false;
+/**
+ * Whether a STRONG term matches in a word other than wholly inside one ALLOWED word ("Nazir", not
+ * "Pornazir"), or around one: the word with its allowed words cut out is checked again, so
+ * "fuNAZIRck" reads "fuck".
+ */
+const strongOutsideAllowed = (word: string): boolean => {
   const spans: [number, number][] = [];
   for (const a of ALLOWED_FOLDED) for (let i = word.indexOf(a); i >= 0; i = word.indexOf(a, i + 1)) spans.push([i, i + a.length]);
+  if (spans.length) {
+    const cut = word.replace(ALLOWED_CUT_RE, '');
+    if (cut !== word && strongOutsideAllowed(cut)) return true;
+  }
+  if (!STRONG_RE.test(word)) return false;
   if (!spans.length) return true;
   for (let start = 0; start < word.length; start++) {
     // A match from here is excused only if it ends within an allowed word that covers its start.

@@ -315,8 +315,8 @@ describe('inbox: interrupted runs', () => {
     // The deploy publishes it once, credited to Nostr, received when the issue was filed and verified
     // by its one marker (a comment a later run posted, if the first stopped before it).
     await build(path.join(dir, 'hall-of-fame.json'));
-    const entries = JSON.parse(readFileSync(path.join(dir, 'hall-of-fame.json'), 'utf8')) as { issue: number; githubUser: string; submittedAt: string; verifiedAt: string; receipt?: string }[];
-    expect(entries.map((e) => [e.issue, e.githubUser, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[filed.number, 'nostr', filed.created_at, markers[0].created_at, undefined]]);
+    const entries = JSON.parse(readFileSync(path.join(dir, 'hall-of-fame.json'), 'utf8')) as { issue: number; githubUser: string; submittedVia: string; submittedAt: string; verifiedAt: string; receipt?: string }[];
+    expect(entries.map((e) => [e.issue, e.githubUser, e.submittedVia, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[filed.number, 'nostr', 'relay', filed.created_at, markers[0].created_at, undefined]]);
   });
 });
 

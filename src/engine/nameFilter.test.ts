@@ -90,6 +90,18 @@ describe('isNameAllowed', () => {
     expect(allowed(['Nazir Nazia', 'Booboo Booby', 'PussycatPussyfoot', 'Moby Dick!', 'Moby-Dick', 'Moby Dick 2'])).toEqual([]);
   });
 
+  it('blocks a blocked word wrapped around an allowed word', () => {
+    expect(
+      blocked(['fuNAZIRck', 'funazirck', 'fupussycatck', 'FuPussycatCk', 'cuScunthorpent', 'biMilfordtch', 'nigNazimger', 'fuNazirNazimck']),
+    ).toEqual([]);
+    expect(
+      allowed([
+        'Nazira', 'Benazir Bhutto', 'Nazim Hikmet', 'Milford Sound', 'Milfordshire', 'Pussycat Dolls', 'Thorny Rose',
+        'Scunthorpe United', 'Booboo Bear', 'Boobytrap', 'Sniggering', 'Penistone FC', 'Pussywillow Lane', 'Nazir Ahmed',
+      ]),
+    ).toEqual([]);
+  });
+
   it('allows brainrot names, gamer tags and mild swearing', () => {
     expect(
       allowed([
