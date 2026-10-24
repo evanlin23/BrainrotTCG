@@ -22,4 +22,4 @@ it('starts the game when this browser blocks storage entirely', async () => {
 
   await vi.waitFor(() => expect(document.querySelector('[data-testid="app"]')).not.toBeNull());
   expect(document.querySelector('main.app-crash')).toBeNull();
-}, 30_000); // Loads the real card registry.
+});

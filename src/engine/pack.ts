@@ -40,8 +40,16 @@ export const packSeedFromTicket = (ticket: Uint8Array): Uint8Array => sha256(con
  *   4. roll = int(ODDS_TOTAL); finish = first finish (rarest first) whose cumulative odds exceed roll, else none
  *   5. misprint = int(ODDS_TOTAL) < misprintOdds
  */
-export const generatePack = (set: SetDefinition, seed: Uint8Array): PulledCard[] => {
-  const rng = createRng(seed);
+export const generatePack = (set: SetDefinition, seed: Uint8Array): PulledCard[] => packFromDraws(set, createRng(seed));
+
+/** The draws a pack is rolled from: createRng's `int`, uniform in [0, n). */
+export interface PackDraws { int: (n: number) => number }
+
+/**
+ * generatePack's slot rules on any source of draws. generatePack passes createRng(seed); tests pass
+ * scripted draws to enumerate every outcome of a slot exactly instead of sampling seeds.
+ */
+export const packFromDraws = (set: SetDefinition, rng: PackDraws): PulledCard[] => {
   const pools = new Map<Rarity, string[]>();
   for (const r of RARITIES_RAREST_FIRST) pools.set(r, set.cards.filter((c) => c.rarity === r).map((c) => c.id));
 

@@ -61,7 +61,7 @@ beforeAll(async () => {
     cards: pulled.map((c, i) => ({ id: c.cardId, isHolo: c.isHolo, finish: c.finish, misprint: c.misprint, uniqueId: i })),
     score: { hand: { name: h }, score: x },
   } as unknown as OpenedPack;
-}, 60_000);
+});
 
 const toEntry = (set: SetDefinition, n: number, pulled: Awaited<ReturnType<typeof derivePack>>): Entry => {
   const score = scorePulled(pulled);
@@ -177,7 +177,7 @@ describe('original ticket mappings across a mixed-set history', () => {
     } finally {
       error.mockRestore();
     }
-  }, 30_000);
+  });
 
   it('never change when the card caches are evicted or lost, and neither does the signed profile', async () => {
     setUp(fixture());
@@ -203,7 +203,7 @@ describe('original ticket mappings across a mixed-set history', () => {
     expect(await app.profiles.myProfileProof()).toBe(proof);
     expect(data.get(HISTORY)).toBe(evicted);
     for (const e of opened.slice(0, 4)) expect(app.packStore.getStoredPack(`${e.s}@${e.v}`, HEX, e.n)).toBe(e.c);
-  }, 30_000);
+  });
 });
 
 describe('exact-variant proof attribution across cache eviction (issue #654)', () => {
@@ -278,5 +278,5 @@ describe('exact-variant proof attribution across cache eviction (issue #654)', (
 
     const foundRestored = app.history.findPackWithCard(HEX_11, 'right-now', 'remember-november', exactLookup, { exactOnly: true });
     expect(foundRestored?.nonce).toBe(1);
-  }, 60_000);
+  });
 });
