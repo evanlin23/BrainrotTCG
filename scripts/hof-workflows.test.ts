@@ -326,7 +326,7 @@ describe('test-order.yml, the nightly shuffled and repeat unit-test run (#768)',
   const text = read('test-order.yml');
   const all = jobs(text);
   const shuffled = all.shuffled.join('\n');
-  const REPLAY = 'npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=';
+  const REPLAY = 'npx vitest run --sequence.shuffle --sequence.seed=';
   const CREATE = 'issue create --title Nightly test-order run failed --label test-order --body-file report.md';
 
   it('runs on a schedule or by hand, never for a pull request, and holds no secrets', () => {

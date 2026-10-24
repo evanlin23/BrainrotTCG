@@ -47,19 +47,30 @@ const slotOutcomes = (set: SetDefinition): Slot[] => {
   return out.filter((o) => o.chance > 0);
 };
 
-/** The chance of each score, by trying every pack. */
+/**
+ * The chance of each score, by trying every pack. A pack's score doesn't depend on the order of its
+ * cards (a sum of card points times the combo its copies make), so each multiset of slot outcomes is
+ * scored once and weighted by its number of orderings: 88,560 packs instead of 512,000 here.
+ */
 const bruteForce = (set: SetDefinition) => {
   const slots = slotOutcomes(set);
   const byScore = new Map<number, number>();
-  const walk = (pack: Slot[], chance: number) => {
+  const pack: Slot[] = [];
+  // Slot outcomes in non-decreasing index order; `run` is how many copies of the last one the pack holds.
+  const walk = (from: number, chance: number, orderings: number, run: number) => {
     if (pack.length === set.packSize) {
       const { score } = scorePack(pack);
-      byScore.set(score, (byScore.get(score) ?? 0) + chance);
+      byScore.set(score, (byScore.get(score) ?? 0) + chance * orderings);
       return;
     }
-    for (const s of slots) walk([...pack, s], chance * s.chance);
+    for (let i = from; i < slots.length; i++) {
+      const copies = i === from && pack.length > 0 ? run + 1 : 1;
+      pack.push(slots[i]);
+      walk(i, chance * slots[i].chance, orderings * (pack.length / copies), copies);
+      pack.pop();
+    }
   };
-  walk([], 1);
+  walk(0, 1, 1, 0);
   const scores = [...byScore.keys()].sort((a, b) => b - a);
   let atLeast = 0;
   return scores.map((score) => ({ score, atLeast: (atLeast += byScore.get(score)!) }));

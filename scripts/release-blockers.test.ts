@@ -55,6 +55,8 @@ const evaluate = (blockersRecord: unknown, over: Partial<ReleaseEligibilityOptio
     ...over,
   });
 
+const INCOMPLETE_RESOLUTION = /is marked resolved without fixedInPr, a full fixCommit SHA and a regressionTest path/;
+
 const resolved = (over: Partial<ReleaseBlocker['resolution']> = {}) =>
   blocker({ disposition: 'resolved', resolution: { fixedInPr: 10, fixCommit: FIX, regressionTest: 'src/fix.test.ts', ...over } });
 
@@ -116,8 +118,20 @@ describe('evaluateReleaseEligibility', () => {
     });
 
     it('rejects a short or unchecked SHA and a missing regression test', () => {
-      expect(evaluate(record(resolved({ fixCommit: 'b'.repeat(7) }))).eligible).toBe(false);
+      const short = evaluate(record(resolved({ fixCommit: 'b'.repeat(7) })));
+      expect(short.eligible).toBe(false);
+      expect(short.reasons[0]).toMatch(INCOMPLETE_RESOLUTION);
       expect(evaluate(record(resolved({ regressionTest: 'src/gone.test.ts' }))).reasons[0]).toMatch(/not present/);
+    });
+
+    it('rejects a resolution without a positive fixedInPr', () => {
+      const { fixedInPr: _p, ...noPr } = resolved().resolution!;
+      const missing = evaluate(record(blocker({ disposition: 'resolved', resolution: noPr as never })));
+      const zero = evaluate(record(resolved({ fixedInPr: 0 })));
+      expect(missing.eligible).toBe(false);
+      expect(missing.reasons[0]).toMatch(INCOMPLETE_RESOLUTION);
+      expect(zero.eligible).toBe(false);
+      expect(zero.reasons[0]).toMatch(INCOMPLETE_RESOLUTION);
     });
 
     it('rejects a resolution when the candidate history cannot be checked', () => {
@@ -315,6 +329,11 @@ describe('parseArgs', () => {
       base: 'origin/main',
       correctiveTarget: 668,
     });
+    expect(parseArgs(['--candidate', 'HEAD', '--require-on-base', '--base', 'origin/main'])).toEqual({
+      candidate: 'HEAD',
+      base: 'origin/main',
+      requireOnBase: true,
+    });
     expect(() => parseArgs(['--bypass'])).toThrow(/Unknown argument/);
   });
 });
@@ -417,7 +436,11 @@ describe('release-blockers CLI', () => {
   });
 
   it('blocks the same candidate without the corrective declaration', () => {
-    expect(run('--candidate', 'HEAD', '--base', commits.approved).code).toBe(1);
+    const r = run('--candidate', 'HEAD', '--base', commits.approved);
+    expect(r.code).toBe(1);
+    expect(r.stderr.join('\n')).toMatch(
+      /Blocker RB-2 \(#2\) has a corrective-release disposition, but this candidate is not declared as its corrective release/,
+    );
   });
 
   it('makes the approval stale once code changes after the approved commit', () => {
@@ -425,6 +448,43 @@ describe('release-blockers CLI', () => {
     const r = run('--candidate', head, '--corrective-target', '2', '--base', commits.approved);
     expect(r.code).toBe(1);
     expect(r.stderr.join('\n')).toMatch(/changes src\/app\.ts after approved commit .*stale/);
+  });
+
+  describe('as the deploy gate runs it (--require-on-base, #706)', () => {
+    it('promotes a commit on main whose record allows it', () => {
+      const r = run('--candidate', commits.approved, '--corrective-target', '2', '--base', 'main', '--require-on-base');
+      expect(r.stderr).toEqual([]);
+      expect(r.code).toBe(0);
+    });
+
+    it("judges an older commit on main against main's record", () => {
+      const r = run('--candidate', commits.fix, '--base', 'main', '--require-on-base');
+      expect(r.code).toBe(1);
+      expect(r.stderr.join('\n')).toMatch(/Unresolved release blocker RB-1 \(#1: Blank screen on start\)/);
+      expect(r.stderr.join('\n')).not.toMatch(/not in the history/);
+    });
+
+    it('refuses a candidate that is not on main, even one the record would allow', () => {
+      // The same record, reformatted: a record-only change the corrective approval still covers.
+      const head = branchCommit('off-main', commits.approved, () =>
+        write(RECORD_PATH, JSON.stringify(record(blocker(), corrective({ approvedCommit: commits.fix })))),
+      );
+      const allowed = run('--candidate', head, '--corrective-target', '2', '--base', 'main');
+      expect(allowed.stderr).toEqual([]);
+      expect(allowed.code).toBe(0);
+      const r = run('--candidate', head, '--corrective-target', '2', '--base', 'main', '--require-on-base');
+      expect(r.code).toBe(1);
+      expect(r.stdout).toEqual([]);
+      expect(r.stderr).toEqual([
+        `Failed to verify release blockers: --candidate ${head} is not in the history of --base ${commits.approved}; only commits on main are promoted`,
+      ]);
+    });
+
+    it('blocks a commit on main while a blocker is unresolved', () => {
+      const r = run('--candidate', commits.recorded, '--base', commits.recorded, '--require-on-base');
+      expect(r.code).toBe(1);
+      expect(r.stderr.join('\n')).toMatch(/Unresolved release blocker RB-1 .*\n.*Unresolved release blocker RB-2/);
+    });
   });
 
   it('fails closed when --base does not resolve', () => {

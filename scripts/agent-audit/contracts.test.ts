@@ -206,5 +206,5 @@ describe('restricted browser adapter', () => {
       expect(unknownBridge).toMatchObject({ id: 0, error: { message: 'Audit browser operation unavailable' } });
       expect(unknownBridge.result).toBeUndefined();
     } finally { await new Promise((resolve) => server.close(resolve)); }
-  }, 20000);
+  });
 });

@@ -84,5 +84,5 @@ describe('stats and progress built from the ticket list (#699)', () => {
     expect(nextProgress).toMatchObject({ xp: next!.xp, gained: next!.xp - stats!.xp });
     expect(myProgress()).toEqual(nextProgress);
     expect(builds()).toBe(start + 4);
-  }, 30_000);
+  });
 });

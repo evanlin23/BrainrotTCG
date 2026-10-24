@@ -62,14 +62,14 @@ describe('re-opening your packs', () => {
     // The history shows them too, though its own record still has no cards.
     expect(getHistory().every((e) => e.cards?.length === 5)).toBe(true);
     expect(data.get(STORAGE_KEYS.HISTORY)).not.toContain('"c"');
-  }, 30_000);
+  });
 
   it('signs a profile that verifies, from re-opened packs', async () => {
     const proof = await myProfileProof();
     const checked = checkProfile(proof!, getSet);
     expect(toHex(checked.profile.publicKey)).toBe(getPlayer().publicKeyHex);
     expect(checked.tickets).toHaveLength(3);
-  }, 30_000);
+  });
 
   it("resumes an unfinished run on load, but only for the player who started it", async () => {
     data.set(PENDING, 'ff'.repeat(32));
@@ -81,7 +81,7 @@ describe('re-opening your packs', () => {
     resumeReopening();
     await reopenMyPacks(); // joins the resumed run
     expect(myProfileInfo()).toMatchObject({ missing: 0 });
-  }, 30_000);
+  });
 });
 
 
@@ -112,7 +112,7 @@ describe('original ticket provenance admission', () => {
     expect(data.get(STORAGE_KEYS.HISTORY)).toBe(original);
     expect(data.has(PENDING)).toBe(false);
     await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
-  }, 30_000);
+  });
 
   it.each([
     ['a fractional nonce', 1, 0.5],
@@ -148,7 +148,7 @@ describe('original ticket provenance admission', () => {
     const checked = checkProfile(proof!, getSet);
     expect(checked.tickets.map((set) => [set.id, set.version])).toEqual([['genesis', 1], ['right-now', 2]]);
     expect(myProfileInfo()?.filled).toBe(0);
-  }, 30_000);
+  });
 
   /** Ticket 1 recorded a second time with another set (two tabs spent it at once), stored before or after the first. */
   const conflict = (where: 'before' | 'after', record: Record<string, unknown>) => {
@@ -163,7 +163,7 @@ describe('original ticket provenance admission', () => {
     const checked = checkProfile((await myProfileProof())!, getSet);
     expect(checked.tickets.map((set) => [set.id, set.version])).toEqual([['right-now', 2], ['right-now', 2]]);
     expect(getHistory().filter((e) => e.nonce === 1)).toHaveLength(2);
-  }, 30_000);
+  });
 
   it.each(['before', 'after'] as const)('breaks a tie in opening time by set, stored %s it', (where) => {
     conflict(where, { s: 'a-unavailable-set' });
@@ -189,7 +189,7 @@ describe('profile links while other tabs write', () => {
     expect(toHex(checked.profile.publicKey)).toBe(getPlayer().publicKeyHex);
     expect(checked.tickets).toHaveLength(3);
     expect(myProfileInfo()).toMatchObject({ packs: 4, filled: 1 });
-  }, 30_000);
+  });
 
   it('re-opens tickets recorded after a run it joined had started', async () => {
     const running = reopenMyPacks();
@@ -200,7 +200,7 @@ describe('profile links while other tabs write', () => {
     const checked = checkProfile((await myProfileProof())!, getSet);
     expect(checked.tickets).toHaveLength(5);
     await running;
-  }, 30_000);
+  });
 
   it('refuses to sign when another player is in storage by the time the packs are ready', async () => {
     let swapped = false;
@@ -210,7 +210,7 @@ describe('profile links while other tabs write', () => {
       storePlayer('02'.repeat(32), 0); // Another tab imported a different player's save.
     })).rejects.toThrow('Your save changed');
     expect(swapped).toBe(true);
-  }, 30_000);
+  });
 });
 
 

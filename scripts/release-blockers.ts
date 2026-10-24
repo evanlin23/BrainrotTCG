@@ -6,9 +6,9 @@ import { isMainModule } from './main-module.ts';
  * Release-blocker record and deterministic promotion-eligibility decision (#759).
  *
  * The record lives at config/release-blockers.json and changes only through reviewed PRs to main.
- * The promotion gate (#706) is expected to read it from the exact candidate commit and call
- * `evaluateReleaseEligibility`; until that gate lands this script is advisory and does not by itself
- * stop a deploy. Every rule below fails closed: anything missing, malformed, stale or unverifiable
+ * The release-gate job in deploy.yml (#706) runs this CLI on the exact commit being deployed, with
+ * main's freshly fetched tip as the base and --require-on-base, and production publishing waits for it.
+ * Run by hand against any other candidate, it is advisory. Every rule below fails closed: anything missing, malformed, stale or unverifiable
  * makes the candidate ineligible with a reason that says what to fix.
  */
 
@@ -392,12 +392,18 @@ interface CliArgs {
   candidate?: string;
   base?: string;
   correctiveTarget?: number;
+  /** The candidate must be the base or in its history: the deploy gate promotes only commits on main. */
+  requireOnBase?: boolean;
 }
 
 export function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {};
   for (let i = 0; i < argv.length; i++) {
     const [flag, value] = [argv[i], argv[i + 1]];
+    if (flag === '--require-on-base') {
+      args.requireOnBase = true;
+      continue;
+    }
     if (flag === '--candidate') args.candidate = value;
     else if (flag === '--base') args.base = value;
     else if (flag === '--corrective-target') args.correctiveTarget = Number(value);
@@ -440,6 +446,9 @@ export function runReleaseBlockerCheck(argv: string[], cwd: string = process.cwd
     // The reviewed record on main is the authority; a base that can't be read fails closed.
     const baseRef = args.base ?? DEFAULT_BASE;
     const base = commitOf(baseRef, '--base');
+    if (args.requireOnBase && !gitOk('merge-base', '--is-ancestor', candidate, base)) {
+      throw new Error(`--candidate ${candidate} is not in the history of --base ${base}; only commits on main are promoted`);
+    }
     const baseRecord: unknown = gitOk('cat-file', '-e', `${base}:${RECORD_PATH}`)
       ? JSON.parse(git('show', `${base}:${RECORD_PATH}`))
       : null;

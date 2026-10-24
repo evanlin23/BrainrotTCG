@@ -63,7 +63,7 @@ describe('shipped caps', () => {
     expect(s.drain.runsToDrain).toBeLessThanOrEqual(1);
     expect(s.config.model.argonMs).toBe(100);
     expect(first.modeledRunS).toBeGreaterThan(20); // its derivations x 100 ms plus the request latencies, modeled
-  }, 60_000);
+  });
 
   it('files at most 20 entries a run and drains the rest over later runs', async () => {
     const s = await run({ name: 'filing', runs: 3, phases: [{ fromS: 0, toS: 900, ratePerS: 30 / 900 }], qualifyingFraction: 1 });
@@ -72,7 +72,7 @@ describe('shipped caps', () => {
     expect(s.runs.map((r) => r.backlog)).toEqual([10, 0, 0]);
     expect(s.totals.pulls).toMatchObject({ qualifying: 30, delivered: 30, pending: 0, lost: 0 });
     expect(s.drain).toMatchObject({ lastArrivalRun: 1, backlogZeroAtRun: 2, runsToDrain: 1 });
-  }, 30_000);
+  });
 });
 
 describe('outages and expiry', () => {
@@ -86,7 +86,7 @@ describe('outages and expiry', () => {
     expect(s.runs[2].oldestBacklogAgeS).toBeGreaterThan(s.runs[1].oldestBacklogAgeS);
     expect(s.totals.pulls).toMatchObject({ delivered: 20, pending: 0, lost: 0 });
     expect(s.totals.derivations).toBeGreaterThanOrEqual(20);
-  }, 30_000);
+  });
 
   it('counts the 7-day window expiring apart from delivery after a relay outage', async () => {
     const s = await run({
@@ -107,7 +107,7 @@ describe('outages and expiry', () => {
     expect(s.totals.pulls.expiredBeforeHandled).toBe(s.runs[0].arrived);
     expect(s.totals.pulls.delivered).toBe(s.totals.arrived - s.runs[0].arrived); // later arrivals were not lost to it
     expect(s.totals.pulls.lost).toBe(0);
-  }, 30_000);
+  });
 
   it('keeps succeeding and delivering while only some relays are down', async () => {
     const s = await run({ name: 'some-relays-down', runs: 3, cadenceS: 3600, qualifyingFraction: 1, phases: [{ fromS: 0, toS: 3600, ratePerS: 0.002 }], relayOutage: { fromS: 0, durationS: 10 * 3600, relaysDown: HOF_RELAYS.length - 1 } });
@@ -115,7 +115,7 @@ describe('outages and expiry', () => {
     expect(s.runs.map((r) => [r.outcome, r.relaysFailed])).toEqual(Array(3).fill(['ok', HOF_RELAYS.length - 1]));
     expect(s.runs.map((r) => r.unreadable)).toEqual([0, 0, 0]); // one relay up still serves every event
     expect(s.totals.pulls).toMatchObject({ delivered: s.totals.arrived, pending: 0, lost: 0 });
-  }, 30_000);
+  });
 
   it('counts relay retention expiry apart from the read window', async () => {
     const s = await run({ name: 'retention', runs: 3, cadenceS: 7200, qualifyingFraction: 1, phases: [{ fromS: 0, toS: 14_400, ratePerS: 0.002 }], relayRetentionS: 3600 });
@@ -124,7 +124,7 @@ describe('outages and expiry', () => {
     expect(s.totals.kinds.qualifying.expiredWindow).toBe(0);
     expect(s.totals.pulls.expiredBeforeHandled).toBe(s.totals.kinds.qualifying.expiredRetention);
     expect(s.totals.pulls.delivered + s.totals.pulls.expiredBeforeHandled).toBe(s.totals.pulls.qualifying);
-  }, 30_000);
+  });
 });
 
 describe('replay and seen-cache retention', () => {
@@ -136,7 +136,7 @@ describe('replay and seen-cache retention', () => {
     expect(s.totals.pulls).toMatchObject({ qualifying: 10, delivered: 10, pending: 0, lost: 0 });
     expect(s.runs[0].github.reads).toBeGreaterThanOrEqual(2); // paged issue listing
     expect(s.runs[1].filed + s.runs[2].filed + s.runs[3].filed).toBeGreaterThan(0); // a later run did the rest
-  }, 30_000);
+  });
 
   it('keeps handled events in the seen cache for the whole window, however much other traffic there is', async () => {
     // 20,000 ids a run used to push handled events out of a 20,000-id cache, and every later run derived them again.
@@ -144,7 +144,7 @@ describe('replay and seen-cache retention', () => {
     expectPassed(s);
     expect(s.runs.slice(1).map((r) => [r.arrived, r.budgetUsed, r.backlog])).toEqual(Array(3).fill([0, 0, 0]));
     expect(s.totals.pulls.lost).toBe(0);
-  }, 30_000);
+  });
 
   it('past the cap, drops the oldest handled events first and still files nothing twice', async () => {
     const s = await run({ name: 'seen-over-cap', runs: 2, phases: [{ fromS: 0, toS: 900, ratePerS: 20 / 900 }], invalidFraction: 0.5, qualifyingFraction: 0.5, seenFillerPerRun: INBOX_SEEN_CAP });
@@ -153,7 +153,7 @@ describe('replay and seen-cache retention', () => {
     expect(s.runs[1].budgetUsed).toBeGreaterThan(0); // the filler is newer, so the handled events made way
     expect(s.runs[1].filed).toBe(0);
     expect(s.totals.pulls.lost).toBe(0);
-  }, 30_000);
+  });
 });
 
 describe('bounded exits', () => {
@@ -166,7 +166,7 @@ describe('bounded exits', () => {
     expect(s.totals.arrived).toBeLessThanOrEqual(3);
     expect(s.runs.length).toBeLessThan(4);
     expect(s.checks.find((c) => c.name === 'stayed within resource bounds')?.ok).toBe(false);
-  }, 30_000);
+  });
 
   it('stops after a run once the wall-time or heap bound is passed', async () => {
     const wall = await run({ ...small, bounds: { maxWallMs: 0 } });
@@ -175,7 +175,7 @@ describe('bounded exits', () => {
     const heap = await run({ ...small, bounds: { maxHeapMb: 1 } });
     expectConsistent(heap);
     expect([heap.exit, heap.runs.length]).toEqual(['aborted: maxHeapMb', 1]);
-  }, 30_000);
+  });
 
   it('refuses scenarios that exceed the run bound or make no sense', () => {
     expect(() => resolveScenario({ name: 'x', runs: 500 })).toThrow(/bounds.maxRuns/);
@@ -198,14 +198,14 @@ describe('reproducibility and isolation', () => {
     const c = await run({ ...input, seed: 'another seed' });
     expect(c.meta.seed).toBe('another seed');
     expect(withoutTiming(c).runs).not.toEqual(withoutTiming(a).runs);
-  }, 30_000);
+  });
 
   it('puts the clock, network and working directory back after a run', async () => {
     const before = { date: globalThis.Date, fetch: globalThis.fetch, ws: globalThis.WebSocket, cwd: process.cwd(), token: process.env.GITHUB_TOKEN };
     const s = await run({ name: 'tidy', runs: 1, phases: [{ fromS: 0, toS: 900, ratePerS: 2 / 900 }], qualifyingFraction: 1 });
     expectPassed(s);
     expect({ date: globalThis.Date, fetch: globalThis.fetch, ws: globalThis.WebSocket, cwd: process.cwd(), token: process.env.GITHUB_TOKEN }).toEqual(before);
-  }, 30_000);
+  });
 
   it('summarizes each run in a readable line', async () => {
     const s = await run({ name: 'lines', runs: 2, phases: [{ fromS: 0, toS: 900, ratePerS: 2 / 900 }], qualifyingFraction: 1 });
@@ -213,7 +213,7 @@ describe('reproducibility and isolation', () => {
     expect(lines[0]).toMatch(/^lines:/);
     expect(lines.filter((l) => /^ {2}run /.test(l))).toHaveLength(2);
     expect(lines.some((l) => /modeled/.test(l))).toBe(true);
-  }, 30_000);
+  });
 });
 
 describe('labels and the command line', () => {
@@ -225,7 +225,7 @@ describe('labels and the command line', () => {
     expectPassed(s);
     expect(s.meta.argon).toEqual(argon);
     expect(s.runs[0].modeledRunS).toBeGreaterThanOrEqual((s.runs[0].budgetUsed * argon.medianMs) / 1000);
-  }, 60_000);
+  });
 
   it('labels what it does not exercise and an unsampled "measured" Argon2 time', async () => {
     const s = await run({ name: 'unsampled', runs: 1, phases: [{ fromS: 0, toS: 900, ratePerS: 2 / 900 }], qualifyingFraction: 1, model: { argonMs: 'measured' } });
@@ -233,7 +233,7 @@ describe('labels and the command line', () => {
     expect(s.meta.argon.source).toMatch(/^measured-missing/);
     expect(s.labels.limits).toMatch(/404.*floor.*joinRefusal.*16-key pools.*same event set/);
     expect((await run({ name: 'fixed', runs: 1 })).meta.argon.source).toBe('input');
-  }, 60_000);
+  });
 
   it('keeps the 30 packs/second scenario behind #225 and its opt-in flag', async () => {
     const synthetic = SCENARIOS.find((x) => x.futureOptIn225)!;
@@ -251,7 +251,7 @@ describe('labels and the command line', () => {
     expect(s.labels.synthetic).toMatch(/#225.*future opt-in/);
     expect(s.config.futureOptIn225).toBe(true);
     expect((await run({ name: 'plain', runs: 1 })).labels).not.toHaveProperty('synthetic');
-  }, 60_000);
+  });
 
   it('records the runner next to the seed and config', () => {
     expect(runnerMeta()).toMatchObject({ node: process.version, platform: expect.any(String), cpus: expect.any(Number), commit: expect.any(String), command: expect.any(String) });

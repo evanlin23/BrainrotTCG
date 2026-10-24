@@ -28,7 +28,7 @@ it('shows a new player only the packs screen and Settings until their first pack
   expect(document.querySelector('.app')!.classList).toContain('no-nav');
   expect(button('Settings')).toBeDefined();
   expect(button('Profile')).toBeUndefined();
-}, 30_000);
+});
 
 const picker = () => document.querySelector('nav.set-picker[aria-label="Choose a pack"]');
 const showEveryPage = () => [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
@@ -73,7 +73,7 @@ it('lets an experienced player show every page and the pack picker before saving
   await app.until('Settings loads', () => expect(showEveryPage()!.getAttribute('aria-checked')).toBe('true'));
   await app.interact(() => showEveryPage()!.click());
   await app.until('the tabs hide again', () => expect(document.querySelector('.app-nav')).toBeNull());
-}, 30_000);
+});
 const packLabel = () => (document.querySelector('[data-pack-open]') && document.querySelector('.pack-set-name')?.textContent) || null;
 /** An old save, or one whose stats couldn't be read: cards but no pack count. */
 const CARDS_ONLY = {
@@ -107,7 +107,7 @@ it('shows a new player the set picker only once their first pack is saved, and n
   expect(document.querySelector('.app')!.classList).not.toContain('is-focus');
   expect(document.querySelector('.app-nav')).not.toBeNull();
   expect(packLabel()).toBe(first);
-}, 30_000);
+});
 
 it('brings a new player the set picker and tabs as they leave a first pack whose ticket is still on its way, not when it lands (#464)', async () => {
   app = await mountedApp({ ...PLAYER, [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }) },
@@ -133,14 +133,14 @@ it('brings a new player the set picker and tabs as they leave a first pack whose
   await app.until('the late pack is recorded', () => expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS) ?? 'null')?.packsOpened).toBe(1));
   expect(picker()).not.toBeNull();
   expect(document.querySelector('.app-nav')).not.toBeNull();
-}, 30_000);
+});
 
 it.each([['a saved pack', RETURNING], ['cards but no pack count', CARDS_ONLY]])('shows the set picker to a player with %s', async (_, save) => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...save });
   await app.mount();
   expect(picker()).not.toBeNull();
   expect(document.querySelector('.app-nav')).not.toBeNull();
-}, 30_000);
+});
 
 // #902: the switch only matters before the pages show up on their own; after that it would change nothing.
 it.each([['a saved pack', RETURNING], ['cards but no pack count', CARDS_ONLY]])('leaves the Show every page switch out of Settings for a player with %s, and keeps every page', async (_, save) => {
@@ -153,7 +153,7 @@ it.each([['a saved pack', RETURNING], ['cards but no pack count', CARDS_ONLY]])(
   expect([...document.querySelectorAll('[role="switch"]')].map((el) => document.getElementById(el.getAttribute('aria-labelledby') ?? '')?.textContent))
     .toEqual(['Particles', 'Pause on good pulls', 'Preview upcoming sets']);
   expect(document.querySelector('.app-nav')).not.toBeNull();
-}, 30_000);
+});
 
 it('keeps a stored Show every page choice, and its tabs, when the switch is out of Settings', async () => {
   const stored = JSON.stringify({ effectsVolume: 0, showAllPages: true });
@@ -164,7 +164,7 @@ it('keeps a stored Show every page choice, and its tabs, when the switch is out 
   expect(showEveryPage()).toBeUndefined();
   expect(document.querySelector('.app-nav')).not.toBeNull();
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS)!).showAllPages).toBe(true);
-}, 30_000);
+});
 
 it('shows the switch again to a new player who has stored the choice, so they can reverse it', async () => {
   app = await mountedApp({ ...PLAYER, 'brainrot-settings-v1': JSON.stringify({ effectsVolume: 0, showAllPages: true }) });
@@ -172,7 +172,7 @@ it('shows the switch again to a new player who has stored the choice, so they ca
   await app.interact(() => button('Settings').click());
   await app.until('Settings loads', () => expect(showEveryPage()).toBeTruthy());
   expect(showEveryPage()!.getAttribute('aria-checked')).toBe('true');
-}, 30_000);
+});
 
 it('gives Open, Cards, Rankings and Profile a page each, with an address, a title and Back between them', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING });
@@ -240,7 +240,7 @@ it('gives Open, Cards, Rankings and Profile a page each, with an address, a titl
   expect(document.querySelectorAll('h1')).toHaveLength(1);
   expect(document.querySelector('.app-logo')!.tagName).toBe('H1');
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).nextNonce).toBe(0);
-}, 30_000);
+});
 
 it('opens the gear as the Settings page with its three sections', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING });
@@ -251,7 +251,7 @@ it('opens the gear as the Settings page with its three sections', async () => {
   await app.until('Settings loads', () => expect(document.querySelector('.settings-group')).not.toBeNull());
   expect([...document.querySelectorAll('main.page h2')].map((el) => el.textContent)).toEqual(['Sound & display', 'Save & backup', 'Help']);
   expect(document.activeElement).toBe(document.querySelector('main.page h1'));
-}, 30_000);
+});
 
 it('leaves no tab current while a shared link sits on top of Cards, and closing it returns to Cards', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING });
@@ -270,7 +270,7 @@ it('leaves no tab current while a shared link sits on top of Cards, and closing 
   await app.until('broken link sheet closes', () => expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0));
   expect(location.hash).toBe('#/cards');
   expect(currentTab()).toBe('Cards');
-}, 30_000);
+});
 
 it('treats a bare #/profile as your own Profile page and #/profile/<id> as a shared one', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING });
@@ -284,4 +284,4 @@ it('treats a bare #/profile as your own Profile page and #/profile/<id> as a sha
   await app.interact(() => button('Close Profile').click());
   expect(location.hash).toBe('');
   expect(packsHidden()).toBe(false);
-}, 30_000);
+});

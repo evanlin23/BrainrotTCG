@@ -2,6 +2,7 @@ import { useContext, useEffect, useId, useRef, useState, type ReactNode } from '
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { SheetSettledContext } from './sheetEntry';
+import { closeSheet, isTopSheet, openSheet } from './openSheets';
 import '../../styles/Sheet.css';
 
 export type SheetSize = 'sm' | 'md' | 'lg' | 'full';
@@ -27,9 +28,6 @@ interface SheetProps {
 
 /** The heading may take this share of the sheet before it moves into the scrolling body. */
 const HEADING_SHARE = 0.3;
-
-/** Sheets currently open, newest last: only the top one reacts to Escape and owns focus. */
-const stack: string[] = [];
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, summary, [tabindex]:not([tabindex="-1"])';
 
@@ -74,13 +72,13 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    stack.push(id);
+    openSheet(id);
     document.body.classList.add('scroll-locked');
     // Focus the panel itself so screen readers announce the title, without jumping to a control.
     panelRef.current?.focus({ preventScroll: true });
 
     const onKey = (event: KeyboardEvent) => {
-      if (stack[stack.length - 1] !== id) return;
+      if (!isTopSheet(id)) return;
       if (event.key === 'Escape') {
         event.stopPropagation();
         onCloseRef.current();
@@ -121,8 +119,7 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
 
     return () => {
       document.removeEventListener('keydown', onKey, true);
-      stack.splice(stack.indexOf(id), 1);
-      if (stack.length === 0) document.body.classList.remove('scroll-locked');
+      if (closeSheet(id)) document.body.classList.remove('scroll-locked');
       opener?.focus?.({ preventScroll: true });
     };
   }, [id]);
