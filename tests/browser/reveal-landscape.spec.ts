@@ -1,11 +1,12 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { monitor } from './support';
+import { monitor, scaleText } from './support';
 
 /**
  * The reveal on a phone on its side (#898, DESIGN.md "First-pack flow decision", Reveal): under 500px
  * tall the card takes at least 70% of the screen's height, with the rarity row, hint and Skip in a column
  * beside it, and the X, Skip and the card all within reach. Also the first-card cue: on a new player's
- * first card the back lifts once (only transform), and not again on the next card.
+ * first card the back lifts toward the viewer once (only transform), and not again on the next card. At
+ * 200% text the side column is capped and scrolls, so the card keeps its size and Skip stays reachable.
  */
 
 const SIZES = [{ width: 640, height: 360 }, { width: 568, height: 320 }];
@@ -47,6 +48,38 @@ for (const size of SIZES) {
       await expect(page.locator('.reveal-skip')).toBeEnabled();
       expect(errors).toEqual([]);
     });
+
+    test('at 200% text the card keeps its column and the card and Skip can still be tapped', async ({ page, baseURL }, testInfo) => {
+      test.skip(testInfo.project.name !== 'desktop-chromium', 'A window-size check; the desktop project runs it once.');
+      test.setTimeout(60000);
+      const errors = await monitor(page, baseURL!);
+      await page.goto('./');
+      await scaleText(page, 200);
+      expect(await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))).toBe(32);
+      await page.getByRole('button', { name: /^Open pack/ }).focus();
+      await page.keyboard.press('Space');
+      const card = page.locator('.reveal-card:focus');
+      await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
+      await page.keyboard.press('Space');
+      await expect(page.locator('.reveal-rarity .rarity-pill')).toBeVisible();
+
+      // The side column is capped to its share of the stage and scrolls; the card fills the stage's column.
+      const stage = await box(page.locator('.active-card-container'));
+      const side = await box(page.locator('.reveal-side'));
+      const cardBox = await box(card);
+      expect(side.width, 'the side column against the stage').toBeLessThanOrEqual(size.width * 0.4);
+      expect(cardBox.height, 'the card against its column').toBeGreaterThanOrEqual(stage.height * 0.85);
+      expect(cardBox.height, 'the card against the screen\'s height').toBeGreaterThanOrEqual(size.height * 0.5);
+      expect(cardBox.width, 'the card keeps its shape').toBeGreaterThan(cardBox.height / 2);
+      expect(cardBox.x + cardBox.width, 'the card stays clear of the side column').toBeLessThanOrEqual(side.x);
+
+      // Actionability (visible, stable, enabled, scrolled to, not covered): Skip is reachable by scrolling its column.
+      await page.locator('.reveal-skip').click({ trial: true });
+      await card.click({ trial: true });
+      await card.click();
+      await expect(card).toHaveAttribute('aria-label', 'Flip card 2 of 5', { timeout: 10000 });
+      expect(errors).toEqual([]);
+    });
   });
 }
 
@@ -57,18 +90,35 @@ test.describe('the first-card cue', () => {
     test.skip(testInfo.project.name !== 'desktop-chromium', 'One run is enough.');
     test.setTimeout(60000);
     const errors = await monitor(page, baseURL!);
+    // The cue lasts about 1.4 s, so its class is recorded when it lands rather than looked for afterwards.
+    await page.addInitScript(() => {
+      new MutationObserver(() => {
+        if (document.querySelector('.card-wrapper.lift-cue')) (window as unknown as { liftSeen?: boolean }).liftSeen = true;
+      }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+    });
     await page.goto('./');
     await page.getByRole('button', { name: /^Open pack/ }).focus();
     await page.keyboard.press('Space');
     const card = page.locator('.reveal-card:focus');
     await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
 
-    // Only the back's transform moves; the plays on this device are counted as it starts.
-    await expect(page.locator('.card-wrapper.lift-cue .card-back')).toHaveCount(1);
-    const props = await page.locator('.card-back').evaluate((el) => el.getAnimations()
-      .filter((a) => a instanceof CSSAnimation && a.animationName === 'first-card-lift')
-      .flatMap((a) => (a.effect as KeyframeEffect).getKeyframes().flatMap((k) => Object.keys(k).filter((p) => !['offset', 'easing', 'composite', 'computedOffset'].includes(p)))));
-    expect([...new Set(props)]).toEqual(['transform']);
+    // The keyframes, read from the stylesheet (a live animation ends after about 1.4 s): only the back's transform
+    // moves, and the peak lifts it toward the viewer (up and a little larger, never a tilt).
+    await expect.poll(() => page.evaluate(() => (window as unknown as { liftSeen?: boolean }).liftSeen), { message: 'the cue class was applied' }).toBe(true);
+    const frames = await page.evaluate(() => {
+      const rules = Array.from(document.styleSheets).flatMap((sheet) => Array.from(sheet.cssRules));
+      const rule = rules.find((r): r is CSSKeyframesRule => r instanceof CSSKeyframesRule && r.name === 'first-card-lift');
+      return rule ? Array.from(rule.cssRules).map((k) => {
+        const style = (k as CSSKeyframeRule).style;
+        return { key: (k as CSSKeyframeRule).keyText, props: Array.from(style).sort(), transform: style.getPropertyValue('transform') };
+      }) : [];
+    });
+    expect(frames.length, 'the keyframes are in the stylesheet').toBeGreaterThan(0);
+    expect([...new Set(frames.flatMap((f) => f.props))]).toEqual(['transform']);
+    const peak = frames.find((f) => f.transform !== 'none')!.transform;
+    expect(peak, 'a lift up').toMatch(/translateY\(-[\d.]+%\)/);
+    expect(Number(/scale\(([\d.]+)\)/.exec(peak)?.[1]), 'a little larger').toBeGreaterThan(1);
+    expect(peak, 'not a tilt').not.toMatch(/rotate/);
     expect(await page.evaluate(() => localStorage.getItem('brainrot-first-card-cue-plays-v1'))).toBe('1');
 
     // The flip ends it, and the next card never plays it.

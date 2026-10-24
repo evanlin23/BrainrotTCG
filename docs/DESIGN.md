@@ -125,7 +125,7 @@ results line (`PackSummaryUI.tsx`) that goes.
    The focus ring is drawn inside the pack's edge so the stage never clips it. Reduced motion shows the arrowheads and a caption
    ("Swipe across to open"; desktop "Drag across, or click") with no motion. Swiping the pack body
    only ever opens it; switching packs is never a swipe on the pack.
-3. **First-card cue.** On the first card of a player's first pack only, the back lifts at one corner
+3. **First-card cue.** On the first card of a player's first pack only, the back lifts toward the viewer
    as if to flip, once, over the existing hint ("Tap card to flip", then "Swipe or tap for the next
    card"). It stops on first input and is the caption alone under reduced motion. Tap flips and
    advances; a sideways swipe advances after the flip. Nothing else is taught.

@@ -18,7 +18,7 @@ interface CardProps {
     slowFlip?: boolean;
     /** Before the flip, light the back's edge in the card's rarity colour (rare and up). */
     tell?: boolean;
-    /** The first-card cue: the face-down back lifts at one corner, once, as if to flip (DESIGN.md Flow 3). */
+    /** The first-card cue: the face-down back lifts toward the viewer, once, as if to flip (DESIGN.md Flow 3). */
     liftCue?: boolean;
 }
 

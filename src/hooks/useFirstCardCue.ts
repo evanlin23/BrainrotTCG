@@ -3,7 +3,7 @@ import { FIRST_CARD_CUE_MAX_PLAYS, readFirstCardCuePlays, recordFirstCardCuePlay
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 /**
- * The cue on the first card of a player's first pack (DESIGN.md Flow 3): the back lifts at one corner, as
+ * The cue on the first card of a player's first pack (DESIGN.md Flow 3): the back lifts toward the viewer, as
  * if to flip, once on this device, and stops at the first input. Under reduced motion it is the caption
  * alone ('still'). `enabled` is true only while that card is face down in a first pack. The play is
  * counted as it starts, so reloading mid-play still uses it up.
