@@ -612,8 +612,8 @@ packs, about 5 s each with coverage) passed the 5 s default under load. The fix 
     write the options out.
 
   Naming `HANG_TIMEOUT_MS` itself is allowed in any of those slots, since it changes nothing. The guard
-  reads syntax only, so it does not cover `vi` or a hook renamed on import or destructured from the
-  module (`const { it } = await import('vitest')`), a runner passed around as a value, or a namespace
+  reads syntax only, so it does not cover `vi` or a hook renamed on import or in a destructure of the
+  module (`const { it: spec } = await import('vitest')`), a runner passed around as a value, or a namespace
   re-aliased (`const w = v; w.it(..., 5)`). `vi.waitFor`, `vi.waitUntil` and `expect.poll` take a
   `timeout` too (the other timeout-taking functions in the Vitest 5.0.5 types); they bound a wait inside
   a test, not the test, so they keep their own. The CLI and config are covered by other tests instead:

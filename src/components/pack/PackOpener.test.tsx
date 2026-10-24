@@ -119,6 +119,8 @@ beforeEach(() => {
   cutter.endCutAttempt.mockReset();
   cutter.completeCut.mockReset().mockImplementation(() => cutter.tear());
   vi.mocked(openPack).mockReset().mockImplementation(() => new Promise(() => {}));
+  // A test may swap in the real prefetch; a failing one must not leak it into the next.
+  vi.mocked(prefetchNextPack).mockReset();
   popstates = 0;
   popstated = () => {};
   window.addEventListener('popstate', countPopstate);
@@ -205,7 +207,6 @@ describe("the next pack's art", () => {
     await show(oldSet);
     await act(async () => {});
     expect(fetchedFrom(oldSet).length).toBeGreaterThan(0);
-    vi.mocked(prefetchNextPack).mockReset();
   });
 });
 
