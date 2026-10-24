@@ -187,7 +187,8 @@ it('puts a torn pack back sealed when another tab loads a different player befor
 async function expectStaleTearRefused() {
   await pressOpen();
   await app!.until('the pack stays sealed', expectKeptSealed);
-  expect(app!.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  // The pack states the refusal; it is not logged as a failure (#1139).
+  expect(app!.takeErrors(/^Could not open pack/)).toEqual([]);
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).nextNonce).toBe(0);
   expect(shelf()).toEqual([]);
