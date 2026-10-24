@@ -70,12 +70,15 @@ describe('starting the game when the save hand-over fails', () => {
   });
 
   it('leaves the game unstarted in the window that received a save', async () => {
-    startup.receiveSave.mockResolvedValue(true);
+    let finishHandOver: (received: boolean) => void = () => {};
+    startup.receiveSave.mockReturnValue(new Promise<boolean>((resolve) => { finishHandOver = resolve; }));
     await load();
 
     await vi.waitFor(() => expect(startup.receiveSave).toHaveBeenCalledTimes(1));
-    // Let the hand-over's promise settle before checking that nothing started.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    finishHandOver(true);
+    // main.tsx's steps after the hand-over are a chain of promise callbacks (no timers or I/O), so they have
+    // all run by the next macrotask. Only then can "nothing started" be checked.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(app()).toBeNull();
     expect(startup.runMigrations).not.toHaveBeenCalled();
     expect(errors).not.toHaveBeenCalled();

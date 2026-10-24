@@ -29,11 +29,13 @@ const mount = () => act(() => {
 const onPackEntry = () => !!(history.state as { brainrotPack?: boolean } | null)?.brainrotPack;
 const setNavigation = (canGoBack: boolean) =>
   Object.defineProperty(window, 'navigation', { value: { canGoBack }, configurable: true });
-/** jsdom delivers history traversal a task later. */
+/** jsdom delivers a history traversal as a popstate event a task later; resolves when the next one has fired. */
+const nextPopstate = () => act(() => new Promise<void>((resolve) => {
+  window.addEventListener('popstate', () => resolve(), { once: true });
+}));
+/** Waits for the one popstate the condition needs (the hook's own listener runs first), unless it already holds. */
 const settle = async (check: () => boolean) => {
-  for (let i = 0; i < 50 && !check(); i += 1) {
-    await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
-  }
+  if (!check()) await nextPopstate();
   expect(check()).toBe(true);
 };
 
@@ -102,7 +104,7 @@ describe('usePackHistory after an opener unmounts mid-pack', () => {
     mount();
     act(() => enter(true));
     // Let the old step back land, then add the new pack's own entry.
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    await nextPopstate();
     expect(backs).toBe(0);
     expect(onPackEntry()).toBe(true);
     // It holds an entry of its own, so Back still closes it.
