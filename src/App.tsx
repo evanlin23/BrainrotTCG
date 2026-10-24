@@ -423,11 +423,12 @@ function App() {
   useEffect(() => {
     if (toastsLoaded) return;
     let live = true;
-    warmUpForPack(() => {
+    const cancel = warmUpForPack(() => {
       loadToasts().then(() => live && setToastsLoaded(true), () => {});
     });
     return () => {
       live = false;
+      cancel();
     };
   }, [toastsLoaded]);
   useEffect(() => {

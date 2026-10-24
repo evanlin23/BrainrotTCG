@@ -217,7 +217,12 @@ it('fetches the toasts ahead of the first pack: not at startup, once the sealed 
   vi.doMock('../game/packArt', () => {
     let release!: () => void;
     const settled = new Promise<void>((resolve) => { release = resolve; });
-    return { packArtSettled: () => {}, afterPackArt: (task: () => void) => { void settled.then(task); }, releaseArt: release };
+    const afterPackArt = (task: () => void) => {
+      let cancelled = false;
+      void settled.then(() => { if (!cancelled) task(); });
+      return () => { cancelled = true; };
+    };
+    return { packArtSettled: () => {}, afterPackArt, releaseArt: release };
   });
   app = await mountedApp({
     ...PLAYER('Warm-up fixture'),
