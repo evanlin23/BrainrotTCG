@@ -102,6 +102,18 @@ describe('isNameAllowed', () => {
     ).toEqual([]);
   });
 
+  it('blocks a WHOLE term wrapped around an allowed word, but not an ordinary word holding one', () => {
+    expect(
+      blocked(['seNAZIRx', 'diNAZIRck', 'cuNAZIRm', 'tiNAZIRts', 'coNAZIRck', 'SeNazirNazimx', 'Big diNAZIRck', 'seNAZIRxy']),
+    ).toEqual([]);
+    expect(
+      allowed([
+        'Sussex', 'Dickens', 'Cumberland', 'Titsworth', 'Dickensian', 'Sexton Nazir', 'Nazir Dickens', 'Cumberland Nazim',
+        'Nazirs', 'Benazirs', 'Nazims', 'Milfords', 'Sniggers', 'Scunthorpes', 'Booboos', 'Thornycroft', 'rapnazirpe',
+      ]),
+    ).toEqual([]);
+  });
+
   it('allows brainrot names, gamer tags and mild swearing', () => {
     expect(
       allowed([

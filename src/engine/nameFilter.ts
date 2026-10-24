@@ -9,11 +9,13 @@
  * look-alike letters, leetspeak, punctuation or spaces between letters, repeated letters, camelCase
  * and xX decorations), then matches a curated list in two tiers:
  * - STRONG terms are blocked anywhere inside a word ("xXfuckXx", "hotpussy"), except wholly inside
- *   one ALLOWED word ("Pussycat", "Thorny", but not "Pornazir"), and a word is checked again with its
- *   ALLOWED words cut out, so one can't be wrapped in a blocked term ("fuNAZIRck").
+ *   one ALLOWED word ("Pussycat", "Thorny", but not "Pornazir").
  * - WHOLE terms are short words that hide inside ordinary ones ("Dickens", "cocktail", "Sussex",
  *   "Scunthorpe", "grape"), so they are blocked only as a whole word (plurals included), and not
  *   inside a few ALLOWED_PHRASES ("Moby Dick", but not "Moby Dick.head").
+ * - A word holding an ALLOWED word is also checked with its ALLOWED words cut out (again until none
+ *   is left), against both STRONG and WHOLE terms, so wrapping a term around one doesn't hide it:
+ *   "fuNAZIRck" reads "fuck" and "seNAZIRx" reads "sex". A cut that is an ALLOWED_WHOLE word passes.
  * - PHRASES are blocked anywhere in the name with its spaces removed: phrases usually written as
  *   separate words, and a few common run-together names built on a WHOLE term ("bigdick").
  * Hate numbers are blocked only as a number of their own. Mild swearing (shit, damn, crap, ass, hell)
@@ -164,6 +166,17 @@ const strongOutsideAllowed = (word: string): boolean => {
   return false;
 };
 
+/** The word with its ALLOWED words cut out, again until none is left ("seNAZIRx" -> "sex"); empty if it holds none. */
+const allowedCuts = (word: string): string[] => {
+  const cuts: string[] = [];
+  // Each cut is shorter than the last, so this ends within the word's length.
+  for (let w = word, cut = w.replace(ALLOWED_CUT_RE, ''); cut !== w; w = cut, cut = w.replace(ALLOWED_CUT_RE, '')) cuts.push(cut);
+  return cuts;
+};
+
+/** Whether a piece is a WHOLE term on its own (with an optional plural), other than an ALLOWED_WHOLE word. */
+const wholeTerm = (piece: string) => WHOLE_RE.test(piece) && !ALLOWED_WHOLE_SET.has(piece);
+
 /** Runs of two or more one-letter tokens joined ("f u c k" -> "fuck"). */
 const joinSingles = (tokens: readonly string[]) => {
   const runs: string[] = [];
@@ -213,7 +226,7 @@ export const isNameAllowed = (name: string): boolean => {
   if (NUMBER_RE.test(plain(name))) return false;
   const { words, pieces, whole } = readings(name);
   for (const w of words) if (strongOutsideAllowed(w)) return false;
-  for (const p of pieces) if (WHOLE_RE.test(p) && !ALLOWED_WHOLE_SET.has(p)) return false;
+  for (const p of pieces) if (wholeTerm(p) || allowedCuts(p).some(wholeTerm)) return false;
   return !whole.some((w) => PHRASE_RE.test(w));
 };
 
