@@ -466,6 +466,66 @@ test.describe('offline mid-session', () => {
       ...finishes,
     ].sort());
   });
+
+  test('a fresh player can open ticket 0 offline, view collection offline, and art loads upon reconnect', async ({ page, baseURL }) => {
+    let offline = false;
+    const cut: string[] = [];
+    const errors = await monitor(page, baseURL!);
+    await relaysAnswerEmpty(page, () => offline);
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+    await page.route('**/*', (route) => {
+      if (!offline) return route.fallback();
+      cut.push(route.request().url());
+      return route.abort('internetdisconnected');
+    });
+    const setOffline = async (value: boolean) => {
+      offline = value;
+      await page.context().setOffline(value);
+    };
+    await holdTickets(page);
+    const confettiLoaded = page.waitForResponse((response) => /\/confettiEffects-[^/]+\.js$/.test(response.url()));
+    await page.goto('./');
+    await packsScreen(page);
+    await confettiLoaded;
+
+    // Go offline before opening the very first pack
+    await setOffline(true);
+    await releaseTickets(page);
+    await openOne(page);
+
+    // Ticket 0 opened and saved offline
+    expect(await tickets(page)).toEqual([0]);
+    expect(await nextNonce(page)).toBe(1);
+    expect(cardCount((await snapshot(page)).collection)).toBe(5);
+    expect(cut.length).toBeGreaterThan(0);
+    expect(cut.filter((url) => !/\.(webp|png|svg|woff2)$/.test(new URL(url).pathname))).toEqual([]);
+
+    const summaryArt = page.locator('.summary-cards img');
+    await expect(summaryArt).toHaveCount(5);
+    for (const image of await summaryArt.all()) await expect(image).toHaveAttribute('data-state', 'failed');
+
+    // Return to packs screen to access navigation
+    await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+    await packsScreen(page);
+
+    // Still offline: navigate to Cards and verify collection is readable
+    await nav(page).getByRole('button', { name: 'Cards', exact: true }).click();
+    const cardsMain = page.getByRole('main', { name: 'Cards', exact: true });
+    await expect(cardsMain).toBeVisible();
+    await expect(cardsMain.getByRole('heading', { level: 1 })).toHaveText('Cards');
+
+    // Go back online: card art recovers without reload
+    await setOffline(false);
+    await nav(page).getByRole('button', { name: 'Open', exact: true }).click();
+    await packsScreen(page);
+
+    const finishes = errors.filter((error) => error.startsWith('Could not render card finish '));
+    for (const finish of finishes) expect(cut.some((url) => finish.includes(new URL(url).pathname)), finish).toBe(true);
+    expect([...errors].sort()).toEqual([
+      ...cut.flatMap((url) => [`net::ERR_INTERNET_DISCONNECTED ${url}`, 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED']),
+      ...finishes,
+    ].sort());
+  });
 });
 
 test.describe('Argon2 chunk fetched ahead (#776)', () => {
