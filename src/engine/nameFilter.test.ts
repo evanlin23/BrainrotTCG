@@ -288,14 +288,17 @@ describe('isNameAllowed on names generated from its lists', () => {
   it('blocks every term in xX decorations with punctuation, before it, after it or both', () => {
     const { strong, whole, phrases } = NAME_FILTER_LISTS;
     const decorations = ['x_x', 'x.x', 'x-x', 'x·x', 'xX_', '_Xx'];
-    // Left out as a Known gap: a term ending in x inside decorations on both sides ("x_xsexx_x" reads "se").
+    // Left out as Known gaps (see "Known gaps" note in src/engine/nameFilter.ts):
+    // "a term ending in x inside xX decorations on both sides ("x_xsexx_x" reads "se")".
+    const knownGaps = new Set(['x_xsexx_x', 'x.xsexx.x', 'x-xsexx-x', 'x·xsexx·x']);
     const names = [...strong, ...whole, ...phrases].flatMap((term) =>
       [term, term[0].toUpperCase() + term.slice(1)].flatMap((t) =>
-        decorations.flatMap((d) => [d + t, t + d, ...(t.endsWith('x') && d.startsWith('x') ? [] : [d + t + d])]),
+        decorations.flatMap((d) => [d + t, t + d, ...(knownGaps.has(d + t + d) ? [] : [d + t + d])]),
       ),
     );
-    expect(names).toHaveLength(4182);
+    expect(names).toHaveLength(4208);
     expect(blocked(names)).toEqual([]);
+    expect(allowed([...knownGaps])).toEqual([]);
   });
 });
 
