@@ -272,7 +272,7 @@ test('levels a tilted card as soon as reduced motion turns on mid-reveal, and ke
   await seedNonce21(page, baseURL!);
   const errors = await monitor(page, baseURL!);
   const card = await revealFirstCard(page);
-  await page.keyboard.press('Space');
+  await tapSpace(page);
   await expect(card).toHaveAttribute('aria-label', /^Next card/, { timeout: 10000 });
   const wrapper = card.locator('.card-wrapper');
   const transform = () => wrapper.evaluate((el) => (el as HTMLElement).style.transform);

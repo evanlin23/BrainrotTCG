@@ -741,22 +741,21 @@ export const unexpectedArtErrors = (errors: string[]) =>
   errors.filter((error) => !namesArt.test(error) && error !== 'Failed to load resource: net::ERR_FAILED');
 
 /**
- * Presses Space once, as a tap: the key goes down and up in one hand-off to the browser. Playwright's own press
- * sends the up after the down's round trip, and on a loaded machine that gap can pass the 400ms after which the
- * app (useKeyboardControls) takes a held Space for a hold and runs on through the cards, so a single press
- * would flip and then turn the card too. With both events queued together, the up reaches the page with the down.
+ * Presses Space once, as a tap: the key goes down and up in one task of the page, so nothing runs between them.
+ * The app (useKeyboardControls) takes a Space held 400ms for a hold and runs on through the cards, so a single press
+ * that took longer would flip the card and then turn it too. Playwright's press, and key events sent over CDP,
+ * leave that gap to the machine (the up is sent only once the down has been handled), and on a loaded one the two
+ * have reached the page more than 400ms apart. Use it for a press on a card in the reveal; the press that opens
+ * the pack does one thing whenever its key comes up. The key goes to the focused element, as a real one does, but
+ * it is not a trusted event, so it has no default action of its own (the app prevents it anyway).
  */
 export async function tapSpace(page: Page) {
-  const cdp = await page.context().newCDPSession(page);
-  try {
-    const key = { key: ' ', code: 'Space', windowsVirtualKeyCode: 32 };
-    await Promise.all([
-      cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ' ', ...key }),
-      cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key }),
-    ]);
-  } finally {
-    await cdp.detach();
-  }
+  await page.evaluate(() => {
+    const target = document.activeElement ?? document.body;
+    const init = { key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true, cancelable: true, composed: true };
+    target.dispatchEvent(new KeyboardEvent('keydown', init));
+    target.dispatchEvent(new KeyboardEvent('keyup', init));
+  });
 }
 
 /** Waits until the target's box holds still between two reads, 150ms apart (the pack drops in). */
