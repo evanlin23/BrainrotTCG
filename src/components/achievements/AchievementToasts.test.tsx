@@ -287,6 +287,24 @@ describe('how long a toast stays up (#718)', () => {
     expect(opened).toEqual(['profile']);
   });
 
+  it('gives the next toast its full time from when it appears, not from when the previous toast started exiting', async () => {
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    expect(toasts()).toEqual(['Pack kept']);
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
+    expect(dismissed).toEqual([['pack-kept-1']]);
+
+    // Let the previous toast finish its 180ms exit animation
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    expect(toasts()).toEqual(['Level 2']);
+
+    // It should still be up TOAST_MS - 100 after appearing
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 100));
+    expect(dismissed).toEqual([['pack-kept-1']]);
+
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(dismissed).toEqual([['pack-kept-1'], ['level-2']]);
+  });
+
   it('gives a grouped toast longer than a single one', async () => {
     act(() => root.render(<Harness initial={[achievement(1), achievement(2), achievement(3)]} />));
     await act(() => vi.advanceTimersByTimeAsync(GROUPED_TOAST_MS - 100));
