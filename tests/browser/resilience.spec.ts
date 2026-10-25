@@ -640,4 +640,54 @@ test.describe('clock rollover', () => {
     await expect(rows).toHaveCount(1);
     expect(errors).toEqual([]);
   });
+
+  test('opening a pack after the clock rolls back keeps the ticket sequence and records in full', async ({ page, baseURL }) => {
+    await page.clock.install({ time: new Date('2026-10-02T12:00:00.000Z') });
+    const errors = await seedSave(page, baseURL!);
+    await page.goto('./');
+    await packsScreen(page);
+
+    // Roll clock back by 24 hours to an earlier date
+    await page.clock.setFixedTime(new Date('2026-10-01T12:00:00.000Z'));
+    await openOne(page);
+
+    // Tickets sequence strictly continues from nextNonce, never moves back
+    expect(await tickets(page)).toEqual([0, 1]);
+    expect(await nextNonce(page)).toBe(2);
+    const after = await snapshot(page);
+    expect(after.stats.packsOpened).toBe(2);
+    expect(cardCount(after.collection)).toBe(10);
+    expect(after.history).toHaveLength(2);
+    expect(errors).toEqual([]);
+  });
+
+  test('Rankings loaded after a clock rollback across midnight UTC displays pulls under Today', async ({ page, baseURL }) => {
+    const errors = await monitor(page, baseURL!, 0, { returning: true });
+    await relaysAnswerEmpty(page);
+    const filed = {
+      id: 'fixture-today', proof: 'fixture-proof-today', name: 'Fixture today', fingerprint: 'abcd', setId: 'right-now',
+      setName: 'Right Now', hand: 'Full House', multiplier: 150, score: 50000, submittedAt: '2026-10-01T12:00:00.000Z',
+      cards: [], issue: 1000, githubUser: 'fixture',
+    };
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [filed] }));
+
+    // Start after midnight: pull is from yesterday
+    await page.clock.install({ time: new Date('2026-10-02T00:05:00.000Z') });
+    await page.goto('./#/rankings');
+    const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+    await expect(rankings.getByRole('status')).toHaveText('Rankings loaded.');
+    await expect(rankings.getByRole('tabpanel')).toContainText('No pulls filed today yet.');
+    const yesterday = rankings.getByRole('region', { name: "Yesterday's best", exact: true });
+    await expect(yesterday.locator('.hof-entry')).toHaveCount(1);
+
+    // Roll clock back across midnight to before the day ended and reload
+    await page.clock.setFixedTime(new Date('2026-10-01T23:55:00.000Z'));
+    await page.reload();
+    await expect(rankings.getByRole('status')).toHaveText('Rankings loaded.');
+    const rows = rankings.locator('.hof-list .hof-entry');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toHaveAttribute('href', '#/pull/fixture-proof-today');
+    await expect(rankings.getByRole('region', { name: "Yesterday's best", exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
 });
