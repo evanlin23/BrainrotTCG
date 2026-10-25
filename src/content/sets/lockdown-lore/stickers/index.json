@@ -1,0 +1,24 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "big-floppa": {
+      "art": "art/big-floppa.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.488,
+        "mainShare": 0.997,
+        "edges": 2,
+        "solidity": 0.546
+      },
+      "crop": [
+        4,
+        0,
+        723,
+        900
+      ],
+      "mask": "big-floppa.png",
+      "source": "9ab489384dafe692"
+    }
+  }
+}

@@ -36,8 +36,9 @@ test('keeps pack-screen text at 12 px and form fields at 16 px on a 360 px phone
   await expectPackDropped(page);
   await page.evaluate(() => document.fonts.ready);
   expect(await page.evaluate(() => innerWidth)).toBe(360);
-  // The set name on the wrapper is sized in pack widths, so it is the first thing to fall under the floor.
-  await expect(packShell.locator('.pack-set-name')).toBeVisible();
+  // The set's name is part of the pack art now, not text: it is the pack's accessible name, and no text sits on the art to fall under the floor.
+  await expect(packShell).toHaveAccessibleName(/^Open pack, \S/);
+  expect(await packShell.locator('.pack-half-bottom img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
   expect(await textUnder(page, 12)).toEqual([]);
 
   // The report textarea sets its own small monospace font; on a phone it still renders at 16 px.

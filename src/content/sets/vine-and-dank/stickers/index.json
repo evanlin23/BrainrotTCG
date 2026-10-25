@@ -1,0 +1,24 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "dat-boi": {
+      "art": "art/dat-boi.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.146,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.496
+      },
+      "crop": [
+        143,
+        59,
+        206,
+        390
+      ],
+      "mask": "dat-boi.png",
+      "source": "18b294efb6848390"
+    }
+  }
+}

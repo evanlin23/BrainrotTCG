@@ -1,0 +1,8 @@
+# Pinned environment for scripts/cards/cut-stickers.py (run by hand, never by the build or CI).
+#   python3 -m venv .venv-stickers && .venv-stickers/bin/pip install -r scripts/cards/stickers-requirements.txt
+# rembg downloads its isnet-general-use model (about 180 MB) on first use, to $U2NET_HOME (default ~/.u2net).
+rembg==2.0.86
+onnxruntime==1.31.0
+numpy==2.5.4
+pillow==13.0.0
+scipy==1.18.1

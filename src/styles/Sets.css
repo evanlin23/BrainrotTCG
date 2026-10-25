@@ -321,68 +321,9 @@
   display: none;
 }
 
-/* Sized in pack-width units so it sits in the crimped top, above the tear line, at any pack size. */
+/* The pack's own width, for the swipe hint's container queries (PackOpener.css). */
 .pack-shell {
   container-type: inline-size;
-}
-
-.pack-set-ribbon {
-  position: absolute;
-  top: 7.5%;
-  left: 50%;
-  transform: translateX(-50%) rotate(-4deg);
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 0.4cqw 3.5cqw;
-  border-radius: 1.6cqw;
-  border: 0.5cqw solid var(--ribbon-ink);
-  background: var(--set-a);
-  box-shadow: 0 0.8cqw 0 var(--ribbon-ink);
-  color: var(--ribbon-ink);
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.pack-set-name {
-  font-weight: 900;
-  /* Never under the 12 px text floor; only a pack under 240 px wide ever reaches it. */
-  font-size: max(0.75rem, 5cqw);
-  line-height: 1.1;
-  text-transform: uppercase;
-}
-
-/*
- * The pack now shrinks to fit a short screen, and a pack under 240 px wide sets this text at the 12 px
- * floor, wider than the pack's own proportions give it room for. The shell clips what sticks out, so
- * keep the tag inside the pack: a name that is too long ends in an ellipsis, and on a pack too small
- * to carry 12 px text at all (under 8rem) the tag steps aside, still read aloud. The set picker above
- * names the pack either way.
- */
-@container (max-width: 15rem) {
-  .pack-set-ribbon {
-    max-width: 96cqw;
-  }
-
-  .pack-set-name {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-}
-
-@container (max-width: 8rem) {
-  .pack-set-ribbon {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    border: 0;
-    box-shadow: none;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
 }
 
 /* The chosen pack's own link, under the shelf. */

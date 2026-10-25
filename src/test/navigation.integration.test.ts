@@ -74,7 +74,8 @@ it('lets an experienced player show every page and the pack picker before saving
   await app.interact(() => showEveryPage()!.click());
   await app.until('the tabs hide again', () => expect(document.querySelector('.app-nav')).toBeNull());
 });
-const packLabel = () => (document.querySelector('[data-pack-open]') && document.querySelector('.pack-set-name')?.textContent) || null;
+/** The set the sealed pack names for a screen reader ("Open pack, <name>"), or null when no pack is ready. */
+const packLabel = () => document.querySelector('[data-pack-open]')?.getAttribute('aria-label')?.match(/^Open pack, (.+)$/)?.[1] ?? null;
 /** An old save, or one whose stats couldn't be read: cards but no pack count. */
 const CARDS_ONLY = {
   [STORAGE_KEYS.COLLECTION]: JSON.stringify(Object.fromEntries([getSetCards(SETS[0].id)[0]].map((card) => [card.key, { card, normalCount: 1, holoCount: 0 }]))),

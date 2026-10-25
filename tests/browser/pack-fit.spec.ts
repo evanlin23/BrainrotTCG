@@ -215,19 +215,18 @@ for (const size of SIZES) {
           expectNear(rest.points[4].y, box.y + box.height / 2 + box.width * 0.05, 'middle left marker, y');
         }
         // The tear line is on screen and the hint is whole on the stage.
-        // The set tag stays on its pack: shown, it is inside the pack's box; on a pack too small for
-        // 12 px text (under 8rem) it steps aside and is visually hidden, still read aloud.
-        const ribbon = await page.locator('.pack-set-ribbon').boundingBox();
-        if (box.width >= 128) {
-          expect(ribbon && ribbon.width, 'the set tag on a pack 8rem or wider').toBeGreaterThan(8);
-          const name = (await page.locator('.pack-set-name').boundingBox())!;
-          expect(name.x, 'set name, left edge').toBeGreaterThanOrEqual(box.x - 0.5);
-          expect(name.x + name.width, 'set name, right edge').toBeLessThanOrEqual(box.x + box.width + 0.5);
-          expect(name.y, 'set name, top edge').toBeGreaterThanOrEqual(stage.y - 0.5);
-        } else {
-          expect(ribbon && ribbon.width, 'the set tag on a pack under 8rem is visually hidden').toBeLessThanOrEqual(1.5);
-        }
-        await expect(page.locator('.pack-set-name')).toHaveText(/\S/);
+        // The pack art carries the set's name and its hero, so it is what has to fit: decoded, and inside
+        // the pack's box and the window. The set's name is also the open control's accessible name.
+        const face = (await packShell.locator('.pack-half-bottom img').boundingBox())!;
+        expect(face.width, 'the pack art\'s width').toBeGreaterThan(8);
+        expect(face.x, 'pack art, left edge').toBeGreaterThanOrEqual(box.x - 0.5);
+        expect(face.x + face.width, 'pack art, right edge').toBeLessThanOrEqual(box.x + box.width + 0.5);
+        expect(face.y + face.height, 'pack art, bottom edge').toBeLessThanOrEqual(box.y + box.height + 0.5);
+        // And it still fills the shell: the art's box covers the shell, within the same half pixel.
+        expect(face.x, 'pack art, left edge covers the pack').toBeLessThanOrEqual(box.x + 0.5);
+        expect(face.x + face.width, 'pack art, right edge covers the pack').toBeGreaterThanOrEqual(box.x + box.width - 0.5);
+        expect(face.y + face.height, 'pack art, bottom edge covers the pack').toBeGreaterThanOrEqual(box.y + box.height - 0.5);
+        await expect(packShell).toHaveAccessibleName(/^Open pack, \S/);
         await expect(page.locator('.tear-guide')).toBeInViewport();
         await expect(page.getByRole('button', { name: /^Open pack/ })).toBeInViewport();
         await expectHintOnStage(page, 'at rest');

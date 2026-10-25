@@ -52,9 +52,9 @@ from a 390 px wide screen.
    sheet on phones, a centred dialog on wide screens, with the same header, close button, Escape key,
    focus handling and backdrop.
 5. **Readable before flashy.** Rubik Glitch is for the logo's wordmark only, misprinted ink then
-   brand in the header and on pack wrappers. The mark beside it (nine squares,
-   `src/styles/logoMark.ts`) is one path drawn everywhere: header, icons, pack wrappers, share and
-   link images. Headings and big numbers use Lilita One; everything else is
+   brand in the header. The mark beside it (nine squares,
+   `src/styles/logoMark.ts`) is one path drawn everywhere: header, icons, share and
+   link images (not on pack wrappers, #1138). Headings and big numbers use Lilita One; everything else is
    Archivo, whose condensed widths set labels like a grading slab. Numbers are tabular.
 6. **Colour carries meaning.** Surfaces are a binder-black ramp with card-stock white text. There is
    one accent, price-sticker yellow, and it only marks the thing to do next (primary buttons,
@@ -102,10 +102,11 @@ results line (`PackSummaryUI.tsx`) that goes.
 ### Flow, phone first (390 px), then desktop
 
 1. **Landing.** The header logo is the only Brainrot TCG brand on screen. The wrapper carries the
-   set's identity itself: set name and code printed on the art in the set's colour, with the name
-   also as real text for assistive tech. No wordmark or mark on the wrapper, no era label ("Jul-Oct"
-   stays in the picker, shelf and collection) and no card faces, which suggest the body swipes to
-   another pack. A new player sees logo, gear, pack and one cue: no Card guide link, era picker or
+   set's identity itself (#1138): one hero brainrot from the set and the set's name, printed on the
+   art in Luckiest Guy on the set's colours. The name is not drawn over the art as text (no ribbon or
+   tag): it is the pack's accessible name, "Open pack, {set name}". No wordmark or mark on the wrapper,
+   no era label ("Jul-Oct" stays in the picker, shelf and collection), no site logo and no card
+   faces, which suggest the body swipes to another pack. A new player sees logo, gear, pack and one cue: no Card guide link, era picker or
    tabs until the first pack is saved. The guide stays in Settings, Help and on the summary.
 2. **Opening cue.** The pack is one control named "Open pack, {set name}". Swipe along the seam,
    tap or click, or Space or Enter with focus on it: all run the same single opening (the click a
@@ -277,8 +278,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   finish and foil). The same test fails if it drifts from `tokens.css`; change `tokens.css` first.
 - **Radius.** 4 px for stickers, badges and chips, 6 px for buttons and inputs, 10 px for card faces,
   panels and toasts, 14 px for sheets, pill for toggles and tags. `style-scan` fails
-  on any other radius; the set ribbon's `1.6cqw` is the one allowlisted exception, because it is pack
-  art and scales with the pack.
+  on any other radius; its allowlist is empty (the set ribbon's `1.6cqw` went with the ribbon, #1138).
 
 ### Contrast
 
