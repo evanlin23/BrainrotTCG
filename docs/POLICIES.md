@@ -144,9 +144,14 @@ that every third-party item has been cleared.
   [opening an issue](https://github.com/evanlin23/BrainrotTCG/issues).
 - **Sources of card art.** Each set's `CREDITS.md` records where its images came from. Genesis,
   the archived first set, has no credits file.
-- **Fonts.** Lilita One and Rubik Glitch, in `src/assets/fonts/` and, for card and pack art,
-  `scripts/cards/fonts/` [scripts/cards/fonts/README.md], are Google Fonts under the SIL Open Font
-  License 1.1.
+- **Fonts.** Three Google Fonts, each with its licence text in `scripts/cards/fonts/`
+  [scripts/cards/fonts/README.md]:
+  - Lilita One (SIL Open Font License 1.1, `LilitaOne-OFL.txt`): the site's heading face in
+    `src/assets/fonts/` and the card captions in `scripts/cards/fonts/`.
+  - Rubik Glitch (SIL Open Font License 1.1, `RubikGlitch-OFL.txt`): the site's logo wordmark in
+    `src/assets/fonts/`; the pack art no longer draws it.
+  - Luckiest Guy by Astigmatic (Apache License 2.0, `LuckiestGuy-LICENSE.txt`): the card titles and
+    pack lettering, in `scripts/cards/fonts/` only.
 
 #### Sound credits
 

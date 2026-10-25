@@ -37,7 +37,7 @@ const expectedCodes = async (setId: string, version: number, nonce: number) => {
 };
 
 async function openPack(current: NonNullable<typeof app>, name: string) {
-  await current.until(`the ${name} pack shell is ready`, () => expect(document.querySelector('[data-pack-open]') && document.querySelector('.pack-set-name')?.textContent).toContain(name));
+  await current.until(`the ${name} pack shell is ready`, () => expect(document.querySelector('[data-pack-open]')?.getAttribute('aria-label')).toBe(`Open pack, ${name}`));
   await current.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
     const open = document.querySelector<HTMLElement>('[data-pack-open]')!;

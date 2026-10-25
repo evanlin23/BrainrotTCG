@@ -199,11 +199,11 @@ for (const [size, motion] of SIZES.flatMap((one) => MOTIONS.map((mode) => [one, 
       expect(overlaps(box, (await page.locator('.set-picker').boundingBox())!), 'the stage overlaps the set picker').toBe(false);
       const nav = await page.locator('.app-nav').boundingBox();
       if (nav) expect(overlaps(box, nav), 'the stage overlaps the tabs').toBe(false);
-      // The set ribbon in the pack's crimp shows: what's under its middle is the pack, not the picker.
-      expect(await page.locator('.pack-set-ribbon').evaluate((ribbon) => {
-        const { x, y, width, height } = ribbon.getBoundingClientRect();
-        return !!document.elementFromPoint(x + width / 2, y + height / 2)?.closest('.pack-shell');
-      }), 'the pack\'s set ribbon is uncovered').toBe(true);
+      // The pack art shows: what's under its top and upper middle is the pack, not the picker or the tabs.
+      expect(await packShell.evaluate((shell) => {
+        const { x, y, width, height } = shell.getBoundingClientRect();
+        return [0.12, 0.3].map((share) => !!document.elementFromPoint(x + width / 2, y + height * share)?.closest('.pack-shell'));
+      }), 'the pack art is uncovered at its top and upper middle').toEqual([true, true]);
 
       await releaseTickets(page);
       await expect(page.locator('.card-guide-entry')).toBeVisible({ timeout: 20000 });
