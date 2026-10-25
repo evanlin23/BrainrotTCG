@@ -185,6 +185,51 @@ test.describe('damaged storage', () => {
     expect(errors).toEqual([]);
   });
 
+  for (const [key, name] of [
+    [STORAGE_KEYS.SETTINGS, 'settings'],
+    [STORAGE_KEYS.ACHIEVEMENTS, 'achievements'],
+    [STORAGE_KEYS.BEST_CARDS, 'best cards'],
+    [STORAGE_KEYS.STORED_PACKS, 'stored packs'],
+    [STORAGE_KEYS.HALL_OF_FAME, 'Hall of Fame entries'],
+    [STORAGE_KEYS.SELECTED_SET, 'selected set'],
+    [STORAGE_KEYS.PENDING_PACK, 'legacy pending pack'],
+    [STORAGE_KEYS.PENDING_PACKS, 'pending packs shelf'],
+    [STORAGE_KEYS.PULLS, 'legacy pull log'],
+    ['brainrot-data-version', 'data version'],
+  ] as const) {
+    for (const [kind, value] of [['unreadable', GARBAGE], ['the wrong shape', '{"invalid":true}']] as const) {
+      test(`${name} that is ${kind} still loads, and the next pack is recorded in full`, async ({ page, baseURL }) => {
+        const errors = await loadSave(page, baseURL!, { [key]: value });
+        await openOne(page);
+        const after = await snapshot(page);
+        expect(after.history.map((record) => record.n).sort()).toEqual([0, 1]);
+        expect(cardCount(after.collection)).toBe(10);
+        expect(after.stats.packsOpened).toBe(2);
+        expect(await nextNonce(page)).toBe(2);
+        expect(await page.getByRole('alert').allInnerTexts()).toEqual([]);
+        const now = await raw(page, key);
+        expect(now === value || now === null || (() => { try { JSON.parse(now); return true; } catch { return false; } })(), key).toBe(true);
+        expect(errors).toEqual([]);
+      });
+    }
+  }
+
+  for (const [kind, value] of [['unreadable', GARBAGE], ['the wrong shape', '{"invalid":true}']] as const) {
+    test(`a collection recovery archive that is ${kind} still loads, says unreadable data was kept aside, and the next pack is recorded in full`, async ({ page, baseURL }) => {
+      const errors = await loadSave(page, baseURL!, { [STORAGE_KEYS.COLLECTION_RECOVERY]: value });
+      await expect(page.getByRole('alert').filter({ hasText: COLLECTION_NOTE })).toBeVisible();
+      await openOne(page);
+      const after = await snapshot(page);
+      expect(after.history.map((record) => record.n).sort()).toEqual([0, 1]);
+      expect(cardCount(after.collection)).toBe(10);
+      expect(after.stats.packsOpened).toBe(2);
+      expect(await nextNonce(page)).toBe(2);
+      const now = await raw(page, STORAGE_KEYS.COLLECTION_RECOVERY);
+      expect(now === value || now === null || (() => { try { JSON.parse(now); return true; } catch { return false; } })(), STORAGE_KEYS.COLLECTION_RECOVERY).toBe(true);
+      expect(errors).toEqual([]);
+    });
+  }
+
   test('a ticket counter set below zero moves on past the tickets already opened', async ({ page, baseURL }) => {
     const errors = await loadSave(page, baseURL!, { [PLAYER_KEY]: withPlayer({ nextNonce: -1 }) });
     await openOne(page);
