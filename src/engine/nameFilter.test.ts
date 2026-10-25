@@ -171,6 +171,17 @@ describe('isNameAllowed', () => {
     expect(blocked(['ZoopHil', 'xXPornXx'])).toEqual([]);
   });
 
+  it('sees through xX decorations with punctuation between or beside the x\'s', () => {
+    expect(blocked(['x_xNudex_x', 'x_xRapex_x', 'Fckx_x', 'x.xTardx.x', 'x.xnude', 'Beanerx·XX', 'xX_Nude_Xx'])).toEqual([]);
+    // The x's are read as decoration, not as letters of the name ("xXSeeXx" doesn't read "seexx").
+    expect(allowed(['x_xSlayerx_x', 'x.xNazirx.x', 'xX_NaziaNail_Xx', 'xXSeeXx', 'xXNazirSeeXx', 'xXRappeMilfordXx'])).toEqual([]);
+  });
+
+  it('allows an allowed word run into an ALLOWED_WHOLE word that starts with its kept letter', () => {
+    expect(allowed(['boobybonner', 'Boobybonner', 'BoobyBonner'])).toEqual([]);
+    expect(blocked(['boobyboner', 'Boobyboner'])).toEqual([]);
+  });
+
   it('allows brainrot names, gamer tags and mild swearing', () => {
     expect(
       allowed([
@@ -272,6 +283,19 @@ describe('isNameAllowed on names generated from its lists', () => {
 
   it('blocks every term with an allowed word inserted or sharing a letter, in every spelling', () => {
     expect(blocked(generated.names)).toEqual([]);
+  });
+
+  it('blocks every term in xX decorations with punctuation, before it, after it or both', () => {
+    const { strong, whole, phrases } = NAME_FILTER_LISTS;
+    const decorations = ['x_x', 'x.x', 'x-x', 'x·x', 'xX_', '_Xx'];
+    // Left out as a Known gap: a term ending in x inside decorations on both sides ("x_xsexx_x" reads "se").
+    const names = [...strong, ...whole, ...phrases].flatMap((term) =>
+      [term, term[0].toUpperCase() + term.slice(1)].flatMap((t) =>
+        decorations.flatMap((d) => [d + t, t + d, ...(t.endsWith('x') && d.startsWith('x') ? [] : [d + t + d])]),
+      ),
+    );
+    expect(names).toHaveLength(4182);
+    expect(blocked(names)).toEqual([]);
   });
 });
 

@@ -35,7 +35,8 @@
  * term ("nazimilford", "booBOOBYb"); WHOLE terms run into other words beyond the PHRASES list
  * ("hugedick", "sexlord", "cumlord": dick, sex and cum hide inside too many ordinary words to block
  * them anywhere); phrase spellings not listed ("killurself"); a shared letter split from the rest
- * of the term by a space or punctuation ("porch nazim onkey"); a hate number split up ("14 88") or
+ * of the term by a space or punctuation ("porch nazim onkey"); a term ending in x inside xX
+ * decorations on both sides ("x_xsexx_x" reads "se"); a hate number split up ("14 88") or
  * written in other digits (Arabic-Indic); and terms not on the list. The other way, an ordinary name
  * run into an allowed word is blocked where they share a letter: a name before it in camelCase, where
  * the shared letter ends the term, as in "orgasNazim" ("CorgasNazim" reads "orgasm", "WhittleNazir"
@@ -340,6 +341,14 @@ const strongOutsideAllowed = (word: string, cuts: readonly Cut[]): boolean =>
 /** Whether a piece is a WHOLE term on its own (with an optional plural), other than an ALLOWED_WHOLE word. */
 const wholeTerm = (piece: string) => WHOLE_RE.test(piece) && !ALLOWED_WHOLE_SET.has(piece);
 
+/**
+ * Whether a cut is a WHOLE term, other than where a kept letter only doubles the one beside it in an
+ * ALLOWED_WHOLE word ("boobybonner" cuts to "bbonner", which is "bonner").
+ */
+const wholeCut = ({ text, kept }: Cut) =>
+  wholeTerm(text) &&
+  ![...kept.keys()].some((i) => (text[i - 1] === text[i] || text[i + 1] === text[i]) && ALLOWED_WHOLE_SET.has(text.slice(0, i) + text.slice(i + 1)));
+
 /** Runs of two or more one-letter tokens joined ("f u c k" -> "fuck"). */
 const joinSingles = (tokens: readonly string[]) => {
   const runs: string[] = [];
@@ -385,9 +394,10 @@ const readings = (name: string) => {
       whole.push(dashes(withMarks(folded, 0, marks)));
     }
   }
-  // "xXslayerXx" decorations
+  // "xXslayerXx" decorations, also with punctuation between the x's or beside them ("x_xNudex_x",
+  // "x.xnude", "Fckx·X"), or a camelCase mark between them
   for (const p of [...pieces]) {
-    const bare = p.replace(/^x(?:\u2063?x)+-?|-?x(?:\u2063?x)+$/g, '');
+    const bare = p.replace(/^x(?:[-\u2063]?x)+-?|-?x(?:[-\u2063]?x)+$/g, '');
     if (bare) pieces.add(bare);
   }
   return { words, pieces, whole };
@@ -409,7 +419,7 @@ export const isNameAllowed = (name: string): boolean => {
   };
   for (const w of words) if (strongOutsideAllowed(w, cuts(w))) return false;
   for (const p of pieces) {
-    if (wholeTerm(letters(p)) || cuts(p).some(({ text }) => wholeTerm(text) || PHRASE_RE.test(text))) return false;
+    if (wholeTerm(letters(p)) || cuts(p).some((cut) => wholeCut(cut) || PHRASE_RE.test(cut.text))) return false;
   }
   // The whole name runs its words together, so its cuts also take out an allowed word between them ("white NAZIR power").
   return !whole.some((w) => PHRASE_RE.test(letters(w)) || cuts(w).some(({ text }) => PHRASE_RE.test(text)));
