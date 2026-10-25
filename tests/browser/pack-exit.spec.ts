@@ -1,8 +1,16 @@
 import { test, expect } from '@playwright/test';
-import { monitor, snapshot, untilIdle } from './support';
+import { monitor, recordShownToasts, snapshot, untilIdle } from './support';
 
 test('browser Back mid-reveal returns to the packs screen, keeps the pack and stays on the site', async ({ page, baseURL }) => {
   test.setTimeout(60000);
+  // A notice leaves by its own timer, TOAST_MS after it shows, and the checks after Back can take longer than
+  // that on a loaded machine. So the page keeps a log of the notices it shows (from before it loads), and the
+  // test reads the log instead of racing a notice's lifetime. An entry is a new toast element that was on
+  // screen (a box with a size, not visibility: hidden: what toBeVisible asks) with that kicker, so the log
+  // proves a notice was shown, not only mounted, and it counts one that replaces another with the same text.
+  // Each notice is also held from the moment it shows, so the test can send it away with its X.
+  const shown = await recordShownToasts(page, { hold: true });
+  const noticesKept = async () => (await shown()).filter((kicker) => kicker === 'Pack kept').length;
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
@@ -27,7 +35,10 @@ test('browser Back mid-reveal returns to the packs screen, keeps the pack and st
     await expect(page.locator('.app-logo')).toBeVisible();
     expect(page.url(), 'Back left the page or changed its address').toBe(start);
     await expect.poll(async () => (await snapshot(page)).stats?.packsOpened).toBe(pack);
-    await expect(page.locator('.toast').filter({ hasText: 'Pack kept' })).toBeVisible();
+    // This Back showed its own notice, and no other: exactly one for each Back so far. It is sent away with its X,
+    // so an earlier one that pack 2 only held can't come back after the next Back and stand in for that Back's.
+    await expect.poll(noticesKept, { message: 'the "Pack kept" notices shown so far' }).toBe(pack);
+    await page.locator('.toast', { hasText: 'Pack kept' }).getByRole('button', { name: 'Dismiss' }).click();
   }
 
   // Forward onto the old entry reopens nothing.

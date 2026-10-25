@@ -102,11 +102,12 @@ describe('local audit runner boundary', () => {
 });
 
 describe('restricted browser adapter', () => {
-  // Every page call yields first, as Playwright does, so concurrent commands interleave.
+  // Every page call yields first, as Playwright does, so concurrent commands interleave. The yield is a
+  // promise turn, not a timer: the order commands run in doesn't depend on the clock.
   function fakePage(matches = 1) {
     const clicked: string[] = [];
     const pressed: string[] = [];
-    const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
+    const tick = () => Promise.resolve();
     const page = {
       getByRole: (_role: string, { name }: { name: string }) => ({
         count: async () => { await tick(); return matches; },

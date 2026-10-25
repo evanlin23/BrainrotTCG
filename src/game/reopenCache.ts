@@ -18,8 +18,7 @@ let memoryOnly = false;
 
 /** Test-only: forget the in-memory map, pending flush and memory-only state. */
 export const __resetReopenCacheForTests = () => {
-  if (flushTimer) clearTimeout(flushTimer);
-  flushTimer = null;
+  stopWaiting();
   memory = null;
   dirty = false;
   memoryOnly = false;
@@ -36,8 +35,26 @@ const load = (): Map<string, string> => {
   return memory;
 };
 
-const flush = () => {
+// A write waits up to a second to batch a profile's packs, but a tab closed (or a phone app switched
+// away) in that second runs no more timers: the page going hidden or away writes it at once instead.
+const flushWhenHidden = () => {
+  if (document.visibilityState === 'hidden') flushReopenCache();
+};
+
+const stopWaiting = () => {
+  if (flushTimer) clearTimeout(flushTimer);
   flushTimer = null;
+  if (typeof window === 'undefined') return;
+  window.removeEventListener('pagehide', flushReopenCache);
+  document.removeEventListener('visibilitychange', flushWhenHidden);
+};
+
+/**
+ * Write a pending change now instead of on its timer, so nothing is left to run (or lost) once the page
+ * or the app that made it is gone. A no-op with nothing pending.
+ */
+export const flushReopenCache = () => {
+  stopWaiting();
   if (!dirty || !memory || memoryOnly) return;
   dirty = false;
   while (memory.size > MAX_REOPEN_CACHE_ENTRIES) memory.delete(memory.keys().next().value!);
@@ -77,5 +94,9 @@ export const putReopened = (set: SetDefinition, publicKeyHex: string, nonce: num
   map.set(key, cards.map((c) => encodeCard({ id: c.cardId, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(','));
   while (map.size > MAX_REOPEN_CACHE_ENTRIES) map.delete(map.keys().next().value!);
   dirty = true;
-  if (!memoryOnly) flushTimer ??= setTimeout(flush, 1000);
+  if (memoryOnly || flushTimer) return;
+  flushTimer = setTimeout(flushReopenCache, 1000);
+  if (typeof window === 'undefined') return;
+  window.addEventListener('pagehide', flushReopenCache);
+  document.addEventListener('visibilitychange', flushWhenHidden);
 };

@@ -9,6 +9,20 @@ import { getSet } from '../../content/sets';
 import type { ProfilePack, ProfileStats } from '../../engine';
 import type { CardWithMeta } from '../cards/Card';
 
+// Every verification the page starts, so a test can await the exact work it needs.
+const verifications = vi.hoisted(() => [] as Promise<unknown>[]);
+vi.mock('../../game/pulls', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../game/pulls')>();
+  return {
+    ...actual,
+    checkPull: (...args: Parameters<typeof actual.checkPull>) => {
+      const check = actual.checkPull(...args);
+      verifications.push(check);
+      return check;
+    },
+  };
+});
+
 // Signed proof vectors from spec/vectors.json
 const WEB_ANCIENTS_V1_PROOF =
   'AQx3ZWItYW5jaWVudHMAAcgklFOmlHeFiPZ1XIUIRr3ARo67BTbINmtTwGnVKqjSARJab8OrIPCfp6AgQnJhaW5yb3SGoZIzmo1PTU57xVWJFalZAdm3tn_P_f22CrNXGT4TORw3kuDhPVnUIk-vpdyJL8I4zVQ2UP3N0CaPnSsOwdsG';
@@ -23,6 +37,7 @@ let root: Root;
 let container: HTMLElement;
 
 beforeEach(() => {
+  verifications.length = 0;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
@@ -40,13 +55,12 @@ afterEach(() => {
 });
 
 const waitForVerification = async () => {
-  for (let i = 0; i < 50; i++) {
-    if (document.body.textContent?.includes('This pull checks out')) return;
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-  }
-  throw new Error('Pull verification timed out');
+  const check = verifications[verifications.length - 1];
+  if (!check) throw new Error('Pull verification never started');
+  await act(async () => {
+    await check;
+  });
+  expect(document.body.textContent).toContain('This pull checks out');
 };
 
 const openCardGuide = async () => {

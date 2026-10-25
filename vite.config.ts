@@ -99,6 +99,9 @@ export default defineConfig({
     // wall time fails nothing else (docs/DEVELOPMENT.md, Test timing).
     testTimeout: HANG_TIMEOUT_MS,
     hookTimeout: HANG_TIMEOUT_MS,
+    // Never retry a failed test: a retry turns a flake into a pass. Vitest's default is no key at all,
+    // so it is set to 0 here for scripts/test-budget.test.ts to check in the resolved config.
+    retry: 0,
     // `npm test` turns coverage on for app code only, and the timing reporter (added by testBudget(),
     // after any --reporter flag) prints the run's wall time without judging it. The coverage floors
     // sit below the measured baseline: docs/DEVELOPMENT.md, Test timing.

@@ -1,14 +1,21 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSet } from '../content/sets';
-import { packArtSettled } from './packArt';
-import { prefetchNextPack } from './pulls';
 
 const mined = vi.hoisted(() => Promise.resolve(new Uint8Array(32).fill(7)));
 vi.mock('./ticketMiner', () => ({
   getTicket: () => mined,
   prefetchTicket: () => undefined,
 }));
+
+// Each test gets its own art gate (unsettled until it says so), so none leans on another's state.
+let packArtSettled: typeof import('./packArt').packArtSettled;
+let prefetchNextPack: typeof import('./pulls').prefetchNextPack;
+beforeEach(async () => {
+  vi.resetModules();
+  ({ packArtSettled } = await import('./packArt'));
+  ({ prefetchNextPack } = await import('./pulls'));
+});
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -37,6 +44,32 @@ describe('prefetchNextPack', () => {
     expect(images).toEqual([]);
 
     prefetchNextPack(getSet('right-now', 2)!, false);
+    await mined;
+    await Promise.resolve();
+    expect(images.length).toBeGreaterThan(0);
+  });
+
+  it('fetches nothing once its caller has gone, whether that was before the ticket or the art came in', async () => {
+    const images: { src: string }[] = [];
+    vi.stubGlobal('Image', class { src = ''; constructor() { images.push(this); } });
+    // The art has settled, so the pictures are a microtask behind the ticket.
+    packArtSettled();
+    const beforeTicket = new AbortController();
+    prefetchNextPack(getSet('right-now', 2)!, false, beforeTicket.signal);
+    beforeTicket.abort();
+    await mined;
+    await Promise.resolve();
+    expect(images).toEqual([]);
+
+    const beforeArt = new AbortController();
+    prefetchNextPack(getSet('right-now', 2)!, false, beforeArt.signal);
+    await mined;
+    beforeArt.abort();
+    await Promise.resolve();
+    expect(images).toEqual([]);
+
+    // A caller still there gets its pictures.
+    prefetchNextPack(getSet('right-now', 2)!, false, new AbortController().signal);
     await mined;
     await Promise.resolve();
     expect(images.length).toBeGreaterThan(0);

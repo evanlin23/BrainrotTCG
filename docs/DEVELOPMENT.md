@@ -595,19 +595,37 @@ packs, about 5 s each with coverage) passed the 5 s default under load. The fix 
   rules actually roll, exactly, in well under a second. One sampled test (40,000 packs through the
   real RNG) stays as the bridge from seeds to draws. `src/engine/odds.test.ts` brute-forces packs
   as multisets with multinomial weights instead of every ordering.
-- **One hang guard, no retries.** No test sets its own timeout or a retry. `scripts/test-budget.test.ts`
-  asks Vitest for the files it collects with this config's `include` and `exclude` (under `src/`,
-  `scripts/` and `tests/`), parses each, and fails on any test, suite or hook that sets either:
-  a timeout argument, a `timeout` option in any spelling (`{ timeout }`, `'timeout'`), a `retry`
-  option (reported as a retry), or `testTimeout`, `hookTimeout` or `retry` in `vi.setConfig`, on
-  `it`, `test`, `describe` and `suite`, their chains (`.each` in both forms, `.concurrent`) and the
-  file's own aliases (`test.extend(...)`, `import { it as spec }`). Naming `HANG_TIMEOUT_MS` itself
-  is allowed in any of those slots, since it changes nothing. `HANG_TIMEOUT_MS` (120 s) only names a test
-  that never finishes: it sits about 20x above the slowest test with coverage and 5x above it at 4x
-  contention, so load alone can't reach it. A synchronous child (`spawnSync`, `execFileSync`) blocks the
-  worker, so the hang guard can't stop it; tests that run a Node child that way give it its own
-  `timeout` (60 s for the set, Hall of Fame CLI and `tests/vite-config.test.ts` children, which take
-  about 1 s; 180 s per replay in `scripts/defect-replay.ts`).
+- **One hang guard, no retries.** No test sets its own timeout or a retry, and `vite.config.ts` pins
+  `retry: 0`. `scripts/test-budget.test.ts` asks Vitest for the test files it collects (its default
+  `include`, minus the config's `exclude`: Playwright suites, build output and agent worktrees),
+  parses each, and fails on:
+  - a timeout argument or a `timeout` option in any spelling (`{ timeout }`, `'timeout'`), and any
+    `retry` option (reported as a retry), on `it`, `test`, `describe` and `suite`, their chains (`.each`
+    in both forms, `.concurrent`) and the file's own aliases (`test.extend(...)`, `import { it as spec }`);
+  - a timeout on `beforeAll`, `beforeEach`, `afterAll`, `afterEach`, `aroundAll`, `aroundEach`,
+    `onTestFinished` and `onTestFailed`;
+  - any `vi.setConfig(...)` with an argument;
+  - the same calls through a namespace import (`import * as v from 'vitest'`, `await import('vitest')`,
+    `require('vitest')`);
+  - options it can't read: a variable, a call or a spread (`it(name, fn, opts)`, `{ ...opts }`) and a
+    spread argument list (`it(...args)`, `beforeEach(...args)`) are flagged rather than evaluated, so
+    write the options out.
+
+  Naming `HANG_TIMEOUT_MS` itself is allowed in any of those slots, since it changes nothing. The guard
+  reads syntax only, so it does not cover `vi` or a hook renamed on import or in a destructure of the
+  module (`const { it: spec } = await import('vitest')`), a runner passed around as a value, or a namespace
+  re-aliased (`const w = v; w.it(..., 5)`). `vi.waitFor`, `vi.waitUntil` and `expect.poll` take a
+  `timeout` too (the other timeout-taking functions in the Vitest 5.0.5 types); they bound a wait inside
+  a test, not the test, so they keep their own. The CLI and config are covered by other tests instead:
+  `test run wiring` checks the resolved config for the timeouts, the timing reporter and `retry === 0`,
+  with and without the `npm test` flags.
+
+  `HANG_TIMEOUT_MS` (120 s) only names a test that never finishes: it sits about 20x above the slowest
+  test with coverage and 5x above it at 4x contention, so load alone can't reach it. A synchronous child
+  (`spawnSync`, `execFileSync`) blocks the worker, so the hang guard can't stop it; tests that run a Node
+  child that way give it its own `timeout` (60 s for the set, Hall of Fame CLI and
+  `tests/vite-config.test.ts` children, which take about 1 s; 180 s per replay in
+  `scripts/defect-replay.ts`).
 - **Slow tests are found by profile, not by a ceiling.** If the `Test time:` line grows, run
   `npx vitest run --reporter=json --outputFile=<file>` and sort tests by duration. A test that is
   slow by design (sampling, real Argon2 work, polling) gets an exact or deterministic replacement

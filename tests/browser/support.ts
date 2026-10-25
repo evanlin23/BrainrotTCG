@@ -639,6 +639,38 @@ export function untilIdle(page: Page) {
   }));
 }
 
+/**
+ * Call before the page loads. A toast leaves by its own timer (TOAST_MS, GROUPED_TOAST_MS), and a loaded
+ * machine can take longer than that between a step that shows one and the check for it, so a check that
+ * polls for a toast can come too late. This watches from inside the page instead: each new `.toast` element
+ * that was shown (it has a box and its visibility isn't hidden: what toBeVisible asks, so one still fading in
+ * counts) is logged with its kicker, and the returned reader gives that log, oldest first. It counts every
+ * element, so a toast that is held and comes back is a second entry, and so is one with the same text as the last.
+ * Poll the reader for what was shown; no clock, margin or wait is involved.
+ *
+ * With `hold`, each toast is also held from the moment it is shown, as a resting pointer would hold it, until
+ * it is dismissed or replaced, so a test that measures a toast or taps it can't lose it to a stall. Dismiss
+ * each one with its X, a tap or a swipe; none leaves on its own.
+ */
+export async function recordShownToasts(page: Page, { hold = false } = {}) {
+  await page.addInitScript((hold) => {
+    const log: string[] = [];
+    (window as unknown as { __shownToasts: string[] }).__shownToasts = log;
+    const seen = new WeakSet<Element>();
+    new MutationObserver(() => {
+      for (const toast of Array.from(document.querySelectorAll('.toast'))) {
+        if (seen.has(toast)) continue;
+        const box = toast.getBoundingClientRect();
+        if (box.width === 0 || box.height === 0 || getComputedStyle(toast).visibility === 'hidden') continue;
+        seen.add(toast);
+        log.push(toast.querySelector('.toast-kicker')?.textContent ?? '');
+        if (hold) toast.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
+      }
+    }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true });
+  }, hold);
+  return () => page.evaluate(() => (window as unknown as { __shownToasts: string[] }).__shownToasts.slice());
+}
+
 /** Scales the root font like a player's text-size setting, and waits for fonts to settle. */
 export async function scaleText(page: Page, percent: number) {
   await page.addStyleTag({ content: `html { font-size: ${percent}% !important; }` });
