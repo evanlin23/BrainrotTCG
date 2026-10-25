@@ -2,7 +2,7 @@ import { test, expect, type Browser } from '@playwright/test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { monitor, expectDecoded, expectRecordedPack, holdTickets, pickWithImport, sameStorage, settingsOf, snapshot, storageOf } from './support';
+import { monitor, expectDecoded, expectRecordedPack, holdTickets, pickWithImport, releaseTickets, sameStorage, settingsOf, snapshot, storageOf } from './support';
 
 /**
  * Back up and Restore in Save & backup (#744), through the browser's own file controls: the Export
@@ -194,5 +194,83 @@ test('an early backup without a player key restores into a new player through Im
   const stored = await storageOf(page);
   expect(stored['brainrot-data-version']).toBe('3');
   expect(stored[PLAYER_KEY] === player).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('export -> wipe -> import round trip: the restored profile matches the exported one (packs, collection, level) (#764)', async ({ page, baseURL }) => {
+  test.setTimeout(120000);
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  const packShell = page.locator('.pack-shell');
+  await expect(packShell).toBeVisible();
+  await expectDecoded(packShell.locator('img'), 2);
+  await page.getByRole('button', { name: /^Open pack/ }).click();
+  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  await page.locator('button.reveal-skip').click({ timeout: 15000 });
+  await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
+  await expectDecoded(page.locator('.summary-cards img'), 5);
+  const opened = await expectRecordedPack(page);
+  const originalPlayer = await page.evaluate((key) => localStorage.getItem(key), PLAYER_KEY);
+
+  // Export through Settings: the download is saved in memory
+  await page.goto('./#/settings');
+  const settings = settingsOf(page);
+  await expect(settings.main).toBeVisible();
+  const downloading = page.waitForEvent('download');
+  await settings.backUp.getByRole('button', { name: 'Export', exact: true }).click();
+  const download = await downloading;
+  const backupBytes = await readFile((await download.path())!);
+  await download.delete();
+
+  // Check Profile before wiping: name, level, packs opened
+  await page.goto('./#/profile');
+  const profile = page.getByRole('main', { name: 'Profile', exact: true });
+  await expect(profile.getByRole('heading', { name: 'Browser smoke fixture', exact: true })).toBeVisible();
+  await expect(profile).toContainText('All packs · 1');
+  const levelText = await profile.locator('.profile-level').innerText();
+  expect(levelText).toContain('Level 2');
+
+  // WIPE: clear localStorage completely
+  await page.evaluate(() => localStorage.clear());
+
+  // Reload as a fresh browser
+  await holdTickets(page);
+  await page.goto('./');
+  await expect(page.locator('.app-logo')).toBeVisible();
+
+  // Verify fresh state
+  await page.goto('./#/profile');
+  await expect(profile).toContainText('No packs yet');
+  expect(await page.evaluate((key) => localStorage.getItem(key), PLAYER_KEY)).not.toBe(originalPlayer);
+
+  // Restore the exported backup: fresh profile has no progress to replace, so Import restores directly
+  await page.goto('./#/settings');
+  await expect(settings.main).toBeVisible();
+  const reloaded = page.waitForEvent('load');
+  await pickWithImport(page, { name: 'backup.txt', buffer: backupBytes });
+  await reloaded;
+  await expect(settings.main).toBeVisible();
+  await expect(settings.restoreNote).toHaveText('Load a backup file');
+
+  // Assert restored state: player, snapshot, profile, level
+  expect(await page.evaluate((key) => localStorage.getItem(key), PLAYER_KEY)).toBe(originalPlayer);
+  expect(await snapshot(page)).toEqual(opened);
+
+  await page.goto('./#/profile');
+  await expect(profile.getByRole('heading', { name: 'Browser smoke fixture', exact: true })).toBeVisible();
+  await expect(profile).toContainText('All packs · 1');
+  expect(await profile.locator('.profile-level').innerText()).toBe(levelText);
+
+  // Opening the next pack takes ticket 1: none lost, none repeated
+  await page.goto('./');
+  await expect(packShell).toBeVisible();
+  await releaseTickets(page);
+  await page.getByRole('button', { name: /^Open pack/ }).click();
+  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  await page.locator('button.reveal-skip').click({ timeout: 15000 });
+  await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
+  const afterSecondPack = await snapshot(page);
+  expect(afterSecondPack.stats.packsOpened).toBe(2);
+  expect(afterSecondPack.history.map((record) => record.n).sort()).toEqual([0, 1]);
   expect(errors).toEqual([]);
 });
