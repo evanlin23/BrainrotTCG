@@ -415,12 +415,18 @@ test.describe('damaged backup files', () => {
 
     const files: [string, string | Buffer, boolean, string][] = [
       ['garbage bytes', Buffer.from([0x00, 0xff, 0xfe, 0x7b, 0x22, 0x9c, 0x0a]), false, "Couldn't read that file. Is it a save exported from Save & backup?"],
+      ['an HTML document', '<!DOCTYPE html><html><body>not a save</body></html>', false, "Couldn't read that file. Is it a save exported from Save & backup?"],
+      ['a plain text file', 'Brainrot TCG save export preview text', false, "Couldn't read that file. Is it a save exported from Save & backup?"],
+      ['a truncated backup file', JSON.stringify(backup).slice(0, 60), false, "Couldn't read that file. Is it a save exported from Save & backup?"],
       ['a JSON list', '[1,2,3]', false, "That file isn't a supported Brainrot TCG save."],
       ['an object with no save in it', '{"a":1}', true, "That file isn't a supported Brainrot TCG save."],
+      ['an unknown backup version', tampered({ version: 99 }), false, "That file isn't a supported Brainrot TCG save."],
       ['an unknown data version', tampered({ dataVersion: 99 }), false, 'This save uses an unsupported data version.'],
+      ['a data version below one', tampered({ dataVersion: 0 }), false, 'This save uses an unsupported data version.'],
       ['a negative pack count', tampered({ stats: JSON.stringify({ ...field('stats'), packsOpened: -1 }) }), true, 'The stats in this save is invalid. Nothing was imported.'],
       ['a negative ticket in the history', tampered({ history: JSON.stringify((field('history') as Record<string, unknown>[]).map((record) => ({ ...record, n: -1 }))) }), false, 'The history in this save is invalid. Nothing was imported.'],
       ['a negative ticket counter', tampered({ player: JSON.stringify({ ...field('player'), nextNonce: -1 }) }), false, "That file's player record can't be read, so it has no player key that works and can't be restored. Nothing was imported."],
+      ['an invalid player secret key', tampered({ player: JSON.stringify({ ...field('player'), secretKey: 'not-a-valid-hex-key' }) }), true, "That file's player record can't be read, so it has no player key that works and can't be restored. Nothing was imported."],
     ];
     for (const [name, content, asks, refusal] of files) {
       await test.step(name, async () => {
@@ -435,6 +441,49 @@ test.describe('damaged backup files', () => {
         expect(sameStorage(await storageOf(page), untouched)).toBe(true);
       });
     }
+
+    await test.step('a file too big for storage', async () => {
+      const huge = tampered({ settings: JSON.stringify({ cardBack: 'x'.repeat(6 * 1024 * 1024) }) });
+      await pickWithImport(page, { name: 'backup.txt', buffer: Buffer.from(huge) });
+      await expect(settings.restoreNote).toHaveText("There's no room in this browser's storage for this file and a copy of your current save. Nothing changed. Export your save first if you want to keep it, then replace it without a copy.");
+      const replaceWithoutCopy = settings.restore.getByRole('button', { name: 'Replace without a copy', exact: true });
+      await expect(replaceWithoutCopy).toBeVisible();
+      await replaceWithoutCopy.click();
+      await expect(settings.restoreNote).toHaveText("This file is too big for this browser's storage, so it can't be imported here. Nothing changed.");
+      await expect(settings.importButton).toBeVisible();
+      expect(sameStorage(await storageOf(page), untouched)).toBe(true);
+    });
+
+    expect(errors).toEqual([]);
+  });
+
+  test("importing another player's save asks first and leaves storage untouched when cancelled", async ({ page, baseURL }) => {
+    await holdTickets(page);
+    const errors = await seedSave(page, baseURL!);
+    await page.goto('./#/settings');
+    const settings = settingsOf(page);
+    await expect(settings.main).toBeVisible();
+
+    const downloaded = page.waitForEvent('download');
+    await settings.backUp.getByRole('button', { name: 'Export', exact: true }).click();
+    const download = await downloaded;
+    const backup = JSON.parse(await readFile((await download.path())!, 'utf8')) as Record<string, unknown>;
+    await download.delete();
+    const untouched = await storageOf(page);
+
+    const otherPlayer = JSON.stringify({
+      ...JSON.parse(backup.player as string) as object,
+      secretKey: 'ab'.repeat(32),
+      name: 'Other player',
+    });
+    const fileContent = JSON.stringify({ ...backup, player: otherPlayer });
+
+    await pickWithImport(page, { name: 'other-player.txt', buffer: Buffer.from(fileContent) });
+    await expect(settings.restoreNote).toHaveText("Replace this browser's save (Browser smoke fixture, 1 pack) with the file's (Other player, 1 pack)? Yours is kept as a backup.");
+    await settings.keep.click();
+    await expect(settings.restoreNote).toHaveText('Kept your save.');
+    await expect(settings.importButton).toBeVisible();
+    expect(sameStorage(await storageOf(page), untouched)).toBe(true);
     expect(errors).toEqual([]);
   });
 });
