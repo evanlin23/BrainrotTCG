@@ -740,6 +740,25 @@ export const holdArt = (page: Page) => routeArt(page, 'hold');
 export const unexpectedArtErrors = (errors: string[]) =>
   errors.filter((error) => !namesArt.test(error) && error !== 'Failed to load resource: net::ERR_FAILED');
 
+/**
+ * Presses Space once, as a tap: the key goes down and up in one hand-off to the browser. Playwright's own press
+ * sends the up after the down's round trip, and on a loaded machine that gap can pass the 400ms after which the
+ * app (useKeyboardControls) takes a held Space for a hold and runs on through the cards, so a single press
+ * would flip and then turn the card too. With both events queued together, the up reaches the page with the down.
+ */
+export async function tapSpace(page: Page) {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const key = { key: ' ', code: 'Space', windowsVirtualKeyCode: 32 };
+    await Promise.all([
+      cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ' ', ...key }),
+      cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key }),
+    ]);
+  } finally {
+    await cdp.detach();
+  }
+}
+
 /** Waits until the target's box holds still between two reads, 150ms apart (the pack drops in). */
 export async function expectStill(target: Locator, message: string) {
   let last = '';

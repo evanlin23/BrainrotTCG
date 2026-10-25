@@ -57,6 +57,31 @@ test('a sealed pack waiting for a touch lifts its top strip, and puts it down fo
   expect(errors).toEqual([]);
 });
 
+test('a key that tears the pack mid-lift still slides the strip away, as a swipe or a tap does', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  // The fixture player, and a log of every transform transition the stylesheet starts on the torn strip.
+  await page.addInitScript((origin) => {
+    (window as unknown as { slid: string[] }).slid = [];
+    document.addEventListener('transitionrun', (event) => {
+      const name = event.target instanceof Element ? event.target.className.toString().split(' ').pop()! : '';
+      if (event.propertyName === 'transform' && /^pack-(half-top|top-piece)$/.test(name)) (window as unknown as { slid: string[] }).slid.push(name);
+    }, true);
+    if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
+    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 21, createdAt: 1 }));
+    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
+  }, new URL(baseURL!).origin);
+  const errors = await monitor(page, baseURL!);
+  await load(page);
+
+  // The cue is running: the key meets the strip mid-animation, which is what Chrome treats as no transition.
+  await expect.poll(() => idleAnimations(page)).toEqual(['pack-idle-lift', 'pack-idle-lift']);
+  await page.getByRole('button', { name: /^Open pack/ }).focus();
+  await page.keyboard.press('Space');
+  await expect(shell(page)).toHaveClass(/\bis-cut\b/);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { slid: string[] }).slid.sort())).toEqual(['pack-half-top', 'pack-top-piece']);
+  expect(errors).toEqual([]);
+});
+
 /** Holds every idle animation at a share of its period (0 is the pack at rest, 0.67 the top of the lift). */
 const holdAt = (page: Page, share: number) =>
   page.evaluate((at) => {
