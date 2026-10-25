@@ -138,6 +138,49 @@ test.describe('two tabs at once, emulated Chromium (not real devices)', () => {
     expect(errorsB).toEqual([]);
   });
 
+  test('concurrent opens on an existing save with progress claim different tickets without duplicates', async ({ context, baseURL }) => {
+    test.setTimeout(90000);
+    const a = await context.newPage();
+    const errorsA = await openTab(a, baseURL!);
+    // Open initial pack on tab A so the save has existing progress (ticket 0)
+    await openPack(a).click();
+    await finishReveal(a);
+    await expect.poll(() => packNonces(a)).toEqual([0]);
+    expect((await player(a)).nextNonce).toBe(1);
+    await a.getByRole('button', { name: 'Next pack', exact: true }).click();
+    await expect(a.locator('.pack-shell')).toBeVisible();
+
+    // Open tab B on the same context (same save, 1 pack opened)
+    const b = await context.newPage();
+    const errorsB = await openTab(b, baseURL!);
+    await expect(b.getByRole('alert')).toHaveCount(0);
+
+    // Both tabs race to open the next pack simultaneously
+    await Promise.all([openPack(a).click(), openPack(b).click()]);
+    const [openedA, openedB] = await Promise.all([settle(a), settle(b)]);
+    const openedNow = Number(openedA) + Number(openedB);
+    expect(openedNow).toBeGreaterThanOrEqual(1);
+    if (openedNow === 1) {
+      await expect(sealed(openedA ? b : a)).toHaveText(/^Your save changed in another tab, so this pack stayed sealed\./);
+    }
+
+    // Both tabs reload and check total packs and ticket sequence
+    await a.reload();
+    await expect(a.locator('.app-logo')).toBeVisible();
+    const totalPacks = 1 + openedNow;
+    await expect.poll(async () => (await snapshot(a)).stats?.packsOpened, { timeout: 15000 }).toBe(totalPacks);
+    const saved = await snapshot(a);
+    const expectedTickets = totalPacks === 3 ? [0, 1, 2] : [0, 1];
+    expect(await packNonces(a)).toEqual(expectedTickets);
+    expect(new Set(saved.history.map((entry) => entry.n)).size).toBe(saved.history.length);
+    expect(cardCount(saved.collection)).toBe(5 * totalPacks);
+    expect((await player(a)).nextNonce).toBe(totalPacks);
+    expect(await shelf(a)).toEqual([]);
+
+    expect(errorsA).toEqual([]);
+    expect(errorsB).toEqual([]);
+  });
+
   test('a profile switch in one tab stops the other from recording into the new player', async ({ context, baseURL }) => {
     test.setTimeout(90000);
     const a = await context.newPage();
