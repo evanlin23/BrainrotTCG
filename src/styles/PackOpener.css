@@ -1278,6 +1278,17 @@ button.reveal-card {
         min-height: 0;
         overflow-y: auto;
         overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-strong) transparent;
+    }
+
+    .reveal-side::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .reveal-side::-webkit-scrollbar-thumb {
+        background: var(--border-strong);
+        border-radius: var(--radius-full);
     }
 
     .reveal-side .reveal-bottom {
