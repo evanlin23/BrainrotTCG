@@ -1,0 +1,24 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "philosoraptor": {
+      "art": "art/philosoraptor.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.275,
+        "mainShare": 0.873,
+        "edges": 0,
+        "solidity": 0.638
+      },
+      "crop": [
+        17,
+        88,
+        299,
+        224
+      ],
+      "mask": "philosoraptor.png",
+      "source": "a7790b6757e41607"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "black-cat-clapping": {
+      "art": "art/black-cat-clapping.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.687,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.737
+      },
+      "crop": [
+        5,
+        0,
+        602,
+        720
+      ],
+      "mask": "black-cat-clapping.png",
+      "source": "641a673ba3fe6784"
+    }
+  }
+}

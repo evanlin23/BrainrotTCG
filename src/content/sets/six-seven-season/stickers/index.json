@@ -1,0 +1,28 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {
+    "100-men-vs-1-gorilla": "die"
+  },
+  "stickers": {
+    "100-men-vs-1-gorilla": {
+      "art": "art/100-men-vs-1-gorilla.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.281,
+        "mainShare": 0.74,
+        "edges": 1,
+        "solidity": 0.606
+      },
+      "flag": "fragmented",
+      "override": true,
+      "crop": [
+        0,
+        50,
+        519,
+        900
+      ],
+      "mask": "100-men-vs-1-gorilla.png",
+      "source": "1076b28e57321479"
+    }
+  }
+}

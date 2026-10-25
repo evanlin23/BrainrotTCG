@@ -1,0 +1,24 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "smurf-cat": {
+      "art": "art/smurf-cat.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.264,
+        "mainShare": 0.911,
+        "edges": 1,
+        "solidity": 0.462
+      },
+      "crop": [
+        156,
+        0,
+        619,
+        933
+      ],
+      "mask": "smurf-cat.png",
+      "source": "1e83cf042ce3b7ef"
+    }
+  }
+}
