@@ -222,6 +222,10 @@ for (const size of SIZES) {
         expect(face.x, 'pack art, left edge').toBeGreaterThanOrEqual(box.x - 0.5);
         expect(face.x + face.width, 'pack art, right edge').toBeLessThanOrEqual(box.x + box.width + 0.5);
         expect(face.y + face.height, 'pack art, bottom edge').toBeLessThanOrEqual(box.y + box.height + 0.5);
+        // And it still fills the shell: the art's box covers the shell, within the same half pixel.
+        expect(face.x, 'pack art, left edge covers the pack').toBeLessThanOrEqual(box.x + 0.5);
+        expect(face.x + face.width, 'pack art, right edge covers the pack').toBeGreaterThanOrEqual(box.x + box.width - 0.5);
+        expect(face.y + face.height, 'pack art, bottom edge covers the pack').toBeGreaterThanOrEqual(box.y + box.height - 0.5);
         await expect(packShell).toHaveAccessibleName(/^Open pack, \S/);
         await expect(page.locator('.tear-guide')).toBeInViewport();
         await expect(page.getByRole('button', { name: /^Open pack/ })).toBeInViewport();

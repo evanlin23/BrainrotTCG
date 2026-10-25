@@ -57,6 +57,15 @@ it("names one hero per set, from that set's own cards", () => {
   expect(new Set(Object.values(packHeroes())).size).toBe(SETS.length);
 });
 
+it('names the missing step: the hero config first, then the sticker cut', () => {
+  const set = SETS[0].id;
+  // A new set with no hero entry (and no stickers folder) is told to configure the hero, not to cut.
+  expect(() => heroSource('brand-new-set', {})).toThrow(/brand-new-set has no hero: add it to scripts\/cards\/pack-heroes\.json/);
+  // A hero with no stickers folder, or no sticker entry in a real set's index, is told to cut.
+  expect(() => heroSource('brand-new-set', { 'brand-new-set': 'x' })).toThrow(/has no hero cut: run scripts\/cards\/cut-stickers\.py --set brand-new-set/);
+  expect(() => heroSource(set, { [set]: 'not-a-card' })).toThrow(new RegExp(`has no die-cut mask: run scripts/cards/cut-stickers\\.py --set ${set}`));
+});
+
 it("cuts each hero from that set's own current art, with nothing else committed", () => {
   for (const set of SETS) {
     const hero = heroCard(set.id);

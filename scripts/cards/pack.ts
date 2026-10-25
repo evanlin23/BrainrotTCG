@@ -115,17 +115,19 @@ export interface HeroSource {
   source: string;
 }
 
-export const heroCard = (setId: string): string => {
-  const id = packHeroes()[setId];
+export const heroCard = (setId: string, heroes: Record<string, string> = packHeroes()): string => {
+  const id = heroes[setId];
   if (!id) throw new Error(`${setId} has no hero: add it to scripts/cards/pack-heroes.json`);
   return id;
 };
 
-export const heroSource = (setId: string): HeroSource => {
+/** The hero's cut. The hero config is checked first, so a new set is told which step is missing. */
+export const heroSource = (setId: string, heroes: Record<string, string> = packHeroes()): HeroSource => {
+  const hero = heroCard(setId, heroes);
   const path = `${SETS_DIR}/${setId}/stickers/index.json`;
   if (!existsSync(path)) throw new Error(`${setId} has no hero cut: run scripts/cards/cut-stickers.py --set ${setId}`);
-  const entry = JSON.parse(readFileSync(path, 'utf8')).stickers?.[heroCard(setId)];
-  if (!entry?.mask || !entry.crop) throw new Error(`${setId}'s hero ${heroCard(setId)} has no die-cut mask: run scripts/cards/cut-stickers.py --set ${setId}`);
+  const entry = JSON.parse(readFileSync(path, 'utf8')).stickers?.[hero];
+  if (!entry?.mask || !entry.crop) throw new Error(`${setId}'s hero ${hero} has no die-cut mask: run scripts/cards/cut-stickers.py --set ${setId}`);
   return entry;
 };
 
