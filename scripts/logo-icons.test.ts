@@ -42,3 +42,44 @@ it('links every icon from index.html at a root path, so Vite puts it under eithe
   expect(links.sort()).toEqual(['/apple-touch-icon.png', '/favicon-32.png', '/favicon.svg']);
   for (const href of links) expect(existsSync(file(`public${href}`)), href).toBe(true);
 });
+
+it('links the web app manifest and declares all referenced icon files', () => {
+  const html = readFileSync(file('index.html'), 'utf8');
+  expect(html).toMatch(/<link rel="manifest" href="\/manifest\.webmanifest" \/>/);
+
+  const manifestPath = file('public/manifest.webmanifest');
+  expect(existsSync(manifestPath)).toBe(true);
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+
+  expect(manifest.name).toBe('Brainrot TCG');
+  expect(manifest.short_name).toBe('Brainrot TCG');
+  expect(manifest.display).toBe('standalone');
+  expect(manifest.theme_color).toBe('#121114');
+  expect(manifest.background_color).toBe('#121114');
+
+  expect(Array.isArray(manifest.icons)).toBe(true);
+  expect(manifest.icons.length).toBeGreaterThanOrEqual(4);
+
+  for (const icon of manifest.icons) {
+    expect(existsSync(file(`public${icon.src}`)), icon.src).toBe(true);
+  }
+
+  const maskable = manifest.icons.filter((icon: { purpose?: string }) => icon.purpose === 'maskable');
+  expect(maskable.length).toBeGreaterThanOrEqual(2);
+});
+
+it('includes valid JSON-LD structured data and crawlable semantic copy in index.html', () => {
+  const html = readFileSync(file('index.html'), 'utf8');
+
+  const jsonLdMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  expect(jsonLdMatch).toBeTruthy();
+  const jsonLd = JSON.parse(jsonLdMatch![1]);
+  expect(jsonLd['@context']).toBe('https://schema.org');
+  expect(jsonLd['@type']).toEqual(['WebApplication', 'VideoGame']);
+  expect(jsonLd.name).toBe('Brainrot TCG');
+  expect(jsonLd.url).toBe('https://brainrottcg.pages.dev/');
+
+  expect(html).toContain('<noscript>');
+  expect(html).toContain('Brainrot TCG');
+  expect(html).toContain('Brain Rot Trading Card Game');
+});

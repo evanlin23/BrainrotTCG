@@ -31,7 +31,12 @@ const TILE = LOGO_MARK_SIZE + TILE_PAD * 2;
  * The tile: white squares on black, like the artwork. Rounded for the favicon; square for the
  * apple-touch-icon, which iOS rounds itself.
  */
-export const logoTileSvg = ({ rounded = true, size }: { rounded?: boolean; size?: number } = {}): string =>
-  `<svg xmlns="${SVG_NS}" viewBox="0 0 ${TILE} ${TILE}"${size ? ` width="${size}" height="${size}"` : ''}>` +
-  `<rect width="${TILE}" height="${TILE}"${rounded ? ' rx="24"' : ''} fill="#000"/>` +
-  `<path transform="translate(${TILE_PAD} ${TILE_PAD})" fill="#fff" d="${LOGO_MARK_PATH}"/></svg>\n`;
+export const logoTileSvg = ({ rounded = true, size, pad = TILE_PAD }: { rounded?: boolean; size?: number; pad?: number } = {}): string => {
+  const tile = LOGO_MARK_SIZE + pad * 2;
+  const rx = rounded ? Math.round(tile * (24 / TILE)) : 0;
+  return (
+    `<svg xmlns="${SVG_NS}" viewBox="0 0 ${tile} ${tile}"${size ? ` width="${size}" height="${size}"` : ''}>` +
+    `<rect width="${tile}" height="${tile}"${rounded ? ` rx="${rx}"` : ''} fill="#000"/>` +
+    `<path transform="translate(${pad} ${pad})" fill="#fff" d="${LOGO_MARK_PATH}"/></svg>\n`
+  );
+};

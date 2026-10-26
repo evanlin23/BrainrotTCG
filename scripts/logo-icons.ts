@@ -25,6 +25,10 @@ export const SVG_FILES: Record<string, string> = {
 export const PNG_FILES: Record<string, { svg: string; size: number; opaque?: boolean }> = {
   'public/favicon-32.png': { svg: logoTileSvg({ size: 32 }), size: 32 },
   'public/apple-touch-icon.png': { svg: logoTileSvg({ rounded: false, size: 180 }), size: 180, opaque: true },
+  'public/icon-192.png': { svg: logoTileSvg({ rounded: false, size: 192 }), size: 192, opaque: true },
+  'public/icon-512.png': { svg: logoTileSvg({ rounded: false, size: 512 }), size: 512, opaque: true },
+  'public/icon-maskable-192.png': { svg: logoTileSvg({ rounded: false, size: 192, pad: 28 }), size: 192, opaque: true },
+  'public/icon-maskable-512.png': { svg: logoTileSvg({ rounded: false, size: 512, pad: 28 }), size: 512, opaque: true },
 };
 
 /** One PNG icon as `npm run icons` writes it. */
