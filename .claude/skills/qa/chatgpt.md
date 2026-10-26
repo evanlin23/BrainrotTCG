@@ -19,6 +19,9 @@ budget; otherwise run sequentially. Keep implementers sequential and independent
   Screenshot access doesn't imply swipe, physical hardware, throttling or assistive technology.
   A host approval refusal leaves that action unrun; record its reason and don't bypass it or
   classify the refusal as a product defect.
+  Before declaring the feature untestable, the coordinator may inspect the handler and use an
+  existing guarded scripted test for a local preview with external effects blocked. Report that
+  reproduction separately; it doesn't turn the refused participant action into a completed one.
 - Start with `fork_turns: 'none'` or the host's equivalent without parent history. Supply only a
   selected `scripts/agent-audit/contracts.ts` task or short owner-provided player goal, plus browser
   protocol/limits/safety. Record the exact task; add no source, docs, issues, previous results or
