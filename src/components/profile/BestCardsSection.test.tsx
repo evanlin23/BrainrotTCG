@@ -368,6 +368,19 @@ describe('winners an older save never scored', () => {
     expect(retryButton()).toBeUndefined();
   });
 
+  it('does not carry over unavailable state when switching to another player', async () => {
+    unscored();
+    derive.failing.add(0);
+    await act(async () => render());
+    expect(status()).not.toBeNull();
+    expect(text(status()!)).toContain("couldn't be loaded just now");
+
+    who.key = 'cd'.repeat(32);
+    used.value = 0;
+    await act(async () => render());
+    expect(status()).toBeNull();
+  });
+
   it('keeps the cards that did load, and a failed retry keeps the guidance', async () => {
     localStorage.setItem(
       STORAGE_KEYS.BEST_CARDS,

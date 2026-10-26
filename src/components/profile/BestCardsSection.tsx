@@ -57,8 +57,10 @@ interface BestCardsSectionProps {
 const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChange }: BestCardsSectionProps) => {
   const [list, setList] = useState(readList);
   const [rebuilding, setRebuilding] = useState(false);
-  /** The last rebuild lost some winners' cards (a pack that wouldn't derive, or the rebuild itself): not an empty collection. */
-  const [unavailable, setUnavailable] = useState(false);
+  /** The last rebuild lost some winners' cards (a pack that wouldn't derive, or the rebuild itself): not an empty collection. Keyed to player key so a player switch clears it. */
+  const [unavailableKey, setUnavailableKey] = useState<string | null>(null);
+  const { player } = getPlayerTickets();
+  const unavailable = unavailableKey === player.publicKeyHex;
   /** Bumped by Try again, which runs the same rebuild once more. */
   const [attempt, setAttempt] = useState(0);
   const [viewing, setViewing] = useState<Row | null>(null);
@@ -117,11 +119,11 @@ const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChang
         if (!mounted.current || getPlayerTickets().player.publicKeyHex !== player.publicKeyHex) return;
         setList({ cards, complete, unsaved });
         // A rebuild that reports no failure yet leaves a rebuildable winner unscored is no better: nothing more is coming.
-        setUnavailable(failed > 0 || cards.some(awaitsRebuild));
+        setUnavailableKey(failed > 0 || cards.some(awaitsRebuild) ? player.publicKeyHex : null);
         listChanged.current?.();
       })
       .catch(() => {
-        if (mounted.current && getPlayerTickets().player.publicKeyHex === player.publicKeyHex) setUnavailable(true);
+        if (mounted.current && getPlayerTickets().player.publicKeyHex === player.publicKeyHex) setUnavailableKey(player.publicKeyHex);
       })
       .finally(() => {
         if (mounted.current) setRebuilding(false);

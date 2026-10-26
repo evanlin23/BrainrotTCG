@@ -68,9 +68,12 @@ const UNAVAILABLE: Record<UnavailableReason, string> = {
 };
 
 const Verified = () => (
-  <span className="profile-verified" title="Opened again from its ticket with your key: these exact cards and score">
-    <span className="sr-only">, </span>
-    <ShieldCheck aria-hidden="true" />
+  <span
+    className="profile-verified"
+    title="Opened again from its ticket with your key: these exact cards and score"
+    aria-hidden="true"
+  >
+    <ShieldCheck />
     Verified
   </span>
 );

@@ -102,6 +102,8 @@ describe('both highlights', () => {
     await render();
     expect(verified('Best pack')).toBe(true);
     expect(verified('Best card')).toBe(true);
+    expect(highlight('Best pack').querySelector('.profile-verified')?.getAttribute('aria-hidden')).toBe('true');
+    expect(highlight('Best card').querySelector('.profile-verified')?.getAttribute('aria-hidden')).toBe('true');
     const score = scoreCards(engineCards(PACK_A)).score;
     expect(text('Best pack')).toContain(score.toLocaleString());
     expect(text('Best pack')).toContain('ticket #3');
