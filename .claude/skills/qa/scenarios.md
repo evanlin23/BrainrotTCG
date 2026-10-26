@@ -5,7 +5,14 @@ Inspect each named spec and its guards before running. Contained local synthetic
 import/export/download is valid scripted QA with trace/video off, temporary directories and
 cleanup even on failure. Keep real saves/keys/accounts and OS sharing out of every case.
 
-| Player job / condition | Fresh simulation available | Scripted QA entry points |
+The simulation column describes only the **pinned Claude CLI runner**, including its fixed
+conditions. Native ChatGPT/Codex mode follows [chatgpt.md](chatgpt.md): use a `contracts.ts` task or
+short owner-provided player goal, recording it exactly and the scoped adapter's conditions/tools.
+It may expose screenshots or ARIA; don't assume the CLI's viewport/input/motion, actions or isolation.
+Returning fixtures, swipe, network/CPU and other conditions are supported only if the actual
+guarded adapter provides them. No physical-device or native-share evidence is implied.
+
+| Player job / condition | Pinned Claude simulation | Scripted QA entry points |
 | --- | --- | --- |
 | First visit → opening → reveal → summary | `opening`, fixed fresh fixture | `pack-opener.smoke.spec.ts`, `pack-controls.spec.ts`, `summary-actions.spec.ts` |
 | Collection/detail → understand rarity and showing a card | `sharing` observes discoverability only; guarded actions refused | `card-viewer-fit.spec.ts`, safe cases in `card-share.spec.ts` with its clipboard stub |
@@ -26,7 +33,8 @@ npx playwright test tests/browser/keyboard-reveal.spec.ts --project=desktop-chro
 Before navigation verify intended local origin/path/GET-only policy, context HTTP/WebSocket guards,
 redirect and popup containment, blocked service workers and no real submission. Synthetic local
 files stay inside the controlled test and are deleted; staging/production stay read-only, with no
-writes or downloads. The fresh-player runner still forbids copy/export/download/sharing actions.
+writes or downloads. Both modes forbid actual copy/export/download/native sharing. Declare whether
+the adapter supports opening a read-only sharing dialog; the pinned CLI blocks its Share control.
 Don't loosen monitor allowlists/writes, use `continueAllowed`, or disable unexpected-I/O failures
 to force a result. Disable raw trace/video capture for sensitive fixture flows and sanitize any
 failure artifacts before sharing. If an effect cannot be safely contained, leave that case unrun.
