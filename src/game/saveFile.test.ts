@@ -4,6 +4,7 @@ import { ALL_CARDS } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils/migrations';
 import { COPIES_NOTE, exportSaveFile, FILE_TOO_BIG_NOTE, importSaveFile, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from './saveFile';
+import { ARCHIVE_BUDGET } from './collectionRecovery';
 import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY, saveMark } from './player';
 import { recordPack } from './history';
@@ -85,6 +86,7 @@ describe('Save & backup preflight', () => {
     ['fractional recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":1.5}' }],
     ['string recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":"3"}' }],
     ['unknown recovery entry kind', { collectionRecovery: '{"raw":"opaque","player":null,"kind":"other"}' }],
+    ['recovery archive over budget', { collectionRecovery: JSON.stringify({ raw: 'x'.repeat(ARCHIVE_BUDGET), player: null }) }],
     ['unknown historical card without set ID', { collection: JSON.stringify({ x: { card: { id: 'nonexistent', name: 'Old Card', image: '/old.webp', rarity: 'COMMON' }, normalCount: 1 } }) }],
     ['unresolvable partial card', { collection: '{"x":{"card":{"id":"nonexistent"}}}' }],
     ['prototype finish name', { collection: JSON.stringify({ x: { card: { ...ALL_CARDS[0], finish: '__proto__' } } }) }],

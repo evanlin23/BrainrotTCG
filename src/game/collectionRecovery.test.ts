@@ -5,6 +5,7 @@ import { hydrateCollection } from '../utils/migrations';
 import {
   ARCHIVE_BUDGET, COLLECTION_RECOVERY_NOTES, collectionRecoveryDismissed, collectionRecoveryFile, collectionRecoveryNote,
   collectionRecoveryPrint, collectionRecoveryState, discardCollectionRecovery, dismissCollectionRecovery, downloadCollectionRecovery, hasCollectionRecovery,
+  isArchive,
   persistCollection,
 } from './collectionRecovery';
 
@@ -458,5 +459,10 @@ describe('hiding the kept-aside note', () => {
     vi.stubGlobal('localStorage', { getItem: () => { throw new DOMException('denied', 'SecurityError'); } });
     expect(collectionRecoveryDismissed()).toBe(false);
     expect(dismissCollectionRecovery()).toBe(false);
+  });
+
+  it('refuses an archive whose serialized length exceeds ARCHIVE_BUDGET', () => {
+    expect(isArchive({ raw: 'x'.repeat(ARCHIVE_BUDGET), player: null })).toBe(false);
+    expect(isArchive({ raw: 'ok', player: null })).toBe(true);
   });
 });
