@@ -7,7 +7,7 @@ import { isMainModule } from './main-module.ts';
  * Which browser specs the burn-in job (.github/workflows/browser-tests.yml) repeats, and how often.
  *
  * - A spec burns in when the branch adds or changes it, or changes a helper under tests/browser it
- *   imports.
+ *   imports, directly or through other helpers.
  * - Changes to playwright.config.ts or to app code burn in nothing. The regular shards still run
  *   every spec once.
  * - The repeat count shrinks as the list grows, so the job's length has a fixed bound:
@@ -29,8 +29,7 @@ const isSpec = (file: string) => file.startsWith(`${BROWSER_DIR}/`) && file.ends
 const isHelper = (file: string) => file.startsWith(`${BROWSER_DIR}/`) && file.endsWith('.ts') && !file.endsWith('.spec.ts');
 
 /**
- * Does this spec source import the helper at `helper` (a path like tests/browser/support.ts)?
- * Only a direct import counts: a spec that reaches the helper through another helper isn't selected.
+ * Does this source directly import the helper at `helper` (a path like tests/browser/support.ts)?
  */
 export const importsHelper = (source: string, helper: string): boolean => {
   const name = path.posix.basename(helper, '.ts').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -44,12 +43,22 @@ export const repeatsFor = (count: number): number =>
 /**
  * The plan for a branch.
  * - `changed`: the files it adds or changes, deletions left out.
- * - `specSources`: every spec that exists now, keyed by path, with its source.
+ * - `browserSources`: every spec and helper that exists now, keyed by path, with its source.
  */
-export const planBurnIn = (changed: readonly string[], specSources: ReadonlyMap<string, string>): BurnInPlan => {
-  const picked = new Set(changed.filter((file) => isSpec(file) && specSources.has(file)));
-  for (const helper of changed.filter(isHelper)) {
-    for (const [spec, source] of specSources) if (importsHelper(source, helper)) picked.add(spec);
+export const planBurnIn = (changed: readonly string[], browserSources: ReadonlyMap<string, string>): BurnInPlan => {
+  const picked = new Set(changed.filter((file) => isSpec(file) && browserSources.has(file)));
+  const helpers = [...new Set(changed.filter(isHelper))];
+  const visited = new Set(helpers);
+  for (let index = 0; index < helpers.length; index++) {
+    const helper = helpers[index];
+    for (const [file, source] of browserSources) {
+      if (!importsHelper(source, helper)) continue;
+      if (isSpec(file)) picked.add(file);
+      else if (isHelper(file) && !visited.has(file)) {
+        visited.add(file);
+        helpers.push(file);
+      }
+    }
   }
   const specs = [...picked].sort();
   return { specs, repeat: specs.length ? repeatsFor(specs.length) : 0 };
@@ -63,13 +72,13 @@ if (isMainModule(import.meta.url)) {
   const base = process.argv[2];
   if (!base) throw new Error('usage: tsx scripts/burn-in-plan.ts <base ref>');
   const changed = git('diff', '--name-only', '--diff-filter=d', git('merge-base', base, 'HEAD'), 'HEAD').split('\n').filter(Boolean);
-  const specSources = new Map(
+  const browserSources = new Map(
     readdirSync(BROWSER_DIR)
-      .filter((name) => name.endsWith('.spec.ts'))
+      .filter((name) => name.endsWith('.ts'))
       .map((name) => `${BROWSER_DIR}/${name}`)
       .map((file) => [file, readFileSync(file, 'utf8')] as const),
   );
-  const { specs, repeat } = planBurnIn(changed, specSources);
+  const { specs, repeat } = planBurnIn(changed, browserSources);
   console.log(specs.length ? `Burn-in: ${specs.length} spec(s), ${repeat} repeats each:\n${specs.join('\n')}` : 'Burn-in: no spec or browser helper changed');
   const lines = [`specs=${specs.join(' ')}`, `repeat=${repeat}`];
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);

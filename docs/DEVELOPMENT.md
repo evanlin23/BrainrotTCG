@@ -328,8 +328,8 @@ naming the state and its owner spec in `AXE_STATE_SPECS`; do not add another sca
   reduced motion, target sizes and screen-reader wording stay with the specs that own them.
 
 The `browser-burn-in` jobs run on every push and every pull request. They re-run each spec the branch
-adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes, in both
-projects:
+adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes
+(directly or through other helpers), in both projects:
 - 10 more times when few specs changed;
 - fewer as the list grows (see `scripts/burn-in-plan.ts`), but never fewer than 2, and no spec is dropped.
 

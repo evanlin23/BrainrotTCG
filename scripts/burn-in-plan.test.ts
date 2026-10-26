@@ -20,6 +20,44 @@ describe('burn-in plan', () => {
     expect(importsHelper("import { a } from './supporting';", 'tests/browser/support.ts')).toBe(false);
   });
 
+  it('burns in specs reached through a chain of helpers', () => {
+    const sources = new Map([
+      ...specs,
+      ['tests/browser/support.ts', "import { access } from './access';"],
+      ['tests/browser/access.ts', "import { token } from './token.ts';"],
+    ]);
+
+    expect(planBurnIn(['tests/browser/token.ts'], sources)).toEqual({
+      specs: ['tests/browser/a11y-states.spec.ts', 'tests/browser/network-guard.spec.ts'],
+      repeat: MAX_REPEATS,
+    });
+  });
+
+  it('terminates helper cycles and selects each spec once through a diamond', () => {
+    const sources = new Map([
+      ...specs,
+      ['tests/browser/support.ts', "import { left } from './left';\nimport { right } from './right';"],
+      ['tests/browser/left.ts', "import { shared } from './shared';"],
+      ['tests/browser/right.ts', "import { shared } from './shared';"],
+      ['tests/browser/shared.ts', "import { left } from './left';"],
+    ]);
+
+    expect(planBurnIn(['tests/browser/shared.ts', 'tests/browser/left.ts', 'tests/browser/network-guard.spec.ts'], sources)).toEqual({
+      specs: ['tests/browser/a11y-states.spec.ts', 'tests/browser/network-guard.spec.ts'],
+      repeat: MAX_REPEATS,
+    });
+  });
+
+  it('burns in nothing for a helper without spec consumers', () => {
+    const sources = new Map([
+      ...specs,
+      ['tests/browser/unused.ts', "import { token } from './token';"],
+    ]);
+
+    expect(planBurnIn(['tests/browser/token.ts'], sources)).toEqual({ specs: [], repeat: 0 });
+    expect(planBurnIn(['tests/browser/unrelated.ts'], sources)).toEqual({ specs: [], repeat: 0 });
+  });
+
   it('burns in nothing for config or app changes alone', () => {
     expect(planBurnIn(['playwright.config.ts', 'src/components/cards/CardViewerModal.tsx'], specs)).toEqual({ specs: [], repeat: 0 });
   });
