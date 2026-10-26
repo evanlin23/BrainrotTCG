@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 import { STORAGE_KEYS } from '../constants/config';
 import { getSetCards } from '../data/cards';
@@ -174,6 +174,75 @@ it('shows the switch again to a new player who has stored the choice, so they ca
   await app.until('Settings loads', () => expect(showEveryPage()).toBeTruthy());
   expect(showEveryPage()!.getAttribute('aria-checked')).toBe('true');
 });
+
+it('removes the Show every page switch when importing progress, and restores it when resetting to a fresh save (#983)', async () => {
+  app = await mountedApp({ ...PLAYER, ...QUIET });
+  const reloadModule = await import('../game/reload');
+  const reload = vi.spyOn(reloadModule, 'reloadPage').mockImplementation(() => {});
+
+  try {
+    await app.mount();
+
+    // A new player with no packs opened sees "Show every page" in Settings.
+    await app.interact(() => button('Settings').click());
+    await app.until('Settings loads', () => expect(showEveryPage()).toBeTruthy());
+    expect(showEveryPage()!.getAttribute('aria-checked')).toBe('false');
+
+    // Importing a save that opened a pack unlocks the pages on their own.
+    const returningSave = JSON.stringify({
+      version: 2,
+      dataVersion: CURRENT_DATA_VERSION,
+      exportedAt: '2026-01-01T00:00:00.000Z',
+      player: PLAYER['brainrot-player-v1'],
+      stats: RETURNING['brainrot-stats-v1'],
+      collection: '{}',
+      settings: QUIET['brainrot-settings-v1'],
+    });
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, 'files', { value: [new File([returningSave], 'returning.json', { type: 'application/json' })], configurable: true });
+    await app.interact(() => input.dispatchEvent(new Event('change', { bubbles: true })));
+    await app.until('import triggers reload', () => expect(reload).toHaveBeenCalledOnce());
+
+    // After reload, pages unlock and Settings leaves out the "Show every page" switch.
+    await app.reload();
+    expect(document.querySelector('.app-nav')).not.toBeNull();
+    await app.interact(() => button('Settings').click());
+    await app.until('Settings loads', () => expect(document.querySelector('[role="switch"]')).not.toBeNull());
+    expect(showEveryPage()).toBeUndefined();
+
+    // Spy on the fresh reload module after app.reload()
+    const freshReloadModule = await import('../game/reload');
+    const freshReload = vi.spyOn(freshReloadModule, 'reloadPage').mockImplementation(() => {});
+
+    // Now import a fresh player save with 0 packs opened (resetting progress).
+    const freshSave = JSON.stringify({
+      version: 2,
+      dataVersion: CURRENT_DATA_VERSION,
+      exportedAt: '2026-01-01T00:00:00.000Z',
+      player: PLAYER['brainrot-player-v1'],
+      stats: JSON.stringify({ packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
+      collection: '{}',
+      settings: QUIET['brainrot-settings-v1'],
+    });
+    const freshInput = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(freshInput, 'files', { value: [new File([freshSave], 'fresh.json', { type: 'application/json' })], configurable: true });
+    await app.interact(() => freshInput.dispatchEvent(new Event('change', { bubbles: true })));
+
+    // Replacing progress asks first.
+    await app.until('Replace prompt appears', () => expect(button('Replace')).toBeDefined());
+    await app.interact(() => button('Replace').click());
+    await app.until('replacing save triggers reload', () => expect(freshReload).toHaveBeenCalledOnce());
+
+    // After reload, the player is fresh and "Show every page" is restored in Settings.
+    await app.reload();
+    expect(document.querySelector('.app-nav')).toBeNull();
+    await app.interact(() => button('Settings').click());
+    await app.until('Settings loads', () => expect(showEveryPage()).toBeTruthy());
+    expect(showEveryPage()!.getAttribute('aria-checked')).toBe('false');
+  } finally {
+    reload.mockRestore();
+  }
+}, 30_000);
 
 it('gives Open, Cards, Rankings and Profile a page each, with an address, a title and Back between them', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING });
