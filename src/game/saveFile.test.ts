@@ -10,6 +10,7 @@ import { recordPack } from './history';
 import type { OpenedPack } from './pulls';
 import { myProfileInfo, myStats } from './profiles';
 import { myTickets, resetTicketList } from './myTickets';
+import { ARCHIVE_BUDGET } from './collectionRecovery';
 
 const player = (secretKey = 'aa'.repeat(32), nextNonce = 7) => JSON.stringify({ secretKey, name: 'Combo Miner', nextNonce, createdAt: 1 });
 const fixture = () => ({
@@ -85,6 +86,7 @@ describe('Save & backup preflight', () => {
     ['fractional recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":1.5}' }],
     ['string recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":"3"}' }],
     ['unknown recovery entry kind', { collectionRecovery: '{"raw":"opaque","player":null,"kind":"other"}' }],
+    ['recovery archive over budget', { collectionRecovery: JSON.stringify({ raw: 'x'.repeat(ARCHIVE_BUDGET), player: null }) }],
     ['unknown historical card without set ID', { collection: JSON.stringify({ x: { card: { id: 'nonexistent', name: 'Old Card', image: '/old.webp', rarity: 'COMMON' }, normalCount: 1 } }) }],
     ['unresolvable partial card', { collection: '{"x":{"card":{"id":"nonexistent"}}}' }],
     ['prototype finish name', { collection: JSON.stringify({ x: { card: { ...ALL_CARDS[0], finish: '__proto__' } } }) }],

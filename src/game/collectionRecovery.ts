@@ -48,9 +48,20 @@ const sameEntry = (a: Entry, b: Entry) => a.raw === b.raw && a.key === b.key;
 export const isArchive = (value: unknown): value is Archive => {
   if (!isEntry(value)) return false;
   const { later, dropped, kind } = value as Record<string, unknown>;
-  return (later === undefined || (Array.isArray(later) && later.every(isEntry)))
-    && (dropped === undefined || (Number.isSafeInteger(dropped) && (dropped as number) >= 0))
-    && (kind === undefined || kind === 'unparseable-archive');
+  if (
+    !(
+      (later === undefined || (Array.isArray(later) && later.every(isEntry))) &&
+      (dropped === undefined || (Number.isSafeInteger(dropped) && (dropped as number) >= 0)) &&
+      (kind === undefined || kind === 'unparseable-archive')
+    )
+  ) {
+    return false;
+  }
+  try {
+    return JSON.stringify(value).length <= ARCHIVE_BUDGET;
+  } catch {
+    return false;
+  }
 };
 
 /** The stored archive, or its exact text wrapped as the first entry when it can't be read as one. */

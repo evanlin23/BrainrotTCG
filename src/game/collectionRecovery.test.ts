@@ -5,7 +5,7 @@ import { hydrateCollection } from '../utils/migrations';
 import {
   ARCHIVE_BUDGET, COLLECTION_RECOVERY_NOTES, collectionRecoveryDismissed, collectionRecoveryFile, collectionRecoveryNote,
   collectionRecoveryPrint, collectionRecoveryState, discardCollectionRecovery, dismissCollectionRecovery, downloadCollectionRecovery, hasCollectionRecovery,
-  persistCollection,
+  isArchive, persistCollection,
 } from './collectionRecovery';
 
 const card = ALL_CARDS[0];
@@ -458,5 +458,15 @@ describe('hiding the kept-aside note', () => {
     vi.stubGlobal('localStorage', { getItem: () => { throw new DOMException('denied', 'SecurityError'); } });
     expect(collectionRecoveryDismissed()).toBe(false);
     expect(dismissCollectionRecovery()).toBe(false);
+  });
+
+  describe('isArchive', () => {
+    it('accepts valid archive within budget and rejects one exceeding ARCHIVE_BUDGET', () => {
+      expect(isArchive({ raw: 'valid', player: null })).toBe(true);
+      expect(isArchive({ raw: 'valid', player: null, later: [{ raw: 'item', player: null }], dropped: 0 })).toBe(true);
+
+      const oversized = { raw: 'x'.repeat(ARCHIVE_BUDGET), player: null };
+      expect(isArchive(oversized)).toBe(false);
+    });
   });
 });
