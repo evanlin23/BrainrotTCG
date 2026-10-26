@@ -336,3 +336,40 @@ describe('Space and Enter on a focused button (#312)', () => {
     expect(interact).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('pack summary settle guard (#972, #1109 Item 5)', () => {
+  const press = (code: 'Space' | 'Enter') => {
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: code === 'Space' ? ' ' : 'Enter', code, bubbles: true, cancelable: true }));
+      document.body.dispatchEvent(new KeyboardEvent('keyup', { key: code === 'Space' ? ' ' : 'Enter', code, bubbles: true }));
+    });
+  };
+
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('ignores Space and Enter while the summary is settling, then closes it once settled', () => {
+    const onCloseSummary = vi.fn();
+    render({ isOpening: true, showSummary: false, onCloseSummary });
+
+    // Transition to summary
+    render({ isOpening: true, showSummary: true, onCloseSummary });
+
+    // Trailing keypress immediately as summary appears is ignored
+    press('Space');
+    expect(onCloseSummary).not.toHaveBeenCalled();
+
+    // Keypress mid-settling (200ms) is still ignored
+    act(() => { vi.advanceTimersByTime(200); });
+    press('Enter');
+    expect(onCloseSummary).not.toHaveBeenCalled();
+
+    // After 400ms settle delay, Space or Enter closes the summary
+    act(() => { vi.advanceTimersByTime(200); });
+    press('Space');
+    expect(onCloseSummary).toHaveBeenCalledTimes(1);
+
+    press('Enter');
+    expect(onCloseSummary).toHaveBeenCalledTimes(2);
+  });
+});

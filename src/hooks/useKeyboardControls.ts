@@ -1,4 +1,5 @@
 import { useEffect, useRef, MutableRefObject } from 'react';
+import { STAGE_CLICK_GUARD_MS } from './useStageClickGuard';
 
 interface UseKeyboardControlsOptions {
   isOpening: boolean;
@@ -41,6 +42,15 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
   });
   const spaceHeldRef = useRef(false);
   const spaceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const summaryOpenedAtRef = useRef(0);
+  const wasSummaryRef = useRef(false);
+
+  useEffect(() => {
+    if (options.showSummary && !wasSummaryRef.current) {
+      summaryOpenedAtRef.current = performance.now();
+    }
+    wasSummaryRef.current = options.showSummary;
+  }, [options.showSummary]);
 
   useEffect(() => {
     const stopHold = () => {
@@ -91,6 +101,8 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       if (e.repeat) return;
 
       if (showSummary) {
+        // As the summary appears, ignore trailing Space/Enter from the reveal (#972, #1109 Item 5).
+        if (performance.now() - summaryOpenedAtRef.current < STAGE_CLICK_GUARD_MS) return;
         onCloseSummary();
       } else if (!isOpening) {
         onOpenPack();
