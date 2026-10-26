@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { STORAGE_KEYS } from '../../src/constants/config';
+import { expectPackDropped, monitor } from './support';
 
 // CSS text-resize simulation (root font 200% = 32 px), not browser zoom or a device check. The
 // shell must keep its controls reachable by an ordinary pointer: Settings in the desktop header
@@ -129,3 +130,43 @@ for (const enlarged of [false, true]) {
     expect(errors).toEqual([]);
   });
 }
+
+test('the kept-aside save warning leaves the pack reachable at 360x740 with 200% text (#1079)', async ({ page, baseURL }) => {
+  const viewport = { width: 360, height: 740 };
+  await page.setViewportSize(viewport);
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  const origin = new URL(baseURL!).origin;
+  const archive = JSON.stringify({ raw: '{"lost-set/ghost":null}', player: null });
+  await page.addInitScript(({ key, archive, origin }) => {
+    if (window.location.origin !== origin) return;
+    try { if (!localStorage.getItem(key)) localStorage.setItem(key, archive); } catch { /* storage blocked */ }
+  }, { key: STORAGE_KEYS.COLLECTION_RECOVERY, archive, origin });
+
+  await page.goto('./');
+  const warning = page.locator('.save-warning');
+  const pack = page.locator('.pack-shell');
+  await expect(warning).toBeVisible();
+  await expect(pack).toBeVisible();
+  await expectPackDropped(page);
+  await enlarge(page, true);
+
+  // The warning is bounded and does not monopolize the screen
+  const warningBox = await warning.boundingBox();
+  expect(warningBox).not.toBeNull();
+  expect(warningBox!.height).toBeLessThanOrEqual(viewport.height * 0.4);
+
+  // The pack remains in the viewport and owns its centre point
+  const box = await geometry(pack);
+  expect(box.hit, 'the pack owns its centre point').toBe(true);
+  expectInViewport(box, viewport);
+
+  // Warning actions are reachable and functional
+  const hideButton = warning.getByRole('button', { name: 'Hide note', exact: true });
+  await expect(hideButton).toBeVisible();
+  await hideButton.click();
+  await expect(warning).toBeHidden();
+  await expect(pack).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
