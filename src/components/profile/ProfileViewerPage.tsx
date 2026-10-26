@@ -25,6 +25,7 @@ type State = { status: 'invalid'; reason: string } | ({ status: 'checking' } & P
 const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
   const [state, setState] = useState<State | null>(null);
   const [copied, setCopied] = useState(false);
+  const [full, setFull] = useState(false);
   /** Bumped by "Try again": packs already re-opened are cached, so a retry picks up where it stopped. */
   const [attempt, setAttempt] = useState(0);
 
@@ -37,6 +38,7 @@ const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
           if (!controller.signal.aborted) setState({ status: 'checking', ...p });
         },
         controller.signal,
+        { highlightsOnly: !full },
       );
     } catch (error) {
       // Synchronous on purpose: a bad link is rejected before any packs are opened.
@@ -44,7 +46,7 @@ const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
       setState({ status: 'invalid', reason: error instanceof Error ? error.message : String(error) });
     }
     return () => controller.abort();
-  }, [proof, attempt]);
+  }, [proof, attempt, full]);
 
   // Until every pack is in: the claimed level, the (already re-opened) best packs, and the rest so far.
   const stats = useMemo(() => {
@@ -100,6 +102,7 @@ const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
     </span>
   );
   const name = visitorName(checked.profile.name);
+  const highlightsDone = state.highlightsDone ?? false;
   return (
     <Sheet
       title={name}
@@ -133,6 +136,11 @@ const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
             <>
               <ShieldCheck aria-hidden="true" /> This profile checks out: every pack re-opened in your browser
             </>
+          ) : highlightsDone && !full ? (
+            <>
+              <ShieldCheck aria-hidden="true" />
+              <span>Best pulls re-opened in your browser</span>
+            </>
           ) : (
             <>
               <Loader2 aria-hidden="true" className="spin" />
@@ -152,6 +160,15 @@ const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
                 ? 'Best pulls re-opened. The level is only what the link claims until every pack is in.'
                 : 'Not verified yet. The level is only what the link claims until every pack is in.'}
             </span>
+            {highlightsDone && !full && (
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm profile-verify-full"
+                onClick={() => setFull(true)}
+              >
+                Verify entire profile ({total.toLocaleString()} packs) · This might take a moment
+              </button>
+            )}
           </>
         )}
         {error && !fake && (
@@ -178,6 +195,17 @@ const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
               ? unfinished
                 ? `* from the ${reopened.toLocaleString()} of ${total.toLocaleString()} packs re-opened before the check stopped`
                 : '* from the packs re-opened before the check stopped'
+              : undefined
+          }
+          packBadge={
+            highlightsDone || done
+              ? () => (
+                  <span className="profile-verified" title="Opened again from its ticket: these exact cards and score">
+                    <span className="sr-only">, </span>
+                    <ShieldCheck aria-hidden="true" />
+                    Verified
+                  </span>
+                )
               : undefined
           }
         />

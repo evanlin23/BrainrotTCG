@@ -331,7 +331,8 @@
   font-size: var(--text-xs);
 }
 
-.profile-verify-retry {
+.profile-verify-retry,
+.profile-verify-full {
   justify-self: start;
 }
 

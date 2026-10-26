@@ -178,6 +178,38 @@ describe('ProfileViewerPage', () => {
     expect(retry()).toBeUndefined();
   });
 
+  it('supports two-stage verification: marks highlights verified fast, offers full verification on demand', () => {
+    const cardPack = { ...pack(0), cards: toPulled([{ id: SETS[0].cards[0].id, holo: false }], SETS[0])! };
+    act(() => root.render(<ProfileViewerPage proof="proof" onClose={() => {}} />));
+    // Called initially with highlightsOnly: true
+    expect(verifyProfileLive).toHaveBeenCalledTimes(1);
+    expect(verifyProfileLive.mock.calls[0][3]).toEqual({ highlightsOnly: true });
+
+    // Stage 1 completes: highlights are in
+    act(() => reports[0]({ checked, packs: [cardPack], highlights: [cardPack], highlightsDone: true, done: false }));
+    expect(status().textContent).toContain('Best pulls re-opened in your browser');
+    expect(status().textContent).not.toContain('Checking: packs re-opened');
+    // Best pull row has Verified badge
+    const bestPullBadge = document.querySelector('.pulls-list .profile-verified');
+    expect(bestPullBadge).not.toBeNull();
+    expect(bestPullBadge?.textContent).toContain('Verified');
+
+    // Prompt/button to verify full profile is shown
+    const fullBtn = document.querySelector<HTMLButtonElement>('.profile-verify-full')!;
+    expect(fullBtn).toBeDefined();
+    expect(fullBtn.textContent).toContain('Verify entire profile (2 packs)');
+
+    // Click to start Stage 2
+    act(() => fullBtn.click());
+    expect(verifyProfileLive).toHaveBeenCalledTimes(2);
+    expect(verifyProfileLive.mock.calls[1][3]).toEqual({ highlightsOnly: false });
+
+    // Stage 2 completes: all packs verified
+    act(() => reports[1]({ checked, packs: [cardPack, pack(1)], highlights: [cardPack], highlightsDone: true, done: true }));
+    expect(status().textContent).toContain('This profile checks out: every pack re-opened in your browser');
+    expect(document.querySelector('.profile-verify-full')).toBeNull();
+  });
+
   describe('moving from one shared profile to another', () => {
     // Two profiles whose best pulls come from different sets, so a leftover pack can't pass for the new one.
     const setA = getSet('right-now', 1)!;

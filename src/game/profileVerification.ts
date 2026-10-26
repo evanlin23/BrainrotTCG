@@ -23,12 +23,22 @@ import { flushReopenCache, getReopened, putReopened } from './reopenCache';
 import { createTicketPool, isMemoryError, OUT_OF_MEMORY_ADVICE } from './ticketPool';
 import { admitOptional } from './admission';
 
+export interface VerifyProfileOptions {
+  /**
+   * If true, only the profile's best packs (highlights) are re-opened. Once they are verified,
+   * verification pauses so the shared profile viewer loads fast.
+   */
+  highlightsOnly?: boolean;
+}
+
 export interface ProfileProgress {
   checked: CheckedProfile;
   /** Packs re-opened so far, in ticket order. */
   packs: ProfilePack[];
   /** The packs the profile names as its best, once they're re-opened (they go first). */
   highlights: ProfilePack[] | null;
+  /** Highlights have been re-opened and verified. */
+  highlightsDone?: boolean;
   /** Every pack re-opened and the claims match. */
   done: boolean;
   /** Set when the profile turned out not to be real (rule "claims") or re-opening failed. */
@@ -48,7 +58,12 @@ let latestCheck = 0;
  * are thrown before anything is re-opened. A call stops reporting, and re-opening, once `signal`
  * aborts or a later call starts, so a pack that finishes late can't overwrite the newer check.
  */
-export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress) => void, signal: AbortSignal): CheckedProfile => {
+export const verifyProfileLive = (
+  text: string,
+  onProgress: (p: ProfileProgress) => void,
+  signal: AbortSignal,
+  options?: VerifyProfileOptions,
+): CheckedProfile => {
   const checked = checkProfile(text, getSet);
   const run = ++latestCheck;
   const current = () => run === latestCheck && !signal.aborted;
@@ -56,7 +71,10 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
   const total = tickets.length;
   const keyHex = toHex(profile.publicKey);
   const results: (ProfilePack | undefined)[] = new Array(total);
-  const order = [...profile.highlights, ...Array.from({ length: total }, (_, n) => n).filter((n) => !profile.highlights.includes(n))];
+  const highlightsOnly = !!options?.highlightsOnly && profile.highlights.length < total;
+  const order = highlightsOnly
+    ? [...profile.highlights]
+    : [...profile.highlights, ...Array.from({ length: total }, (_, n) => n).filter((n) => !profile.highlights.includes(n))];
   let pool: ReturnType<typeof createTicketPool> | null = null;
   let next = 0;
   let finished = 0;
@@ -101,7 +119,7 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
   };
 
   const work = async () => {
-    while (current() && !ruledOut && next < total) {
+    while (current() && !ruledOut && next < order.length) {
       const nonce = order[next++];
       const pack = await open(nonce);
       results[nonce] = pack;
@@ -112,7 +130,7 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
   };
 
   signal.addEventListener('abort', () => pool?.close(), { once: true });
-  const workers = Math.min(total, 8);
+  const workers = Math.min(order.length, 8);
   Promise.all(Array.from({ length: workers }, work))
     .then(() => {
       if (!current()) return;
@@ -120,9 +138,16 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
         onProgress(snapshot({ error: { rule: 'claims', message: ruledOut } }));
         return;
       }
+      if (highlightsOnly) {
+        const highlights = profile.highlights.map((n) => results[n]);
+        if (highlights.every((p) => p)) {
+          onProgress(snapshot({ highlightsDone: true, done: false }));
+          return;
+        }
+      }
       try {
         checkClaims(profile, results as ProfilePack[]);
-        onProgress(snapshot({ done: true }));
+        onProgress(snapshot({ highlightsDone: true, done: true }));
       } catch (error) {
         const rule = error instanceof ProofError ? error.rule : undefined;
         onProgress(snapshot({ error: { rule, message: error instanceof Error ? error.message : String(error) } }));
