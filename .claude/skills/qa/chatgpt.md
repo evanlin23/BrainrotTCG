@@ -22,8 +22,10 @@ budget; otherwise run sequentially. Keep implementers sequential and independent
 - Start with `fork_turns: 'none'` or the host's equivalent without parent history. Supply only a
   selected `scripts/agent-audit/contracts.ts` task or short owner-provided player goal, plus browser
   protocol/limits/safety. Record the exact task; add no source, docs, issues, previous results or
-  coordinator UI hints/answers. Don't read source or use ambient shell/file/web tools as a
-  participant; request only allowed browser actions.
+  coordinator UI hints/answers. Request only declared browser actions. If the host needs a generic
+  execution tool as transport, allow only the exact coordinator-supplied client invocation with its
+  declared payload; never inspect/edit its code or run other commands. An image viewer may open only
+  screenshot paths returned by that browser client. No other ambient shell/file/web use is allowed.
 - Inspect the host's real tool restrictions. If it cannot remove generic shell/file tools or
   ambient repository instructions/source access, disclose an **operational task-only boundary**
   and that ambient access remains. Never claim the pinned runner's strict tool isolation, source
