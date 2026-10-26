@@ -63,6 +63,7 @@ afterEach(() => {
 describe('usePackHistory on a page loaded on a stale pack entry', () => {
   // First, while this file's tab still has one entry.
   it('with nothing below it, unmarks it in place, so the next pack still adds its entry', async () => {
+    const length = vi.spyOn(history, 'length', 'get').mockReturnValue(1);
     expect(history.length).toBe(1);
     expect('navigation' in window).toBe(false);
     history.replaceState({ brainrotPack: true, kept: 1 }, '', '/BrainrotTCG/');
@@ -70,6 +71,7 @@ describe('usePackHistory on a page loaded on a stale pack entry', () => {
     mount();
     expect(back).not.toHaveBeenCalled();
     expect(history.state).toEqual({ kept: 1 });
+    length.mockRestore();
     await packStillTakesBack();
   });
 
