@@ -42,6 +42,28 @@ async function packsScreen(page: Page) {
   await expectDecoded(page.locator('.pack-shell img'), 2);
 }
 
+const packToastsReady = (page: Page) => expect(page.locator('.app')).toHaveAttribute('data-toasts-ready', 'true');
+
+/** Delay a real toast dependency past the other warmups, without depending on their network order. */
+async function holdToastStyles(page: Page) {
+  let release = () => {};
+  let requested = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { requested = resolve; });
+  await page.route(/\/AchievementToasts-[^/]+\.css$/, async (route) => {
+    requested();
+    await held;
+    await route.fallback();
+  });
+  return async () => {
+    await started;
+    // A JS response alone isn't readiness: Vite still has to load its dependent stylesheet.
+    await expect(page.locator('.app')).not.toHaveAttribute('data-toasts-ready', 'true');
+    release();
+    await packToastsReady(page);
+  };
+}
+
 async function openOne(page: Page) {
   await openPack(page).click();
   await page.locator('button.reveal-skip').click();
@@ -415,11 +437,13 @@ test.describe('offline mid-session', () => {
     // The next pack's ticket mines only once the connection is down, so prefetchNextPack can't put this
     // pack's art in the memory cache first (it fetches the pictures as soon as the ticket is in).
     await holdTickets(page);
+    const finishToastWarmup = await holdToastStyles(page);
     // The confetti library is fetched once the packs screen idles; the connection only drops after it is in.
     const confettiLoaded = page.waitForResponse((response) => /\/confettiEffects-[^/]+\.js$/.test(response.url()));
     await page.goto('./');
     await packsScreen(page);
     await confettiLoaded;
+    await finishToastWarmup();
 
     // Offline: the pack opens and is recorded; only pictures fail to load. It opens before any card art
     // has shown on this page (Rankings shows the saved pack's), and its prefetch ran offline, so none of
@@ -501,10 +525,12 @@ test.describe('Argon2 chunk fetched ahead (#776)', () => {
       });
     });
     // The Argon2 chunk comes with the card back once the packs screen idles; the connection only drops after it is in.
+    const finishToastWarmup = await holdToastStyles(page);
     const argon2Loaded = page.waitForResponse((response) => /\/argon2-[^/]+\.js$/.test(response.url()));
     await page.goto('./');
     await packsScreen(page);
     await argon2Loaded;
+    await finishToastWarmup();
 
     offline = true;
     await page.context().setOffline(true);
@@ -558,6 +584,7 @@ test.describe('Argon2 chunk fetched ahead (#776)', () => {
     const before = await rows().locator('.pull-row-score').allTextContents();
     await nav(page).getByRole('button', { name: 'Open', exact: true }).click();
     await packsScreen(page);
+    await packToastsReady(page);
 
     // Leave every winner without its cached card, so coming back to Profile has to rebuild them from their tickets
     // (Argon2 again, on the main thread), now with no connection.

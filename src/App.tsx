@@ -480,7 +480,7 @@ function App() {
   );
 
   return (
-    <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
+    <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`} data-toasts-ready={toastsLoaded || undefined}>
       {isStaging() && <p role="note" className="save-warning staging-banner">{STAGING_NOTE}</p>}
       {bannerWarning && route !== 'settings' && (
         <p role="alert" className="save-warning">
