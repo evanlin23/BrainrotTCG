@@ -1062,3 +1062,16 @@ browser/WASM feasibility and export/restore/continue; all benchmarks are **unrun
 checkpoint replay budgets without deployment, then choose proceed/defer. The prototype's acceptance
 is tracked in #490. Neither route witnesses human play, animation completion, wall-clock time or
 undeclared lifetime mining; self-signed totals/Merkle roots alone do not prove aggregate correctness.
+
+### Serverless and Zero-Backend Architecture Decision (#243, #85, #490)
+
+Status: decided. Rejected / Closed on 2026-10-26 (Owner decision).
+
+**Decision: Permanently commit to a purely client-side, zero-backend, zero-server architecture.**
+
+Brainrot TCG operates strictly without an authoritative central server, backend API, user accounts, or database:
+1. **Core identity and gameplay principle**: The complete absence of a central server is a foundational design principle and core attraction of the game. Pack generation is an in-browser proof-of-work computation using Argon2id; state is kept exclusively in local client storage (`localStorage` and IndexedDB); and social sharing relies on self-contained Ed25519-signed proofs that any recipient can cryptographically re-derive and verify without calling a server.
+2. **RFC #243 rejected**: Proposals for centralized accounts, server-authoritative game systems, D1/R2 databases, or cloud APIs are rejected. All gameplay, collection storage, and verification remain client-side.
+3. **#85 and #490 closed**: Global server-side profile verification services and centralized leaderboards are discontinued in favor of client-side two-stage verification (PR #1206: instant cryptographic signature check and $<1\text{s}$ highlight derivation with optional on-demand client-side historical replay).
+4. **Hall of Fame stays serverless**: Public rankings continue to rely solely on decentralized Nostr relay feeds and static GitHub Actions build pipelines without an authoritative backend server.
+

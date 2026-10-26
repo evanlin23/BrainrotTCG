@@ -79,6 +79,7 @@ from a 390 px wide screen.
     doesn't stop it. The card viewer offers Retry, and failed art also retries when the device comes
     back online. Standard UI transitions are 120–320 ms (rare pull celebrations and card shimmers run
     longer, and specific card/reveal effects animate properties like box-shadow or clip-path).
+11. **Zero-backend by design.** There is no central server, backend database, or account system. The game runs entirely in the player's browser; packs are derived from local proof-of-work (Argon2id); and all sharing and verification are peer-to-peer cryptographic proofs. The complete absence of a backend is a core design feature and identity of the game, not a missing piece.
 
 ## First-pack flow decision (#898)
 
