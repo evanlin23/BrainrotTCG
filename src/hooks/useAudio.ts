@@ -13,6 +13,7 @@ export interface PreloadedAssets {
 export const useAudio = () => {
   // The playback clones this hook made and has not released yet; nothing else is ever stopped here.
   const activeAudioRef = useRef<Set<HTMLAudioElement>>(new Set());
+  const mountedRef = useRef(true);
 
   /** Stops and releases one owned clone. Safe to repeat: a clone already released is left alone. */
   const disposeClone = useCallback((clone: HTMLAudioElement) => {
@@ -28,8 +29,14 @@ export const useAudio = () => {
     [...activeAudioRef.current].forEach(disposeClone);
   }, [disposeClone]);
 
-  // Unmounting ends whatever is still playing.
-  useEffect(() => stopAll, [stopAll]);
+  // Unmounting ends whatever is still playing and blocks further play calls.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      stopAll();
+    };
+  }, [stopAll]);
 
   /**
    * Play audio (at `volume`, 0 to 1, scaled by the sound's own gain) and release it when it ends,
@@ -37,6 +44,7 @@ export const useAudio = () => {
    */
   const playAndCleanup = useCallback((audio: HTMLAudioElement, volume = 1) => {
     const clone = audio.cloneNode() as HTMLAudioElement;
+    if (!mountedRef.current) return clone;
     clone.volume = soundVolume(audio.getAttribute('src'), volume);
     activeAudioRef.current.add(clone);
 

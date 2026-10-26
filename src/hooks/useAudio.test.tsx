@@ -141,4 +141,20 @@ describe('owned playback clones', () => {
     expect(pausedClones()).toEqual([clone]);
     expect(clone.getAttribute('src')).toBe('');
   });
+
+  it('does not play or retain a clone when playAndCleanup is called after unmount', () => {
+    const playSpy = play();
+    const [sound] = audio.preloadAudio(['/a.mp3']);
+    act(() => root.unmount());
+    playSpy.mockClear();
+    pause.mockClear();
+
+    const clone = audio.playAndCleanup(sound);
+    expect(playSpy).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+
+    audio.stopAll();
+    expect(pause).not.toHaveBeenCalled();
+    expect(clone).toBeInstanceOf(HTMLAudioElement);
+  });
 });
