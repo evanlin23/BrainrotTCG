@@ -10,6 +10,168 @@
   padding-top: var(--space-1);
 }
 
+/* Collection search and filter controls (#756) */
+.collection-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.collection-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.collection-search-icon {
+  position: absolute;
+  left: var(--space-3);
+  width: 18px;
+  height: 18px;
+  color: var(--text-subtle);
+  pointer-events: none;
+}
+
+.collection-search-input {
+  width: 100%;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-8) 0 calc(var(--space-3) + 24px);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.collection-search-input:focus-visible {
+  border-color: var(--brand);
+  outline: var(--focus-outline);
+}
+
+.collection-search-clear {
+  position: absolute;
+  right: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.collection-search-clear:hover {
+  color: var(--text);
+}
+
+.collection-search-clear svg {
+  width: 16px;
+  height: 16px;
+}
+
+.collection-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.collection-select {
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.collection-select:focus-visible {
+  border-color: var(--brand);
+  outline: var(--focus-outline);
+}
+
+.collection-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+
+.collection-pill-btn:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.collection-pill-btn[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+@media (forced-colors: active) {
+  .collection-pill-btn[aria-pressed='true'] {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
+.collection-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.collection-reset-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.collection-filter-status {
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.collection-empty-filter {
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 /* The heading holds the set's show/hide button (#344); the button carries the type. */
 .collection-set-header h3 {
   font: inherit;

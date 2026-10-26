@@ -389,3 +389,148 @@ describe('zero-copy records (#812)', () => {
     expect(slots.length).toBeGreaterThan(0);
   });
 });
+
+describe('collection search and filters (#756)', () => {
+  const searchInput = () => page().querySelector<HTMLInputElement>('input#collection-search')!;
+  const raritySelect = () => page().querySelector<HTMLSelectElement>('select#collection-rarity-filter')!;
+  const finishSelect = () => page().querySelector<HTMLSelectElement>('select#collection-finish-filter')!;
+  const holoButton = () => [...page().querySelectorAll<HTMLButtonElement>('.collection-pill-btn')].find((b) => b.textContent?.includes('Holo only'))!;
+  const missingButton = () => [...page().querySelectorAll<HTMLButtonElement>('.collection-pill-btn')].find((b) => b.textContent?.includes('Missing only'))!;
+  const clearButton = () => page().querySelector<HTMLButtonElement>('.collection-reset-btn');
+  const searchClear = () => page().querySelector<HTMLButtonElement>('.collection-search-clear');
+
+  const typeSearch = (value: string) => {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(searchInput(), value);
+      searchInput().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+
+  it('filters cards by name search and clears search via the clear button', () => {
+    const set = SETS.find(isOpenable)!;
+    const cards = getSetCards(set.id);
+    const target = cards[0];
+    render(own(cards));
+
+    // Initially all cards in the open era are visible
+    expect(tiles().length).toBeGreaterThan(1);
+
+    // Type target card name substring
+    const query = target.name.slice(0, 4);
+    typeSearch(query);
+
+    const matchingTiles = tiles();
+    expect(matchingTiles.length).toBeGreaterThanOrEqual(1);
+    expect(matchingTiles.every((tile) => tile.getAttribute('aria-label')?.toLowerCase().includes(query.toLowerCase()))).toBe(true);
+    expect(page().querySelector('.collection-filter-status')?.textContent).toContain('Showing');
+
+    // Click clear search button
+    expect(searchClear()).not.toBeNull();
+    act(() => searchClear()!.click());
+
+    expect(searchInput().value).toBe('');
+    expect(page().querySelector('.collection-filter-status')).toBeNull();
+  });
+
+  it('filters cards by rarity', () => {
+    const set = SETS.find(isOpenable)!;
+    const cards = getSetCards(set.id);
+    render(own(cards));
+
+    act(() => {
+      raritySelect().value = 'RARE';
+      raritySelect().dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    const currentTiles = tiles();
+    expect(currentTiles.length).toBeGreaterThan(0);
+    expect(currentTiles.every((tile) => tile.classList.contains('rare'))).toBe(true);
+
+    // Reset filters
+    act(() => clearButton()!.click());
+    expect(raritySelect().value).toBe('ALL');
+  });
+
+  it('filters cards by holo only', () => {
+    const set = SETS.find(isOpenable)!;
+    const cards = getSetCards(set.id);
+    // Card 0 is holo, card 1 is non-holo
+    const collection: Record<string, CollectionItem> = {
+      [cards[0].key]: { card: cards[0], normalCount: 0, holoCount: 1 },
+      [cards[1].key]: { card: cards[1], normalCount: 2, holoCount: 0 },
+    };
+    render(collection);
+
+    expect(holoButton().getAttribute('aria-pressed')).toBe('false');
+    act(() => holoButton().click());
+
+    expect(holoButton().getAttribute('aria-pressed')).toBe('true');
+    const currentTiles = tiles();
+    expect(currentTiles.length).toBe(1);
+    expect(currentTiles[0].getAttribute('aria-label')).toContain(cards[0].name);
+    expect(currentTiles[0].classList.contains('holo')).toBe(true);
+  });
+
+  it('filters cards by finish', () => {
+    const set = SETS.find(isOpenable)!;
+    const cards = getSetCards(set.id);
+    const collection: Record<string, CollectionItem> = {
+      [cards[0].key]: { card: cards[0], normalCount: 1, holoCount: 0, finishes: { GOLD: 1 } },
+      [cards[1].key]: { card: cards[1], normalCount: 1, holoCount: 0, finishes: { SILVER: 1 } },
+      [cards[2].key]: { card: cards[2], normalCount: 1, holoCount: 0 },
+    };
+    render(collection);
+
+    // Filter to any finish
+    act(() => {
+      finishSelect().value = 'ANY';
+      finishSelect().dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(tiles().length).toBe(2);
+
+    // Filter to Gold only
+    act(() => {
+      finishSelect().value = 'GOLD';
+      finishSelect().dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(tiles().length).toBe(1);
+    expect(tiles()[0].getAttribute('aria-label')).toContain('Gold');
+  });
+
+  it('filters to missing cards only', () => {
+    const set = SETS.find(isOpenable)!;
+    const cards = getSetCards(set.id);
+    // Own only the first card of the set
+    const collection: Record<string, CollectionItem> = {
+      [cards[0].key]: { card: cards[0], normalCount: 1, holoCount: 0 },
+    };
+    render(collection);
+
+    expect(missingButton().getAttribute('aria-pressed')).toBe('false');
+    act(() => missingButton().click());
+
+    expect(missingButton().getAttribute('aria-pressed')).toBe('true');
+    // Only uncollected slots should be rendered in the grid, owned tile button should be hidden
+    expect(tiles().length).toBe(0);
+    const slots = page().querySelectorAll('.collection-slot');
+    expect(slots.length).toBe(cards.length - 1);
+  });
+
+  it('displays empty message when no cards match filters and allows reset', () => {
+    const set = SETS.find(isOpenable)!;
+    const cards = getSetCards(set.id);
+    render(own(cards));
+
+    typeSearch('ThisNameDoesNotExistInAnySet12345');
+
+    expect(page().querySelector('.collection-empty-filter')).not.toBeNull();
+    expect(page().querySelector('.collection-empty-filter')?.textContent).toContain('No cards match the active filters.');
+
+    // Click reset in the empty state
+    const reset = page().querySelector<HTMLButtonElement>('.collection-empty-filter .collection-reset-btn')!;
+    act(() => reset.click());
+
+    expect(page().querySelector('.collection-empty-filter')).toBeNull();
+    expect(tiles().length).toBeGreaterThan(0);
+  });
+});

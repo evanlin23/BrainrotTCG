@@ -1,5 +1,5 @@
 import { memo, useCallback, useId, useMemo, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Search, X } from 'lucide-react';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
 import SetBadge from '../sets/SetBadge';
@@ -51,6 +51,7 @@ interface EraSectionProps {
   expanded: boolean;
   gridId: string;
   owned: Map<string, Owned>;
+  filteredCardKeys?: Set<string> | null;
   onToggle: (setId: string) => void;
   onSelect: (card: Card, counts: Owned) => void;
 }
@@ -59,7 +60,7 @@ interface EraSectionProps {
  * One started era: its header toggle and, while open, its grid. Memoized, with stable props, so
  * opening one era or tapping a card re-renders only what changed, not every open era's tiles.
  */
-const EraSection = memo(({ set, cards, have, done, expanded, gridId, owned, onToggle, onSelect }: EraSectionProps) => {
+const EraSection = memo(({ set, cards, have, done, expanded, gridId, owned, filteredCardKeys, onToggle, onSelect }: EraSectionProps) => {
   const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
   return (
     <section className="collection-set" style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}>
@@ -98,7 +99,7 @@ const EraSection = memo(({ set, cards, have, done, expanded, gridId, owned, onTo
         <ul className="collection-grid" id={gridId}>
           {cards
             .map((card, index) => ({ card, number: `${String(index + 1).padStart(3, '0')}/${String(cards.length).padStart(3, '0')}` }))
-            .filter(({ card }) => owned.has(card.key) || isOpenable(set))
+            .filter(({ card }) => (filteredCardKeys ? filteredCardKeys.has(card.key) : true) && (owned.has(card.key) || isOpenable(set)))
             .map(({ card, number }) => {
               const counts = owned.get(card.key);
               // Under every pocket, owned or not: its collector number and rarity, like a sleeve label.
@@ -159,6 +160,47 @@ EraSection.displayName = 'EraSection';
  */
 const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) => {
   const [selected, setSelected] = useState<{ card: Card } & Owned | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [rarityFilter, setRarityFilter] = useState('ALL');
+  const [finishFilter, setFinishFilter] = useState('ALL');
+  const [holoOnly, setHoloOnly] = useState(false);
+  const [missingOnly, setMissingOnly] = useState(false);
+  const [filteredOpen, setFilteredOpen] = useState<Record<string, boolean>>({});
+
+  const isFiltering = Boolean(searchQuery.trim() || rarityFilter !== 'ALL' || finishFilter !== 'ALL' || holoOnly || missingOnly);
+
+  const resetFilters = useCallback(() => {
+    setSearchQuery('');
+    setRarityFilter('ALL');
+    setFinishFilter('ALL');
+    setHoloOnly(false);
+    setMissingOnly(false);
+    setFilteredOpen({});
+  }, []);
+
+  const toggleMissingOnly = useCallback(() => {
+    setMissingOnly((prev) => {
+      const next = !prev;
+      if (next) {
+        setHoloOnly(false);
+        setFinishFilter('ALL');
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleHoloOnly = useCallback(() => {
+    setHoloOnly((prev) => {
+      const next = !prev;
+      if (next) setMissingOnly(false);
+      return next;
+    });
+  }, []);
+
+  const handleFinishChange = useCallback((value: string) => {
+    setFinishFilter(value);
+    if (value !== 'ALL') setMissingOnly(false);
+  }, []);
 
   const owned = useMemo(() => {
     const map = new Map<string, Owned>();
@@ -186,6 +228,46 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
     [collection],
   );
 
+  const openableSetIds = useMemo(() => new Set(SETS.filter(isOpenable).map((s) => s.id)), []);
+
+  const matchingCardKeys = useMemo(() => {
+    if (!isFiltering) return null;
+    const query = searchQuery.trim().toLowerCase();
+    const set = new Set<string>();
+    for (const card of COLLECTIBLE_CARDS) {
+      if (query && !card.name.toLowerCase().includes(query)) continue;
+      if (rarityFilter !== 'ALL' && card.rarity !== rarityFilter) continue;
+
+      const counts = owned.get(card.key);
+      const isOwned = counts !== undefined && (counts.normalCount > 0 || counts.holoCount > 0);
+
+      if (missingOnly && (!openableSetIds.has(card.setId) || isOwned)) continue;
+      if (holoOnly && (!counts || (counts.holoCount ?? 0) === 0)) continue;
+      if (finishFilter !== 'ALL') {
+        if (!counts?.finishes) continue;
+        if (finishFilter === 'ANY') {
+          if (!bestFinish(counts.finishes)) continue;
+        } else {
+          if ((counts.finishes[finishFilter as Finish] ?? 0) === 0) continue;
+        }
+      }
+
+      set.add(card.key);
+    }
+    return set;
+  }, [isFiltering, searchQuery, rarityFilter, finishFilter, holoOnly, missingOnly, owned, openableSetIds]);
+
+  const totalMatching = useMemo(() => {
+    if (!isFiltering || !matchingCardKeys) return 0;
+    let count = 0;
+    for (const card of COLLECTIBLE_CARDS) {
+      if (matchingCardKeys.has(card.key) && (owned.has(card.key) || openableSetIds.has(card.setId))) {
+        count++;
+      }
+    }
+    return count;
+  }, [isFiltering, matchingCardKeys, owned, openableSetIds]);
+
   // Memoized with the ownership map, so each era keeps the same `cards` array between renders and
   // its memoized section can skip a render that isn't about it.
   const sections = useMemo(() => SETS.map((set) => {
@@ -199,12 +281,32 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
   const started = sections.filter((s) => s.have > 0);
   const notStarted = sections.filter((s) => s.have === 0);
 
+  const visibleStarted = useMemo(() => {
+    if (!isFiltering || !matchingCardKeys) return started;
+    return started.filter(({ cards, set }) =>
+      cards.some((c) => matchingCardKeys.has(c.key) && (owned.has(c.key) || isOpenable(set))),
+    );
+  }, [isFiltering, matchingCardKeys, started, owned]);
+
+  const visibleNotStarted = useMemo(() => {
+    if (!isFiltering || !matchingCardKeys) return notStarted;
+    return notStarted.filter(({ cards, set }) =>
+      cards.some((c) => matchingCardKeys.has(c.key) && (owned.has(c.key) || isOpenable(set))),
+    );
+  }, [isFiltering, matchingCardKeys, notStarted, owned]);
+
   // Which started sets show their grid, decided when the page opens; a set started while it is
   // open shows open. Collapsing unmounts the grid, so hidden cards cost nothing.
   const [open, setOpen] = useState<Record<string, boolean>>(() => initiallyOpen(started, recentSetId));
   const gridIds = useId();
   // Stable, so toggling or tapping doesn't hand every era new props.
-  const toggleEra = useCallback((setId: string) => setOpen((current) => ({ ...current, [setId]: !(current[setId] ?? true) })), []);
+  const toggleEra = useCallback((setId: string) => {
+    if (isFiltering) {
+      setFilteredOpen((current) => ({ ...current, [setId]: !(current[setId] ?? true) }));
+    } else {
+      setOpen((current) => ({ ...current, [setId]: !(current[setId] ?? true) }));
+    }
+  }, [isFiltering]);
   const selectCard = useCallback((card: Card, counts: Owned) => setSelected({ card, ...counts }), []);
 
   const uniqueOwned = COLLECTIBLE_CARDS.filter((c) => owned.has(c.key)).length;
@@ -215,26 +317,122 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
         <p className="page-subtitle tabular">
           {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} total card points
         </p>
-        {started.map(({ set, cards, have, done }) => (
+
+        <section className="collection-controls" aria-label="Collection search and filters">
+          <div className="collection-search-wrap">
+            <Search className="collection-search-icon" aria-hidden="true" />
+            <input
+              id="collection-search"
+              type="search"
+              className="collection-search-input"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search cards by name…"
+              aria-label="Search cards by name"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="collection-search-clear"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+              >
+                <X aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          <div className="collection-filter-row">
+            <select
+              id="collection-rarity-filter"
+              className="collection-select"
+              value={rarityFilter}
+              onChange={(e) => setRarityFilter(e.target.value)}
+              aria-label="Filter by rarity"
+            >
+              <option value="ALL">All rarities</option>
+              <option value="COMMON">Common</option>
+              <option value="UNCOMMON">Uncommon</option>
+              <option value="RARE">Rare</option>
+              <option value="EPIC">Epic</option>
+              <option value="LEGENDARY">Legendary</option>
+              <option value="BRAINROT">Brainrot</option>
+            </select>
+
+            <select
+              id="collection-finish-filter"
+              className="collection-select"
+              value={finishFilter}
+              onChange={(e) => handleFinishChange(e.target.value)}
+              aria-label="Filter by finish"
+            >
+              <option value="ALL">All finishes</option>
+              <option value="ANY">Any finish</option>
+              <option value="SILVER">Silver</option>
+              <option value="GOLD">Gold</option>
+              <option value="PLATINUM">Platinum</option>
+              <option value="DIAMOND">Diamond</option>
+            </select>
+
+            <button
+              type="button"
+              className="collection-pill-btn"
+              aria-pressed={holoOnly}
+              onClick={toggleHoloOnly}
+            >
+              Holo only
+            </button>
+
+            <button
+              type="button"
+              className="collection-pill-btn"
+              aria-pressed={missingOnly}
+              onClick={toggleMissingOnly}
+            >
+              Missing only
+            </button>
+
+            {isFiltering && (
+              <button
+                type="button"
+                className="collection-reset-btn"
+                onClick={resetFilters}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {isFiltering && (
+            <div className="collection-filter-status" role="status" aria-live="polite">
+              {totalMatching === 0
+                ? 'No cards match the active filters.'
+                : `Showing ${totalMatching} ${totalMatching === 1 ? 'card' : 'cards'}`}
+            </div>
+          )}
+        </section>
+
+        {visibleStarted.map(({ set, cards, have, done }) => (
           <EraSection
             key={set.id}
             set={set}
             cards={cards}
             have={have}
             done={done}
-            expanded={open[set.id] ?? true}
+            expanded={isFiltering ? (filteredOpen[set.id] ?? true) : (open[set.id] ?? true)}
             gridId={`${gridIds}-${set.id}`}
             owned={owned}
+            filteredCardKeys={matchingCardKeys}
             onToggle={toggleEra}
             onSelect={selectCard}
           />
         ))}
 
-        {notStarted.length > 0 && (
+        {visibleNotStarted.length > 0 && (
           <section className="collection-later">
             <h3 className="section-title">{started.length > 0 ? 'Not started yet' : 'Eras'}</h3>
             <ul>
-              {notStarted.map(({ set, cards }) => (
+              {visibleNotStarted.map(({ set, cards }) => (
                 <li key={set.id}>
                   <span className="collection-later-name">{set.name}</span>
                   <span className="collection-later-era">{set.era}</span>
@@ -244,7 +442,17 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
             </ul>
           </section>
         )}
-        {uniqueOwned === 0 && <p className="collection-empty">Open packs to start your collection.</p>}
+
+        {isFiltering && totalMatching === 0 && (
+          <div className="collection-empty-filter" role="status">
+            <p>No cards match the active filters.</p>
+            <button type="button" className="collection-reset-btn" onClick={resetFilters}>
+              Clear filters
+            </button>
+          </div>
+        )}
+
+        {!isFiltering && uniqueOwned === 0 && <p className="collection-empty">Open packs to start your collection.</p>}
       </div>
 
       {selected && (
