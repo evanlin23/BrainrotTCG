@@ -385,6 +385,9 @@ image draws different pixels and fails; that is not a design change.
 
 ## Local agent usability audit
 
+For a bounded QA run that triages findings into issues and tested draft fixes, use
+[`/qa`](../.claude/skills/qa/SKILL.md); it combines scripted checks with the task-only audit below.
+
 Owner decision, 2026-10-17: usability audits use Claude Code only (no Codex or other providers),
 driving the built site with Playwright. Results come from simulated agent reviewers in Chromium
 emulation, not human newcomers or a real device, and anything that cites one says so.
