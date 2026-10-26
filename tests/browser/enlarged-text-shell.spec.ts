@@ -129,3 +129,48 @@ for (const enlarged of [false, true]) {
     expect(errors).toEqual([]);
   });
 }
+
+test('the save warning banner keeps to a bounded height at 200% text on a narrow phone (#1079)', async ({ page, baseURL }) => {
+  const viewport = { width: 360, height: 740 };
+  await page.setViewportSize(viewport);
+  const origin = new URL(baseURL!).origin;
+  await page.addInitScript(({ origin, archive }) => {
+    if (window.location.origin !== origin) return;
+    try {
+      localStorage.setItem('brainrot-collection-recovery-v1', archive);
+    } catch { /* ignored */ }
+  }, { origin, archive: JSON.stringify({ raw: '{"lost-set/ghost":null}', player: null }) });
+
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  await page.goto('./');
+  await enlarge(page, true);
+
+  const banner = page.locator('.app > p.save-warning');
+  await expect(banner).toBeVisible();
+
+  // The banner stays bounded in height (at most 35% of the viewport)
+  const bannerBox = (await banner.boundingBox())!;
+  expect(bannerBox.height).toBeLessThanOrEqual(viewport.height * 0.35 + 2);
+  expect(bannerBox.y + bannerBox.height).toBeLessThanOrEqual(viewport.height * 0.35 + 2);
+
+  // The header and pack remain visible on screen
+  const header = page.locator('.app-header');
+  const pack = page.locator('.pack-shell');
+  await expect(header).toBeVisible();
+  await expect(pack).toBeVisible();
+  const packBox = (await pack.boundingBox())!;
+  expect(packBox.y).toBeLessThan(viewport.height);
+
+  // The banner has internal scroll capability if text overflows
+  const scrollable = await banner.evaluate((el) => {
+    const hasScroll = el.scrollHeight > el.clientHeight;
+    if (hasScroll) {
+      el.scrollTop = el.scrollHeight;
+      return el.scrollTop > 0;
+    }
+    return true;
+  });
+  expect(scrollable).toBe(true);
+
+  expect(errors).toEqual([]);
+});
