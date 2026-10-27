@@ -596,13 +596,14 @@ describe('Best card place while the Best cards are weighed', () => {
     return release;
   };
 
-  it('expects nothing while the saved packs are still being read, even with winners to weigh', async () => {
+  it('holds place while saved packs are still being read, so content arriving late does not shift layout', async () => {
     seedUnscored();
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
     myPackCacheState.mockReturnValue('loading');
     await act(async () => render());
     expect(expectingSeen).toHaveBeenCalled();
-    expect(expectingSeen.mock.calls.every(([value]) => value === false)).toBe(true);
+    expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
     expect(rebuildBestCards).not.toHaveBeenCalled();
   });
 
@@ -669,15 +670,30 @@ describe('Best card place while the Best cards are weighed', () => {
     expect(heldPlace()).toBe(false);
   });
 
-  it('expects again only after the packs are ready: loading first, ready later', async () => {
+  it('holds place while loading, continues holding while rebuilding, and releases once settled', async () => {
     seedUnscored();
-    gated();
+    const release = gated();
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
     await act(async () => render());
-    expect(expecting()).toBe(false);
+    expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
 
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 0, cache: 'ready' });
     await act(async () => window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.HISTORY })));
     expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
+    expect(rebuildBestCards).toHaveBeenCalledTimes(1);
+
+    await act(async () => release());
+    expect(expecting()).toBe(false);
+    expect(heldPlace()).toBe(false);
+  });
+
+  it('expects nothing on an empty profile with no saved packs', async () => {
+    myProfileInfo.mockReturnValue(null);
+    await act(async () => render());
+    expect(expecting()).toBe(false);
+    expect(heldPlace()).toBe(false);
+    expect(document.querySelector('section.profile-highlight')).toBeNull();
   });
 });

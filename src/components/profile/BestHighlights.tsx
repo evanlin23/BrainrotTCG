@@ -213,9 +213,10 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge, expecting =
   if (nothing(pack.state) && nothing(card.state) && !expecting) return null;
   const anyVerified = pack.state.status === 'available' || card.state.status === 'available';
   // While the rebuild runs, winners with no cards yet read as 'unranked': that holds the place too.
+  const packWaiting = pack.state.status === 'checking' || (expecting && nothing(pack.state));
   const cardWaiting =
     card.state.status === 'checking' || (expecting && (nothing(card.state) || unavailableFor(card.state, 'unranked')));
-  const anyWaiting = cardWaiting || pack.state.status === 'checking';
+  const anyWaiting = cardWaiting || packWaiting;
 
   const shownCard = card.state.status === 'available' ? card.state : null;
   const cardSet = shownCard && getSet(shownCard.source.ref.setId, shownCard.source.ref.setVersion);
@@ -231,7 +232,7 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge, expecting =
         state={pack.state}
         what="your best pack"
         onRetry={() => retry(pack.retry, packTitle)}
-        waiting={pack.state.status === 'checking'}
+        waiting={packWaiting}
       >
         {pack.state.status === 'available' && (
           <ul className="pulls-list">
