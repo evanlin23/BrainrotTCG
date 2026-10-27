@@ -169,7 +169,9 @@ results rules below (#339).
 - #627: stationary-click loop from pack to summary; ignore clicks for about 400 ms after a stage
   change and during Opening so no viewer opens. The loop deliberately ends at the summary, where
   the player reads the score, views cards and shares, so a stray click must not skip it; Next pack
-  stays the one deliberate move. This replaces #627's pack-after-pack criterion.
+  stays the one deliberate move. This replaces #627's pack-after-pack criterion. The keyboard
+  follows the same window: on the summary Space and Enter are ignored until it ends
+  (`useKeyboardControls`), so a stuck or repeated press that opened the summary can't close it.
 - #778: results show the score only; direction and card-sum x combo explained once in the Card
   guide, with no chance line.
 - #639: shared pull shows attribution, then score once with combo and multiplier once, the five-card

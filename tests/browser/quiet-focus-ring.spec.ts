@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectStill, fingerFor, holdTickets, releaseTickets, type Finger } from './support';
+import { monitor, expectDecoded, expectStill, expectSummaryTakesClicks, fingerFor, holdTickets, releaseTickets, type Finger } from './support';
 
 /**
  * As a pack opens, the app moves focus by script: onto each card, then the result. Chromium rings
@@ -257,7 +257,10 @@ test('opened with Space alone: no yellow ring, but focus stays visible on the ca
   await revealAll(page, () => page.keyboard.press('Space'), expectQuietOutlineAfterPress);
   // The result is a heading, not a control: nothing shows on it.
   await expectNoRingAfterPress(page.locator('.summary-title'), 'the result');
-  // Space again closes the result; the control focus lands on next wears the quiet outline, not the ring.
+  // Wait out the summary settle guard (#972): the summary clears data-settling when its own 400ms window ends
+  // (useStageClickGuard), and the keyboard guard reads that same state (PackOpener hands it to useKeyboardControls), so the
+  // attribute going is the page's signal that Space now closes the result. The control focus lands on next wears the quiet outline, not the ring.
+  await expectSummaryTakesClicks(page);
   await page.keyboard.press('Space');
   await expect(page.locator('.pack-summary')).toBeHidden();
   // The pack draws its outline inside its own edge (-3px) so the stage can't clip it.

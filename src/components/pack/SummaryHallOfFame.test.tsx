@@ -1,18 +1,23 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dailyRank, HALL_OF_FAME_MIN_SCORE, pullId, qualifiesForHallOfFame, wouldJoinHallOfFame, type PackScore } from '../../engine';
 import { DEFAULT_SET_ID, getSet } from '../../content/sets';
 import { getSetCards } from '../../data/cards';
-import { STAGE_CLICK_GUARD_MS } from '../../hooks/useStageClickGuard';
+import { STAGE_CLICK_GUARD_MS, useStageClickGuard } from '../../hooks/useStageClickGuard';
 import type { CardWithMeta } from '../cards/Card';
 import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { publishUntilAccepted } from '../../game/nostrInbox';
 import { submitToHallOfFame } from '../../game/share';
 import ShareSheet from '../share/ShareSheet';
-import PackSummaryUI from './PackSummaryUI';
+import SummaryScreen from './PackSummaryUI';
 import SummaryHallOfFame from './SummaryHallOfFame';
+
+// PackOpener owns the settle window and hands it down; stand in for it, as it does for a summary just shown.
+const PackSummaryUI = (props: Omit<ComponentProps<typeof SummaryScreen>, 'guard'>) => (
+  <SummaryScreen {...props} guard={useStageClickGuard()} />
+);
 
 // The proof and the list are stand-ins: this checks each state of the line, not the join rules. The
 // send goes through the real registry in game/share, with the relays stubbed.
