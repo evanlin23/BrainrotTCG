@@ -47,6 +47,9 @@
   color: var(--warning);
   font-size: var(--text-sm);
   line-height: 1.4;
+  max-height: min(18rem, 35dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .save-warning .save-warning-action {
