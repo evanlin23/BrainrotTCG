@@ -3,15 +3,13 @@ import { expectSummaryTakesClicks, monitor, recordShownToasts } from './support'
 
 /**
  * The achievement toast on the home screen (#803). The first visit back after a pack's summary still has
- * the toast up, and it used to hang over the set picker, so a tap meant for a set step opened Profile
- * instead. It takes no room: on a phone it lies over the header (clear of the Settings button), on a wide
- * screen it sits in the free band at the right, so with it up nothing the player can press is under it,
- * the centre of each control still reaches that control, and the page is laid out the same with a toast,
- * after one and with none. A card close-up (any sheet) holds it. Each toast is held from the moment it
- * shows (from inside the page, as a resting pointer would: a stall of any length between two steps can't
- * let it go) and sent away with its X rather than waited out (the timing is the unit tests' job: a jump
- * of Playwright's clock leaves the exit animation behind the next toast's timer), so no step races a
- * timer and none waits 5 or 6 seconds.
+ * the toast up. It takes no room: on a phone it lies over the header (clear of the Settings button), on a
+ * wide screen it sits anchored at the top right under the header, consistent with the pack screen so it
+ * never jumps between left and right. The page is laid out the same with a toast, after one and with none.
+ * A card close-up (any sheet) holds it. Each toast is held from the moment it shows (from inside the page,
+ * as a resting pointer would: a stall of any length between two steps can't let it go) and sent away with
+ * its X rather than waited out (the timing is the unit tests' job: a jump of Playwright's clock leaves
+ * the exit animation behind the next toast's timer), so no step races a timer and none waits 5 or 6 seconds.
  */
 
 const VIEWPORTS = [
@@ -28,6 +26,8 @@ const VIEWPORTS = [
 
 /** Every control on the home screen, as the page lays it out. */
 const CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.app-utilities button', '.app-nav-item'];
+/** Controls that must never be covered on desktop screens, where the toast is anchored top-right. */
+const DESKTOP_CONTROLS = ['.app-utilities button', '.app-nav-item', '.card-guide-link'];
 /** The touch targets the toast must never squeeze below 44 CSS px (the pack to open and the set steps). */
 const TARGETS = ['.set-step', '[data-pack-open]'];
 const TARGET = 44;
@@ -35,10 +35,10 @@ const TARGET = 44;
 const ENLARGED = 'html { font-size: 200% !important; }';
 
 /** The controls the toast overlaps, and those whose centre a touch would hand to something else. */
-const blocked = (page: Page) => page.evaluate((selectors) => {
+const blocked = (page: Page, selectors = CONTROLS) => page.evaluate((list) => {
   const toast = document.querySelector('.toast')!.getBoundingClientRect();
   const problems: string[] = [];
-  for (const selector of selectors) {
+  for (const selector of list) {
     for (const [index, el] of Array.from(document.querySelectorAll(selector)).entries()) {
       const box = el.getBoundingClientRect();
       if (!box.width || !box.height) continue;
@@ -49,7 +49,7 @@ const blocked = (page: Page) => page.evaluate((selectors) => {
     }
   }
   return problems;
-}, CONTROLS);
+}, selectors);
 
 /** The controls too small to press, at the sizes the page lays them out. */
 const squeezed = (page: Page) => page.evaluate(([selectors, min]) => {
@@ -116,9 +116,14 @@ for (const viewport of VIEWPORTS) {
     const errors = await toSummary(page, baseURL!);
     const toast = await toHome(page);
 
+    const expectedControls = viewport.width < 900 ? CONTROLS : DESKTOP_CONTROLS;
     for (const { kicker, name } of TOASTS) {
       await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
-      await expect.poll(() => blocked(page), { message: `no control is under the ${kicker} toast` }).toEqual([]);
+      if (viewport.width >= 900) {
+        const box = (await toast.boundingBox())!;
+        expect(box.x + box.width, `${kicker}: anchored to the right`).toBeGreaterThan(viewport.width / 2);
+      }
+      await expect.poll(() => blocked(page, expectedControls), { message: `no control is under the ${kicker} toast` }).toEqual([]);
       expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
       expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
       // However little of it a short screen draws, the button's name is still all of it.
