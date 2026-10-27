@@ -165,6 +165,8 @@ describe('states', () => {
     await act(async () => pack.resolve(verifiedPack(checkBestPack.mock.calls[0][0])));
     expect(live('Best pack')).toEqual(['Verified: your best pack.']);
     expect(highlight('Best pack').querySelector('.pull-row')).not.toBeNull();
+    // The Verified badge on the row is aria-hidden so browse mode reads Verified only once (from the live status region)
+    expect(highlight('Best pack').querySelector('.profile-verified')?.getAttribute('aria-hidden')).toBe('true');
     expect(highlight('Best pack').querySelector('[role="status"] .pull-row, [role="status"] button')).toBeNull();
     // One live region per highlight, so two settling at once never read a whole row.
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(2);
