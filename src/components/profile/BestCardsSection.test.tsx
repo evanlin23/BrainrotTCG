@@ -281,6 +281,18 @@ describe('winners an older save never scored', () => {
     expect(retryButton()).toBeUndefined();
   });
 
+  it('keys unavailable to the profile key and clears when switching players', async () => {
+    unscored();
+    rebuild.mockRejectedValueOnce(new Error('no Argon2'));
+    await act(async () => render());
+    expect(text(status()!)).toContain("couldn't be loaded just now");
+
+    // Switching to another player means the new player is not in an unavailable state
+    who.key = 'cd'.repeat(32);
+    await act(async () => root.render(<BestCardsSection refreshKey="switched" cacheReady />));
+    expect(status()).toBeNull();
+  });
+
   it('moves focus to the first row after a Try again that settles it, since the button it was on is gone', async () => {
     unscored();
     derive.failing.add(0);
