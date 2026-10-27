@@ -1,0 +1,18 @@
+[
+  {
+    "id": "2026-10-27-open-api-and-stats",
+    "title": "Open Card Database API & Drought Counters",
+    "date": "2026-10-27",
+    "category": "changelog",
+    "tag": "Update",
+    "summary": "Added static JSON card and set APIs (/api/cards.json, /api/sets.json), rarity drought counters on the Profile page, and holo completion tracking in the binder."
+  },
+  {
+    "id": "2026-10-25-profile-and-search",
+    "title": "Player Profiles & Collection Search",
+    "date": "2026-10-25",
+    "category": "changelog",
+    "tag": "Feature",
+    "summary": "Share your profile and best pulls with verifiable links; search and filter cards in your collection binder."
+  }
+]

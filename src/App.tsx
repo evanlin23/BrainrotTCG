@@ -47,6 +47,7 @@ import { useAchievementReconciler } from './hooks/useAchievementReconciler';
 import type { ProgressWriterHost } from './game/progressWriter';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
+import NewsBanner from './components/ui/NewsBanner';
 import { LOGO_MARK_PATH, LOGO_MARK_VIEWBOX } from './styles/logoMark';
 import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
 
@@ -504,6 +505,7 @@ function App() {
           )}
         </p>
       )}
+      <NewsBanner hidden={packFocus || onPage} />
       <header className="app-header">
         {/* One h1 per view: the logo on the packs screen; on a page, that page's title (see Page). */}
         {onPage ? (
