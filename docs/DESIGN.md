@@ -26,7 +26,10 @@ from a 390 px wide screen.
    is swallowed (a press that moved more than `TAP_SLOP_PX`, 10px, is a drag). The keys work only with
    focus on the pack, never from the page. While the ticket works its name reads "Opening…" and input
    is ignored. Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
-   from the tear until the pack is put away) opens the selected set's card guide.
+   from the tear until the pack is put away) opens the selected set's card guide. The latest unread
+   news shows as a one-line chip beside it in that row, adding no height: it hides on narrow rows,
+   landscape phones and at 200% text on a phone, gives way to a save warning, and is never marked
+   read by being hidden, only by its dismiss button.
    The summary lists the cards in the order they were revealed (best last), each opening up close, where
    its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the

@@ -48,6 +48,7 @@ import { useAchievementReconciler } from './hooks/useAchievementReconciler';
 import type { ProgressWriterHost } from './game/progressWriter';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
+import NewsBanner from './components/ui/NewsBanner';
 import { LOGO_MARK_PATH, LOGO_MARK_VIEWBOX } from './styles/logoMark';
 import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
 
@@ -468,6 +469,8 @@ function App() {
   const pagesUnlocked = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus);
   const showNav = pagesUnlocked || settings.showAllPages === true;
   const onPage = route !== 'open';
+  // Settings shows these problems in its own sections, so the banner leaves it.
+  const saveWarningShown = !!bannerWarning && route !== 'settings';
   const logoMark = (
     <svg className="app-logo-mark" viewBox={LOGO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
       <path fill="currentColor" d={LOGO_MARK_PATH} />
@@ -486,7 +489,7 @@ function App() {
   return (
     <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
       {isStaging() && <p role="note" className="save-warning staging-banner">{STAGING_NOTE}</p>}
-      {bannerWarning && route !== 'settings' && (
+      {saveWarningShown && (
         <p role="alert" className="save-warning save-warning--capped">
           {bannerWarning}
           {staleSave && <button type="button" ref={reloadRef} className="link-btn save-warning-action quiet-focus" onClick={() => reloadPage()}>Reload</button>}
@@ -585,6 +588,11 @@ function App() {
         {showNav && !packFocus && !packBusy && (
           <div className="card-guide-entry">
             <CardGuideButton set={selectedSet} />
+            {/* One line beside the guide link, in the row it already takes, so it can't move the pack, the nav or
+                the tear line, and dismissing it leaves them where they were. Nothing before the first pack is saved
+                (#58), so no news read either; it goes with the row once a pack is torn, and while a save warning
+                shows. Dismissing removes the focused button: focus goes to the logo, the page's heading here. */}
+            {pagesUnlocked && !saveWarningShown && <NewsBanner onDismiss={() => logoRef.current?.focus()} />}
           </div>
         )}
       </main>
