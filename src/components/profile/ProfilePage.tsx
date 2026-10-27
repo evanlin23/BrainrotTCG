@@ -119,7 +119,7 @@ const ProfilePage = ({
   }, []);
   // Best cards weighed or rebuilt (BestCardsSection): the Best card highlight may have changed.
   const [bestCardsRuns, setBestCardsRuns] = useState(0);
-  // Saved packs are read in but their best cards are still being weighed: the Best card highlight holds its place.
+  // Saved packs are being read or their best cards are still being weighed: the Best card highlight holds its place.
   const [bestCardsSettled, setBestCardsSettled] = useState(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const summary = useMemo(() => myStats(), [reopenRuns, packCache]);
@@ -127,6 +127,9 @@ const ProfilePage = ({
   const mine = useMemo(() => myProfileInfo(), [reopenRuns, packCache]);
   // Until saved packs are read, a pack not in memory yet isn't one this device lacks.
   const unopened = mine?.cache === 'ready' ? mine.missing - mine.filled : 0;
+  // A best card is on its way only while a read is: the saved packs loading, or their Best cards being weighed
+  // (BestCardsSection, which settles). A failed read, or no saved packs at all, has none coming: show what is resolved.
+  const bestCardExpected = !!mine && (mine.cache === 'loading' || (mine.cache === 'ready' && !bestCardsSettled));
   const [shown, setShown] = useState(FIRST_PAGE);
   const listRef = useRef<HTMLUListElement>(null);
   const historyTitleRef = useRef<HTMLHeadingElement>(null);
@@ -222,7 +225,7 @@ const ProfilePage = ({
         <BestHighlights
           stats={stats}
           refreshKey={`${packCache}:${reopenRuns}:${bestCardsRuns}`}
-          expecting={mine?.cache === 'ready' && !bestCardsSettled}
+          expecting={bestCardExpected}
           onSharePack={onSharePack}
           packBadge={(ref) => {
             const entry = entryOf(ref);
