@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && tsx scripts/preview-pages.ts",
+    "build": "vite build && tsx scripts/build-api.ts && tsx scripts/preview-pages.ts",
+    "build:api": "tsx scripts/build-api.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.scripts.json",
     "preview": "vite preview",
