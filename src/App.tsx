@@ -483,7 +483,7 @@ function App() {
     <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
       {isStaging() && <p role="note" className="save-warning staging-banner">{STAGING_NOTE}</p>}
       {bannerWarning && route !== 'settings' && (
-        <p role="alert" className="save-warning">
+        <p role="alert" className="save-warning save-warning--capped">
           {bannerWarning}
           {staleSave && <button type="button" ref={reloadRef} className="link-btn save-warning-action quiet-focus" onClick={() => reloadPage()}>Reload</button>}
           {showRecoveryNote && (
