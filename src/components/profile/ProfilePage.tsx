@@ -18,6 +18,7 @@ import SharePreviewSheet from '../share/SharePreviewSheet';
 import { renderPlayerCard } from '../../game/playerCard';
 import { getLatestSet } from '../../content/sets';
 import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
+import { computeDroughtCounters } from '../../game/droughtCounters';
 import { QUALIFY_RULE } from '../ui/rankingsRule';
 import type { BestPackStats } from '../../game/bestSources';
 import { STORAGE_KEYS } from '../../constants';
@@ -125,6 +126,10 @@ const ProfilePage = ({
   const summary = useMemo(() => myStats(), [reopenRuns, packCache]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const mine = useMemo(() => myProfileInfo(), [reopenRuns, packCache]);
+  const droughtStats = useMemo(
+    () => computeDroughtCounters(history, { playerKeyHex: player.publicKeyHex }),
+    [history, player.publicKeyHex],
+  );
   // Until saved packs are read, a pack not in memory yet isn't one this device lacks.
   const unopened = mine?.cache === 'ready' ? mine.missing - mine.filled : 0;
   const [shown, setShown] = useState(FIRST_PAGE);
@@ -244,6 +249,7 @@ const ProfilePage = ({
           <ProfileSummary
             stats={summary}
             highlighted
+            droughtStats={droughtStats}
             actions={
               <>
                 <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing || !!mine?.filled}>

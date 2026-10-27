@@ -324,6 +324,28 @@ describe('the page', () => {
     expect(onOpenSave).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).not.toContain('Back up your save');
   });
+
+  it('displays observational drought counters when player history exists', () => {
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    getHistory.mockReturnValue([
+      {
+        setId: 'genesis',
+        setVersion: 1,
+        nonce: 0,
+        key,
+        cards: [{ id: 'skibidi-toilet', holo: false }],
+        hand: 'No Match',
+        score: 50,
+        openedAt: 1000,
+      },
+    ]);
+    render();
+    const section = document.querySelector('.profile-drought-section');
+    expect(section).not.toBeNull();
+    expect(section!.textContent).toContain('Packs since last');
+    expect(section!.textContent).toContain('Independent odds');
+    expect(section!.textContent).toContain('Brainrot');
+  });
 });
 
 describe('folded sections', () => {

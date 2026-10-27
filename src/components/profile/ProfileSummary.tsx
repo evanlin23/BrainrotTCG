@@ -8,6 +8,8 @@ import PackCardViewer from '../ui/PackCardViewer';
 import SetBadge from '../sets/SetBadge';
 import Sheet from '../ui/Sheet';
 import PullRow from './PullRow';
+import DroughtCountersStrip from './DroughtCountersStrip';
+import type { PullDroughtStats } from '../../game/droughtCounters';
 import '../../styles/Pulls.css';
 import '../../styles/Profile.css';
 
@@ -44,6 +46,8 @@ interface ProfileSummaryProps {
    * stat and the Best pulls list, which would only repeat them, are left out.
    */
   highlighted?: boolean;
+  /** Observational drought counters derived from local history (your own profile only). */
+  droughtStats?: PullDroughtStats;
 }
 
 /**
@@ -51,7 +55,7 @@ interface ProfileSummaryProps {
  * profile shows all of it; your own (`highlighted`) leaves out the best score and best pulls, which its
  * Best pack and Best card highlights already show.
  */
-const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNote, onOpenPack, packBadge, highlighted = false }: ProfileSummaryProps) => {
+const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNote, onOpenPack, packBadge, highlighted = false, droughtStats }: ProfileSummaryProps) => {
   const [open, setOpen] = useState<ProfilePack | null>(null);
   const bestId = useId();
   const collectionId = useId();
@@ -119,6 +123,7 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
           ))}
         </p>
       )}
+      {droughtStats && droughtStats.totalPacks > 0 && <DroughtCountersStrip stats={droughtStats} />}
       {partial && <p className="profile-footnote">{partialNote ?? '* so far, while the rest of the packs are re-opened'}</p>}
       <details className="profile-how">
         <summary>What do these numbers mean?</summary>
@@ -137,6 +142,7 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
           <strong>packs</strong> is how many packs opened. <strong>cards</strong> is how many different cards you have out of those you can still pull.{' '}
           <strong>holo</strong> counts every holo card pulled, repeats included.{' '}
           {!highlighted && <><strong>best score</strong> is your highest Brainrot Score in a single pack.{' '}</>}
+          {droughtStats && <><strong>Packs since last</strong> tracks how many packs opened since your last hit of that rarity or Rankings qualifier (purely observational; odds are independent on every pack with no pity mechanics).{' '}</>}
           <strong>Collection score</strong> adds up the points of every card you have pulled, with no combo multipliers.
         </p>
       </details>
