@@ -14,6 +14,9 @@ import SetPicker from './components/sets/SetPicker';
 import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
 import CardGuideButton from './components/ui/CardGuideButton';
+import PackMilestoneGoal from './components/pack/PackMilestoneGoal';
+import { getNextMilestone } from './game/nextMilestone';
+import { xpForLevel } from './engine/profile';
 import { scoreCards } from './data/cards';
 import type { Achievement } from './data/achievements';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
@@ -240,6 +243,13 @@ function App() {
   if (ownLevel !== undefined && ownLevel !== mountedLevel) setMountedLevel(ownLevel);
   const level = ownLevel === undefined ? mountedLevel : ownLevel;
   const rewardLevel = level ?? 1;
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/refs
+  const ownXp = useMemo(() => (samePlayer() ? myStats()?.xp ?? 0 : 0), [stats.packsOpened, packCache, samePlayer]);
+  const currentXp = ownXp || xpForLevel(rewardLevel);
+  const milestoneGoal = useMemo(
+    () => getNextMilestone(rewardLevel, currentXp, selectedSet, collection),
+    [rewardLevel, currentXp, selectedSet, collection],
+  );
   // A level-up says so, with what it unlocked (otherwise it only shows if you open the profile).
   // Reading saved packs isn't a level-up: no toast until a known level rises.
   const shownLevel = useRef(level);
@@ -578,9 +588,16 @@ function App() {
         />
         {/* A quiet way into the card guide once a first pack is saved (a new player sees only the pack); it steps aside with the chrome once a pack is torn. */}
         {showNav && !packFocus && !packBusy && (
-          <div className="card-guide-entry">
-            <CardGuideButton set={selectedSet} />
-          </div>
+          <>
+            <PackMilestoneGoal
+              goal={milestoneGoal}
+              onNavigate={(target) => (target === 'rewards' ? openPage('profile', 'rewards') : openPage('cards'))}
+              disabled={isAnyModalOpen}
+            />
+            <div className="card-guide-entry">
+              <CardGuideButton set={selectedSet} />
+            </div>
+          </>
         )}
       </main>
 

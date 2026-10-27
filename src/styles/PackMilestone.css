@@ -1,0 +1,135 @@
+/*
+ * Next cosmetic or collection milestone shown on the pack screen between packs.
+ * Steps aside when a pack is being torn/opened to keep focus mode free.
+ */
+
+.pack-milestone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: calc(100% - var(--space-8));
+  max-width: 360px;
+  margin: var(--space-2) auto var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+}
+
+.pack-milestone-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pack-milestone-kicker {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-subtle);
+}
+
+.pack-milestone-badge {
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  line-height: 1.2;
+}
+
+.pack-milestone-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.pack-milestone-target {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pack-milestone-progress-text {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--brand);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pack-milestone-bar {
+  position: relative;
+  width: 100%;
+  height: 5px;
+  background: var(--track);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  margin: 2px 0;
+}
+
+.pack-milestone-bar-fill {
+  height: 100%;
+  background: var(--brand);
+  border-radius: var(--radius-pill);
+  transition: width 0.3s ease;
+}
+
+.pack-milestone-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pack-milestone-detail {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  line-height: 1.25;
+}
+
+.pack-milestone-action {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--brand);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+
+.pack-milestone-action:hover:not(:disabled) {
+  color: var(--brand-strong);
+  text-decoration: underline;
+}
+
+.pack-milestone-action:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.pack-milestone-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 899px) and (max-height: 520px) {
+  .pack-milestone {
+    padding: var(--space-1) var(--space-2);
+    gap: 2px;
+  }
+}
