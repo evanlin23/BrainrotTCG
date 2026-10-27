@@ -336,3 +336,56 @@ describe('Space and Enter on a focused button (#312)', () => {
     expect(interact).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('Space and Enter on summary settle guard (#972, #1109)', () => {
+  const pressKey = (code: string, init: KeyboardEventInit = {}) => pressOn(document.body, code, init);
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('ignores Space and Enter during the first 400ms after the summary appears', () => {
+    const onCloseSummary = vi.fn();
+    render({ isOpening: false, showSummary: true, onCloseSummary });
+
+    pressKey('Space');
+    pressKey('Enter');
+    pressKey('NumpadEnter');
+    expect(onCloseSummary).not.toHaveBeenCalled();
+
+    act(() => { vi.advanceTimersByTime(399); });
+    pressKey('Space');
+    expect(onCloseSummary).not.toHaveBeenCalled();
+
+    act(() => { vi.advanceTimersByTime(1); });
+    pressKey('Space');
+    expect(onCloseSummary).toHaveBeenCalledTimes(1);
+    pressKey('Enter');
+    expect(onCloseSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops a held Space from reveals when the summary appears and guards immediate close', () => {
+    const interact = vi.fn();
+    const onCloseSummary = vi.fn();
+    render({ isOpening: true, showSummary: false, handleInteractionRef: { current: interact }, onCloseSummary });
+
+    // Hold space during card reveal
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true }));
+    });
+    expect(interact).toHaveBeenCalledTimes(1);
+
+    // Summary mounts
+    render({ isOpening: false, showSummary: true, handleInteractionRef: { current: interact }, onCloseSummary });
+    act(() => { vi.advanceTimersByTime(200); });
+    // Hold does not repeat into summary, nor close it
+    expect(interact).toHaveBeenCalledTimes(1);
+    expect(onCloseSummary).not.toHaveBeenCalled();
+
+    // Settle completes
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(onCloseSummary).not.toHaveBeenCalled();
+
+    // A fresh press closes summary
+    pressKey('Space');
+    expect(onCloseSummary).toHaveBeenCalledTimes(1);
+  });
+});

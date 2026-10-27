@@ -1,4 +1,5 @@
 import { useEffect, useRef, MutableRefObject } from 'react';
+import { STAGE_CLICK_GUARD_MS } from './useStageClickGuard';
 
 interface UseKeyboardControlsOptions {
   isOpening: boolean;
@@ -41,6 +42,7 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
   });
   const spaceHeldRef = useRef(false);
   const spaceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const summarySettledRef = useRef(!options.showSummary);
 
   useEffect(() => {
     const stopHold = () => {
@@ -91,6 +93,7 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       if (e.repeat) return;
 
       if (showSummary) {
+        if (!summarySettledRef.current) return;
         onCloseSummary();
       } else if (!isOpening) {
         onOpenPack();
@@ -119,12 +122,20 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
     };
   }, []);
 
-  // The summary stops a held Space.
+  // The summary stops a held Space and guards against stuck keys for STAGE_CLICK_GUARD_MS.
   useEffect(() => {
-    if (options.showSummary && spaceTimerRef.current) {
-      clearTimeout(spaceTimerRef.current);
-      spaceTimerRef.current = null;
-      spaceHeldRef.current = false;
+    if (options.showSummary) {
+      summarySettledRef.current = false;
+      if (spaceTimerRef.current) {
+        clearTimeout(spaceTimerRef.current);
+        spaceTimerRef.current = null;
+        spaceHeldRef.current = false;
+      }
+      const timer = setTimeout(() => {
+        summarySettledRef.current = true;
+      }, STAGE_CLICK_GUARD_MS);
+      return () => clearTimeout(timer);
     }
+    summarySettledRef.current = true;
   }, [options.showSummary]);
 };
