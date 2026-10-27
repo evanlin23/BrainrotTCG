@@ -177,7 +177,9 @@ describe('saved packs still being read', () => {
     myStats.mockReturnValue(null);
     myPackCacheState.mockReturnValue('loading');
     render();
-    expect(document.querySelector('.pulls-note [role="status"]')?.textContent).toContain('Reading your saved packs');
+    // (The Best pack's own "None yet." is a status too: it needs no wait, so it reads at once.)
+    const notes = [...document.querySelectorAll('.pulls-note [role="status"]')].map((n) => n.textContent);
+    expect(notes.some((note) => note?.includes('Reading your saved packs'))).toBe(true);
     expect(document.querySelector('.profile-summary')).toBeNull();
     expect(document.body.textContent).not.toContain("don't have their cards on this device");
 
@@ -596,13 +598,14 @@ describe('Best card place while the Best cards are weighed', () => {
     return release;
   };
 
-  it('expects nothing while the saved packs are still being read, even with winners to weigh', async () => {
+  it('holds place while saved packs are still being read, so content arriving late does not shift layout', async () => {
     seedUnscored();
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
     myPackCacheState.mockReturnValue('loading');
     await act(async () => render());
     expect(expectingSeen).toHaveBeenCalled();
-    expect(expectingSeen.mock.calls.every(([value]) => value === false)).toBe(true);
+    expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
     expect(rebuildBestCards).not.toHaveBeenCalled();
   });
 
@@ -669,15 +672,50 @@ describe('Best card place while the Best cards are weighed', () => {
     expect(heldPlace()).toBe(false);
   });
 
-  it('expects again only after the packs are ready: loading first, ready later', async () => {
+  it('holds place while loading, continues holding while rebuilding, and releases once settled', async () => {
     seedUnscored();
-    gated();
+    const release = gated();
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
     await act(async () => render());
-    expect(expecting()).toBe(false);
+    expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
 
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 0, cache: 'ready' });
     await act(async () => window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.HISTORY })));
     expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
+    expect(rebuildBestCards).toHaveBeenCalledTimes(1);
+
+    await act(async () => release());
+    expect(expecting()).toBe(false);
+    expect(heldPlace()).toBe(false);
+  });
+
+  const anyPending = () => document.querySelector('section.profile-highlight .profile-highlight-pending') !== null;
+
+  it('releases the held place when reading the saved packs failed: nothing more is coming', async () => {
+    seedUnscored();
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'failed' });
+    myPackCacheState.mockReturnValue('failed');
+    await act(async () => render());
+    expect(expecting()).toBe(false);
+    expect(anyPending()).toBe(false);
+    expect(document.body.textContent).toContain('Not ranked yet');
+  });
+
+  it('releases the held place when no read is coming, though a legacy best pack is recorded', async () => {
+    myProfileInfo.mockReturnValue(null);
+    await act(async () => render({ stats: { highestPackLegacy: true, highestPackCards: [] } }));
+    expect(expecting()).toBe(false);
+    expect(anyPending()).toBe(false);
+    expect(document.body.textContent).toContain("from before verifiable pulls");
+  });
+
+  it('expects nothing on an empty profile with no saved packs', async () => {
+    myProfileInfo.mockReturnValue(null);
+    await act(async () => render());
+    expect(expecting()).toBe(false);
+    expect(heldPlace()).toBe(false);
+    expect(document.querySelector('section.profile-highlight')).toBeNull();
   });
 });

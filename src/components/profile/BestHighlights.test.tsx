@@ -209,6 +209,19 @@ describe('states', () => {
     expect(container.innerHTML).toBe('');
   });
 
+  it('does not hold or announce a check for a Best pack that is already known to be none while the best card is weighed', async () => {
+    // Saved packs, no best-pack record: resolveBestPack reads only the stats and the player, so 'none' is final now.
+    await render({}, true);
+    expect(checkBestPack).not.toHaveBeenCalled();
+    expect(text('Best pack')).not.toContain('Checking');
+    expect(highlight('Best pack').querySelector('.profile-highlight-pending')).toBeNull();
+    const live = (name: string) => [...highlight(name).querySelectorAll('[role="status"]')].map((r) => r.textContent);
+    expect(live('Best pack').join(' ')).not.toContain('Checking');
+    expect(live('Best pack')).toHaveLength(1);
+    // The card, which does wait on the rebuild, still holds its place and says so.
+    expect(live('Best card')).toEqual(['Checking your best card against its ticket…']);
+  });
+
   it('holds the place through an unranked state while the rebuild runs, then shows the note once it ends', async () => {
     // An imported or legacy save: winners are listed but have no cached cards, so the rebuild is what ranks them.
     seedBestCards();
