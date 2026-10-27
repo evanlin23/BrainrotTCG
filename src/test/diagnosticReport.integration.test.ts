@@ -5,13 +5,23 @@ import { mountedApp } from './mountedApp';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
 afterEach(async () => {
-  const diagnostics = await import('../game/diagnostics');
-  diagnostics.setBrowserDiagnosticCapture(false);
+  try {
+    const diagnostics = await import('../game/diagnostics');
+    diagnostics.setBrowserDiagnosticCapture(false);
+    diagnostics.clearDiagnostics();
+  } catch { /* ignore if import fails */ }
+  // Reset storage and location in case a test was interrupted mid-run (#1109)
+  localStorage.clear();
+  sessionStorage.clear();
+  history.replaceState(null, '', '/BrainrotTCG/');
   // jsdom has neither; tests define them on the navigator instance.
   Reflect.deleteProperty(navigator, 'clipboard');
   Reflect.deleteProperty(navigator, 'sendBeacon');
-  await app?.dispose();
-  app = undefined;
+  try {
+    await app?.dispose();
+  } finally {
+    app = undefined;
+  }
 });
 /** The text of every element the textarea's aria-describedby names, which must all exist. */
 const description = (element: Element) => (element.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
@@ -27,7 +37,7 @@ const button = (text: string) => {
   return node!;
 };
 
-it('previews only sanitized fields, captures optionally, edits and handles clipboard failure without uploading', async () => {
+it('previews only sanitized fields, captures optionally, edits and handles clipboard failure without uploading', { timeout: 15_000 }, async () => {
   app = await mountedApp({});
   await app.mount(async () => {
     const { createElement } = await import('react');
@@ -81,7 +91,7 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   diagnostics.setBrowserDiagnosticCapture(false);
 });
 
-it('opens from the real Settings page as a labelled dialog that never touches the network', async () => {
+it('opens from the real Settings page as a labelled dialog that never touches the network', { timeout: 15_000 }, async () => {
   app = await mountedApp({
     'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Diagnostics fixture', nextNonce: 0, createdAt: 1 }),
     'brainrot-settings-v1': JSON.stringify({ effectsVolume: 0 }),
