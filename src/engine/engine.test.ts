@@ -65,18 +65,21 @@ describe('pack generation', () => {
   it('matches the configured odds', () => {
     const counts: Record<string, number> = {};
     let holos = 0;
-    const packs = 40_000;
-    for (let i = 0; i < packs; i++) {
-      for (const card of generatePack(TEST_SET, sha256(utf8(`seed-${i}`)))) {
-        counts[card.rarity] = (counts[card.rarity] ?? 0) + 1;
-        if (card.isHolo) holos++;
-      }
+    for (let roll = 0; roll < ODDS_TOTAL; roll++) {
+      const [card] = packFromDraws({ ...TEST_SET, packSize: 1 }, { int: () => roll });
+      counts[card.rarity] = (counts[card.rarity] ?? 0) + 1;
+      if (card.isHolo) holos++;
     }
-    const total = packs * TEST_SET.packSize;
     for (const [rarity, weight] of Object.entries(TEST_SET.odds)) {
-      expect(Math.abs(counts[rarity] / total - weight / 10_000)).toBeLessThan(0.004);
+      expect(counts[rarity] ?? 0).toBe(weight);
     }
-    expect(Math.abs(holos / total - 0.05)).toBeLessThan(0.003);
+    expect(holos).toBe(TEST_SET.holoOdds);
+
+    // generatePack delegates to packFromDraws across seeds
+    for (let i = 0; i < 50; i++) {
+      const pack = generatePack(TEST_SET, sha256(utf8(`seed-${i}`)));
+      expect(pack).toHaveLength(TEST_SET.packSize);
+    }
   });
 
   it('rng.int stays in range', () => {
@@ -226,15 +229,20 @@ describe('odds', () => {
     const { cards } = exactSlot(TEST_SET);
     const counts: Record<string, number> = {};
     const pack: string[] = [];
+    const tally = new Map<string, number>();
     const walk = (chance: number) => {
       if (pack.length === TEST_SET.packSize) {
-        const key = handFromCounts([...new Set(pack)].map((id) => pack.filter((c) => c === id).length));
+        const key = handFromCounts([...tally.values()]);
         counts[key] = (counts[key] ?? 0) + chance;
         return;
       }
       for (const [id, p] of cards) {
         pack.push(id);
+        tally.set(id, (tally.get(id) ?? 0) + 1);
         walk(chance * p);
+        const count = tally.get(id)!;
+        if (count === 1) tally.delete(id);
+        else tally.set(id, count - 1);
         pack.pop();
       }
     };
