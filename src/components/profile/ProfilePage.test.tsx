@@ -37,6 +37,13 @@ vi.mock('../../game/history', async (importOriginal) => ({
   getHistory,
 }));
 const actualHistory = await vi.importActual<typeof import('../../game/history')>('../../game/history');
+// A re-opened pack's cards come from the pack store, not the history entry: a test fills it by hand.
+const { getStoredPack } = vi.hoisted(() => ({ getStoredPack: vi.fn() }));
+vi.mock('../../game/packStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/packStore')>()),
+  getStoredPack,
+}));
+const actualPackStore = await vi.importActual<typeof import('../../game/packStore')>('../../game/packStore');
 // The engine checks are BestHighlights' own tests (and bestSources'): here they settle as each test says.
 const { checkBestPack, checkBestCard } = vi.hoisted(() => ({ checkBestPack: vi.fn(), checkBestCard: vi.fn() }));
 vi.mock('../../game/bestSources', async (importOriginal) => ({
@@ -78,6 +85,7 @@ beforeEach(() => {
   myPackCacheState.mockReset().mockReturnValue('ready');
   hydrateMyPacks.mockReset().mockResolvedValue('ready');
   getHistory.mockReset().mockImplementation(actualHistory.getHistory);
+  getStoredPack.mockReset().mockImplementation(actualPackStore.getStoredPack);
   checkBestPack.mockReset().mockReturnValue(new Promise(() => {}));
   checkBestCard.mockReset().mockReturnValue(new Promise(() => {}));
   expectingSeen.mockReset();
@@ -325,6 +333,45 @@ describe('the page', () => {
     act(() => note.querySelector('button')!.click());
     expect(onOpenSave).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).not.toContain('Back up your save');
+  });
+
+  it('displays observational drought counters when player history exists', () => {
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    getHistory.mockReturnValue([
+      {
+        setId: 'genesis',
+        setVersion: 1,
+        nonce: 0,
+        key,
+        cards: [{ id: 'skibidi-toilet', holo: false }],
+        hand: 'No Match',
+        score: 50,
+        openedAt: 1000,
+      },
+    ]);
+    render();
+    const section = document.querySelector('.profile-drought-section');
+    expect(section).not.toBeNull();
+    expect(section!.textContent).toContain('Packs since last');
+    expect(section!.textContent).toContain('Independent odds');
+    expect(section!.textContent).toContain('Brainrot');
+  });
+
+  it('recounts the drought counters when a re-open run fills in a pack\'s cards', () => {
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    const set = getSet('genesis', 1)!;
+    const brainrot = set.cards.find((c) => c.rarity === 'BRAINROT')!;
+    // The entry carries no cards: they are read from the pack store, empty until the re-open run saves them.
+    getHistory.mockReturnValue([
+      { setId: 'genesis', setVersion: 1, nonce: 0, key, hand: 'No Match', score: 50, openedAt: 1000 },
+    ]);
+    render();
+    const brainrotCount = () => document.querySelector('.profile-drought-stats dd')!.getAttribute('aria-label');
+    expect(brainrotCount()).toContain('at least');
+
+    getStoredPack.mockReturnValue(brainrot.id);
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.HISTORY })));
+    expect(brainrotCount()).toBe('Brainrot: 0 packs (pulled in your most recent pack)');
   });
 });
 
