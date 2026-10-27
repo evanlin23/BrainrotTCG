@@ -36,12 +36,15 @@ export default defineConfig({
     {
       name: 'desktop-chromium',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } },
+      // Select device-specific cases before execution, without skipped entries in the other project.
+      grepInvert: /@mobile-only\b/,
       // Touch only (a swipe and a tap under a thumb): left out here, not skipped, so it never shows as skipped.
       testIgnore: /toast-touch\.spec\.ts$/,
     },
     {
       name: 'mobile-chromium',
       use: { ...devices['Pixel 5'] },
+      grepInvert: /@desktop-only\b/,
     },
   ],
   webServer: {
