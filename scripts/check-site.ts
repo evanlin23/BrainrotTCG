@@ -104,7 +104,7 @@ const filesIn = (dir: string): string[] =>
  * A sourcemap, if a build emits one, is named after its file plus `.map`, so it's hashed too.
  */
 export const HASHED_ASSET = /^assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+(?:\.map)?$/;
-const REVALIDATED = /^(?:[^/]+|[ps]\/.+)$/;
+const REVALIDATED = /^(?:[^/]+|[ps]\/.+|api\/.+)$/;
 /** The longest a file that keeps its name may be cached without revalidating: a day. */
 export const MAX_REVALIDATED_AGE = 86400;
 
@@ -123,7 +123,7 @@ export const checkCacheContract = (files: readonly string[], base: string, heade
     if (file.startsWith('assets/')) {
       if (!HASHED_ASSET.test(file) || sources.has(path.posix.basename(file).replace(/\.map$/, ''))) errors.push({ path: file, error: "Has no content hash in its name, but assets/ is cached as if it never changes" });
     } else if (!REVALIDATED.test(file)) {
-      errors.push({ path: file, error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' });
+      errors.push({ path: file, error: 'Keeps its name between deploys outside the top level, p/, s/ and api/ (the cache contract in docs/HOSTING.md)' });
     }
   }
   if (headers === undefined) return errors;

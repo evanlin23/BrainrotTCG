@@ -315,7 +315,7 @@ describe('checkSite', () => {
       { path: 'index.html', error: "Loads assets/index-AbCd1234.js, outside /BrainrotTCG/assets/, so it isn't hashed" },
       { path: 'index.html', error: "Loads https://cdn.example/x.css, outside /BrainrotTCG/assets/, so it isn't hashed" },
       { path: 'assets/logo.png', error: "Has no content hash in its name, but assets/ is cached as if it never changes" },
-      { path: 'cards/a.webp', error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' },
+      { path: 'cards/a.webp', error: 'Keeps its name between deploys outside the top level, p/, s/ and api/ (the cache contract in docs/HOSTING.md)' },
     ]);
   });
 
@@ -384,7 +384,7 @@ describe('first-load budget', () => {
 });
 
 describe('checkCacheContract', () => {
-  const files = ['index.html', 'og-image.jpg', 'assets/index-AbCd1234.js', 'assets/cards/genesis/a-AbCd_-12.webp', 'p/genesis.html', 's/genesis/index.html', '_headers'];
+  const files = ['index.html', 'og-image.jpg', 'assets/index-AbCd1234.js', 'assets/cards/genesis/a-AbCd_-12.webp', 'p/genesis.html', 's/genesis/index.html', 'api/sets.json', 'api/cards.json', '_headers'];
 
   it('passes the files a build names, with no _headers or one that keeps only assets/ forever', () => {
     expect(checkCacheContract(files, '/', undefined)).toEqual([]);

@@ -15,8 +15,9 @@ Either way, nothing on the free plans can charge you: there's no payment method 
 - **Hashed, safe to keep forever:** everything in `assets/` (code, styles, fonts, card art, sounds).
   Vite names each file by a hash of its content (`name-XXXXXXXX.ext`), so a changed file is a new URL.
 - **Revalidated, same name every deploy:** `index.html`, the files from `public/` beside it (icons,
-  `og-image.jpg`, `hall-of-fame.json`), `robots.txt` and `sitemap.xml`, and the preview pages and
-  pictures in `p/` and `s/`.
+  `og-image.jpg`, `hall-of-fame.json`), `robots.txt` and `sitemap.xml`, the preview pages and
+  pictures in `p/` and `s/`, and the static fan-tool API endpoints in `api/` (`api/sets.json`,
+  `api/cards.json`, `api/hall-of-fame.json`, see `docs/API.md`).
 - **Crawler files:** the build writes `robots.txt` (allow all) and `sitemap.xml` (the app's address
   only; shares, profiles and sets are `#/` routes or `noindex` preview pages) for `SITE_URL`, or for
   production, `https://brainrottcg.pages.dev/`, when it isn't set, which is also what `index.html`'s
