@@ -188,6 +188,7 @@ export async function mountedApp(storage: Record<string, string>,
     },
     async until(description: string, assertion: () => void | Promise<void>, budgetMs = 10_000) {
       let last: unknown;
+      try { await assertion(); return; } catch (error) { last = error; }
       // Advance simulated animation time inside act, polling only the named observable outcome.
       // Await real ticket computation in the same act scope; never retry the interaction itself.
       for (let elapsed = 0; elapsed < budgetMs; elapsed += 25) {
