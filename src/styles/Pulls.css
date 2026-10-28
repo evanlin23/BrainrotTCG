@@ -71,6 +71,15 @@
   display: flex;
 }
 
+.pull-row-thumbs .card-image-slot {
+  /* Keep each pending plane below the next overlapping thumbnail and its shadow. */
+  isolation: isolate;
+  width: 26px;
+  height: auto;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+}
+
 .pull-row-thumbs img,
 .pull-row-blank {
   width: 26px;
@@ -173,6 +182,8 @@
   width: 36px;
 }
 
+.best-card-row .pull-row-thumbs .card-image-slot { width: 36px; }
+
 .pull-row-unit {
   color: var(--text-muted);
   font-family: var(--font-body);
@@ -187,6 +198,7 @@
 }
 
 @media (max-width: 420px) {
+  .pull-row-thumbs .card-image-slot { width: 20px; }
   .pull-row-thumbs img,
   .pull-row-blank {
     width: 20px;

@@ -160,6 +160,27 @@ describe('failure and retry', () => {
     vi.unstubAllGlobals();
   });
 
+  it('gives only the first ink pass a shimmer, and removes it when art is ready or failed', async () => {
+    await act(async () => root.render(<>
+      <CardImage src={card.image} alt={card.name} />
+      <CardImage src={card.image} alt="" className="misprint-ghost" aria-hidden="true" />
+    </>));
+    const [image, ghost] = container.querySelectorAll('img');
+    expect(image.dataset.state).toBe('loading');
+    expect(ghost.dataset.state).toBe('loading');
+    expect(container.querySelectorAll('.card-image-placeholder')).toHaveLength(1);
+    expect(ghost.parentElement).toBe(container);
+    await fire(image, 'load');
+    expect(image.dataset.state).toBe('ready');
+    expect(container.querySelector('.card-image-placeholder')).toBeNull();
+
+    await act(async () => root.render(<CardImage src={ALL_CARDS[0].image} alt="" />));
+    expect(container.querySelectorAll('.card-image-placeholder')).toHaveLength(1);
+    await fire(container.querySelector('img')!, 'error');
+    expect(container.querySelector('img')!.dataset.state).toBe('failed');
+    expect(container.querySelector('.card-image-placeholder')).toBeNull();
+  });
+
   it('goes from loading to failed, retries from a keyboard-reachable control, and loads', async () => {
     await act(async () => root.render(
       <div className="dialog" tabIndex={-1}>

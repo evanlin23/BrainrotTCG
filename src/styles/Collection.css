@@ -289,13 +289,19 @@
     background: var(--shine);
     opacity: 0.6;
     transform: skewX(-20deg);
+    /* Clipped sweeps start outside the face; keep their transform accelerated from the first frame. */
+    will-change: transform;
     animation: collectionItemHoloShine var(--dur-loop) ease-in-out infinite;
     pointer-events: none;
     z-index: 2;
 }
 
 @keyframes collectionItemHoloShine {
-    0% { left: -100%; }
-    30% { left: 150%; }
-    100% { left: 150%; }
+    0% { transform: translateX(0) skewX(-20deg); }
+    30% { transform: translateX(500%) skewX(-20deg); }
+    100% { transform: translateX(500%) skewX(-20deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collection-item.holo::after { will-change: auto; }
 }

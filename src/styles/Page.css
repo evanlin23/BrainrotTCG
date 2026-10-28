@@ -92,8 +92,18 @@
 }
 
 .page-skeleton-item {
+  position: relative;
+  overflow: hidden;
   border-radius: var(--radius-lg);
   background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%) 0 0 / 200% 100%;
+}
+
+.page-skeleton-item::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 -300%;
+  width: 400%;
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%) 0 0 / 50% 100%;
   animation: page-skeleton var(--dur-shimmer) ease-in-out infinite;
 }
 
@@ -107,17 +117,17 @@
 
 @keyframes page-skeleton {
   from {
-    background-position: 100% 0;
+    transform: translateX(0);
   }
 
   to {
-    background-position: -100% 0;
+    transform: translateX(50%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .page-skeleton-item {
-    animation: none;
+  .page-skeleton-item::before {
+    display: none;
   }
 }
 

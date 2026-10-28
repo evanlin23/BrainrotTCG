@@ -423,9 +423,9 @@ for (const mode of MOTION_MODES) {
         // framer-motion 14 runs the flip's rotateY spring as one Web Animation per flip (#673), not as
         // per-frame style writes that the stylesheet's transition picked up.
         expect(log.filter((entry) => entry.kind === 'waapi' && entry.what === 'transform' && entry.target === 'card-inner').length, 'the cards flipped').toBe(5);
-        // Niu Lai is holo, so its face's shimmer (on ::after) loops for as long as it shows. The loading
+        // Niu Lai is holo, so its clipped rainbow plane loops for as long as it shows. The loading
         // shimmer and the open cue's arrows loop too, but only while art renders or the cue plays.
-        expect(log.some((entry) => entry.what === 'holoRainbowShimmer' && entry.target === 'card-face' && entry.iterations === Infinity), 'nothing looped').toBe(true);
+        expect(log.some((entry) => entry.what === 'holoRainbowShimmer' && entry.target === 'holo-rainbow-layer' && entry.iterations === Infinity), 'nothing looped').toBe(true);
       }
       expect(errors).toEqual([]);
     });

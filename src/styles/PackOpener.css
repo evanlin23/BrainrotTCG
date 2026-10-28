@@ -851,6 +851,9 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+    /* Its static drop-shadow otherwise leaves this target promoted only for overlap. */
+    .pack-shell.is-idle .pack-half-top { will-change: transform; }
+
     .pack-shell.is-idle .pack-half-top,
     .pack-shell.is-idle .pack-top-piece {
         animation: pack-idle-lift var(--dur-idle) ease-in-out infinite;

@@ -90,29 +90,18 @@
 }
 
 /* Rainbow shimmer for holo cards */
-.pack-viewer-card-carousel.holo::before,
-.pack-viewer-card-grid.holo::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: var(--holo-rainbow);
-    opacity: 0.15;
-    background-size: 400% 400%;
-    animation: packViewerHoloRainbow var(--dur-loop) ease infinite;
-    pointer-events: none;
-    /* The card's own corners. */
+.pack-viewer-card-carousel.holo > .holo-rainbow-layer,
+.pack-viewer-card-grid.holo > .holo-rainbow-layer {
+    opacity: .15;
     border-radius: inherit;
     mix-blend-mode: overlay;
+    --holo-animation: packViewerHoloRainbow;
     z-index: 1;
 }
 
 @keyframes packViewerHoloRainbow {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(-75%); }
 }
 
 /* Shine sweep for holo cards */
@@ -127,22 +116,25 @@
     background: var(--shine);
     opacity: 0.6;
     transform: skewX(-20deg);
+    /* Clipped sweeps start outside the face; keep their transform accelerated from the first frame. */
+    will-change: transform;
     animation: packViewerHoloShine var(--dur-loop) ease-in-out infinite;
     pointer-events: none;
     z-index: 2;
 }
 
 @keyframes packViewerHoloShine {
-    0% { left: -100%; }
-    40% { left: 150%; }
-    100% { left: 150%; }
+    0% { transform: translateX(0) skewX(-20deg); }
+    40% { transform: translateX(500%) skewX(-20deg); }
+    100% { transform: translateX(500%) skewX(-20deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pack-viewer-card-carousel.holo::before,
-  .pack-viewer-card-grid.holo::before,
+  .pack-viewer-card-carousel.holo > .holo-rainbow-layer::before,
+  .pack-viewer-card-grid.holo > .holo-rainbow-layer::before,
   .pack-viewer-card-carousel.holo::after,
   .pack-viewer-card-grid.holo::after {
     animation: none;
+    will-change: auto;
   }
 }

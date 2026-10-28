@@ -31,9 +31,10 @@ describe('the idle cue styles', () => {
   const reduced = mediaBlocks('prefers-reduced-motion: reduce').flatMap(idleRules);
 
   it('animates only where motion is welcome, and only the strip and what is stuck on it', () => {
-    expect(calm).toHaveLength(1);
-    expect(calm[0].selectors).toEqual(['.pack-shell.is-idle .pack-half-top', '.pack-shell.is-idle .pack-top-piece']);
-    expect(calm[0].body).toMatch(/animation:\s*pack-idle-lift /);
+    const animated = calm.filter(({ body }) => /\banimation(?:-[\w-]+)?\s*:/.test(body));
+    expect(animated).toHaveLength(1);
+    expect(animated[0].selectors).toEqual(['.pack-shell.is-idle .pack-half-top', '.pack-shell.is-idle .pack-top-piece']);
+    expect(animated[0].body).toMatch(/animation:\s*pack-idle-lift /);
     const outside = css.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
     expect(outside).not.toMatch(/\.is-idle[^{}]*\{[^}]*animation/);
   });

@@ -158,14 +158,70 @@
 .card-wrapper.tell-finish { --tell: var(--finish-tell); }
 .card-wrapper.tell-misprint { --tell: var(--misprint); }
 
-/* Legendary and Brainrot backs breathe, so you know something big is under there. */
-.card-wrapper:is(.tell-legendary, .tell-brainrot) .card-back {
+/* A spread shadow's outside corner radius grows from R+2 to R+5. Scale four quarter circles
+   around their fixed centres (R is --radius-lg, 10px), and four 5px edge strips from .4 to 1.
+   Static corner masks keep the back's border and art untouched. The ring paints above the fixed
+   drop shadow, like the first shadow in the original list; its sibling shares the back's lift and
+   backface without being clipped by the card face. */
+.card-back-tell {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    pointer-events: none;
+}
+
+.card-tell-edge,
+.card-tell-corner::before {
+    --tell-scale-x: .8;
+    --tell-scale-y: .8;
+    position: absolute;
+    background: var(--tell);
     animation: tellPulse var(--dur-pulse) ease-in-out infinite;
 }
 
+.card-tell-top, .card-tell-bottom {
+    --tell-scale-x: 1;
+    --tell-scale-y: .4;
+    left: var(--radius-lg);
+    right: var(--radius-lg);
+    height: 5px;
+}
+
+.card-tell-left, .card-tell-right {
+    --tell-scale-x: .4;
+    --tell-scale-y: 1;
+    top: var(--radius-lg);
+    bottom: var(--radius-lg);
+    width: 5px;
+}
+
+.card-tell-top { top: -5px; transform-origin: center bottom; }
+.card-tell-bottom { bottom: -5px; transform-origin: center top; }
+.card-tell-left { left: -5px; transform-origin: right center; }
+.card-tell-right { right: -5px; transform-origin: left center; }
+
+.card-tell-corner {
+    position: absolute;
+    width: calc(var(--radius-lg) + 5px);
+    height: calc(var(--radius-lg) + 5px);
+    mask-image: radial-gradient(circle at var(--tell-origin), transparent var(--radius-lg), var(--black) var(--radius-lg));
+}
+
+.card-tell-corner::before {
+    content: '';
+    inset: 0;
+    border-radius: inherit;
+    transform-origin: var(--tell-origin);
+}
+
+.card-tell-top-left { --tell-origin: right bottom; top: -5px; left: -5px; border-top-left-radius: var(--radius-pill); }
+.card-tell-top-right { --tell-origin: left bottom; top: -5px; right: -5px; border-top-right-radius: var(--radius-pill); }
+.card-tell-bottom-right { --tell-origin: left top; bottom: -5px; right: -5px; border-bottom-right-radius: var(--radius-pill); }
+.card-tell-bottom-left { --tell-origin: right top; bottom: -5px; left: -5px; border-bottom-left-radius: var(--radius-pill); }
+
 @keyframes tellPulse {
-    0%, 100% { box-shadow: 0 0 0 2px var(--tell), 0 14px 34px var(--shade-55); }
-    50% { box-shadow: 0 0 0 5px var(--tell), 0 14px 34px var(--shade-55); }
+    0%, 100% { transform: scale(var(--tell-scale-x), var(--tell-scale-y)); }
+    50% { transform: scale(1); }
 }
 
 /* A holo under the back: a foil edge instead. */
@@ -180,12 +236,9 @@
  * .card-inner is untouched), and it plays once: no iteration count to loop. A legendary or brainrot tell keeps
  * its pulse alongside it. Under reduced motion the hint under the card is the cue and nothing here runs.
  */
-.card-wrapper.lift-cue .card-back {
+.card-wrapper.lift-cue .card-back,
+.card-wrapper.lift-cue .card-back-tell {
     animation: first-card-lift 1.1s ease-in-out var(--dur-slow) 1;
-}
-
-.card-wrapper.lift-cue:is(.tell-legendary, .tell-brainrot) .card-back {
-    animation: first-card-lift 1.1s ease-in-out var(--dur-slow) 1, tellPulse var(--dur-pulse) ease-in-out infinite;
 }
 
 @keyframes first-card-lift {
@@ -202,6 +255,8 @@
     .card-wrapper.lift-cue .card-back {
         animation: none;
     }
+
+    .card-back-tell { display: none; }
 }
 
 /* New to the collection: a price-sticker tag on the card's corner. */
@@ -269,27 +324,35 @@
     }
 }
 
-/* Holo card rainbow shimmer background */
-.card-wrapper.holo .card-front::after {
+/* Keep the old corner clip and the middle quarter of its 400% x 400% gradient. The moving
+   plane is only one card high; 0% -> 100% background x is three card widths, or 75% of the plane. */
+.holo-rainbow-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.holo-rainbow-layer::before {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: var(--holo-rainbow);
-    opacity: 0.26;
-    background-size: 400% 400%;
-    animation: holoRainbowShimmer var(--dur-loop) ease infinite;
-    pointer-events: none;
+    inset: 0 auto 0 0;
+    width: 400%;
+    background: var(--holo-rainbow) 0 50% / 100% 400%;
+    animation: var(--holo-animation) var(--dur-loop) ease infinite;
+}
+
+/* Holo card rainbow shimmer background */
+.card-wrapper.holo .card-front > .holo-rainbow-layer {
+    opacity: .26;
     border-radius: var(--radius-lg);
     mix-blend-mode: overlay;
+    --holo-animation: holoRainbowShimmer;
 }
 
 @keyframes holoRainbowShimmer {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(-75%); }
 }
 
 @media (max-width: 639px) {
@@ -307,7 +370,9 @@
 
 /* A misprint: the colour plates landed off register. */
 .card-front.misprint .card-full-image,
-.card-viewer-card.misprint > img:first-child {
+.card-viewer-card.misprint > .card-image-slot > img,
+.card-front.misprint .card-full-image + .card-image-placeholder,
+.card-viewer-card.misprint > .card-image-slot > .card-image-placeholder {
     transform: rotate(-1.5deg) scale(1.03);
 }
 
@@ -370,11 +435,16 @@
 /* Phones can't tilt a card to catch the light, so a holo keeps glinting on its own. */
 @media (hover: none) and (prefers-reduced-motion: no-preference) {
     .card-wrapper.holo.shine-played .holo-shine-overlay::before {
+        will-change: transform;
         animation: holoGlint var(--dur-loop) ease-in-out var(--dur-reveal) infinite;
     }
 }
 
 @keyframes holoGlint {
-    0% { left: -100%; }
-    35%, 100% { left: 150%; }
+    0% { transform: translateX(0) skewX(-20deg); }
+    35%, 100% { transform: translateX(500%) skewX(-20deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .holo-rainbow-layer::before { background-position: 0 0; }
 }

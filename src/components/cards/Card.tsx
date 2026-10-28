@@ -106,6 +106,13 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false, liftCue
                 <div className="card-face card-back" aria-hidden={isFlipped}>
                     <img src={cardBackImage} alt="" className="card-back-image" draggable="false" />
                 </div>
+                {!isFlipped && tell && (card.rarity === 'LEGENDARY' || card.rarity === 'BRAINROT') && (
+                    <span className="card-back-tell" aria-hidden="true">
+                        {['top', 'right', 'bottom', 'left', 'top-left', 'top-right', 'bottom-right', 'bottom-left'].map((part) => (
+                            <i key={part} className={`card-tell-${part} card-tell-${part.includes('-') ? 'corner' : 'edge'}`} />
+                        ))}
+                    </span>
+                )}
 
                 {/* Card Front */}
                 <div className={`card-face card-front ${modifierClasses(card)}`} aria-hidden={!isFlipped}>
@@ -115,6 +122,7 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false, liftCue
                     <div className="holo-overlay"></div>
                     {/* The reveal's lower row says New and its announcement says the finish, so the face carries only the silent modifier sticker. */}
                     {modifierLabel(card, false) && <span className="modifier-sticker" aria-hidden="true">{modifierLabel(card, false)}</span>}
+                    {card.isHolo && <span className="holo-rainbow-layer" aria-hidden="true" />}
                 </div>
             </motion.div>
         </div>

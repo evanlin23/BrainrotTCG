@@ -62,7 +62,8 @@ it('keeps finish captions off a slot whose art is still pending, so it never rea
 });
 
 it('gives the small Rankings and pull-row thumbs a placeholder lighter than the shared one', () => {
-  const thumb = rules(css).find(([selector]) => /\.hof-cards/.test(selector) && /\.pull-row-thumbs/.test(selector));
+  const thumb = rules(css).find(([selector, body]) => /\.hof-cards/.test(selector) && /\.pull-row-thumbs/.test(selector)
+    && /\[data-state='loading'\]/.test(selector) && /background\s*:/.test(body));
   expect(thumb?.[0]).toMatch(/\[data-state='loading'\]/);
   expect(thumb?.[1]).toMatch(/var\(--surface-3\)/);
   expect(thumb?.[1]).toMatch(/var\(--border-strong\)/);
@@ -70,15 +71,15 @@ it('gives the small Rankings and pull-row thumbs a placeholder lighter than the 
 
 it('only shimmers for players who allow motion', () => {
   const motion = block('@media (prefers-reduced-motion: no-preference)');
-  expect(motion).toMatch(/\[data-state='loading'\]\s*\{\s*animation: card-image-shimmer/);
+  expect(motion).toMatch(/\.card-image-placeholder::before\s*\{\s*animation: card-image-shimmer/);
   expect(css.replace(motion, '')).not.toMatch(/animation\s*:/);
 });
 
-it('pauses the shimmer of images out of view and of the misprint ghost', () => {
+it('pauses the moving placeholder beside an image out of view', () => {
   const motion = block('@media (prefers-reduced-motion: no-preference)');
   const paused = rules(motion).find(([, body]) => /animation-play-state:\s*paused/.test(body));
   expect(paused?.[0]).toMatch(/\.card-image\[data-state\]\[data-offscreen\]/);
-  expect(paused?.[0]).toMatch(/\.card-image\.misprint-ghost\[data-state\]/);
+  expect(paused?.[0]).toMatch(/\+\s*\.card-image-placeholder::before/);
 });
 
 it('lets the failed and blocked slots win over a holo pull-row thumbnail ring', () => {

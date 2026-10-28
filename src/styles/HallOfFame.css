@@ -226,6 +226,17 @@
   margin-left: -12px;
 }
 
+.hof-cards .card-image-slot {
+  /* Keep each pending plane below the next overlapping thumbnail and its shadow. */
+  isolation: isolate;
+  width: 30px;
+  height: auto;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+}
+
+.hof-cards .card-image-slot + .card-image-slot { margin-left: -12px; }
+
 .hof-cards img.holo {
   box-shadow: 0 0 0 1.5px var(--brand);
 }
@@ -332,10 +343,12 @@
     padding-inline: var(--space-2);
   }
 
+  .hof-cards .card-image-slot,
   .hof-cards img {
     width: 22px;
   }
 
+  .hof-cards .card-image-slot + .card-image-slot,
   .hof-cards img + img {
     margin-left: -12px;
   }

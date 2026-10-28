@@ -4,6 +4,39 @@
   aspect-ratio: var(--card-aspect);
 }
 
+.card-image-slot {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  line-height: 0;
+}
+
+.card-image-placeholder {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* The parent clips tiles/viewers; only images that had their own rounded edge need another clip. */
+  border-radius: 0;
+  pointer-events: none;
+}
+
+.card-full-image + .card-image-placeholder { border-radius: var(--radius-lg); }
+
+.hof-cards .card-image-placeholder,
+.pull-row-thumbs .card-image-placeholder { border-radius: var(--radius-sm); }
+
+/* Four card widths cover the full sweep of the original repeating 200% background. Its origin
+   moves from -3 widths to -1: the same pattern as background-position 100% to -100%, one period back. */
+.card-image-placeholder::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 -300%;
+  width: 400%;
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%) 0 0 / 50% 100%;
+}
+
 .card-image[data-state='rendering'],
 .card-image[data-state='loading'] {
   background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%) 0 0 / 200% 100%;
@@ -21,10 +54,28 @@
     var(--surface-3);
 }
 
+.hof-cards .card-image-placeholder::before,
+.pull-row-thumbs .card-image-placeholder::before {
+  background:
+    linear-gradient(90deg, transparent 0%, var(--border) 50%, transparent 100%) 0 0 / 50% 100%,
+    linear-gradient(var(--border-strong), var(--border-strong)),
+    var(--surface-3);
+}
+
+/* These thumbs already paint the static foil across their pending image, including its padded ring. */
+.pull-row-thumbs .card-image-slot:has(> .holo) .card-image-placeholder { display: none; }
+
+/* Filtered img thumbs originally painted their glows above the unfiltered neighbours. Preserve
+   that order when each pending plane gets its own positioned box. */
+.hof-cards .card-image-slot:has(> img:is(.misprint, .finish-platinum, .finish-diamond)),
+.pull-row-thumbs .card-image-slot:has(> img:is(.misprint, .finish-platinum, .finish-diamond)) {
+  z-index: 1;
+}
+
 /* Until its art can show, a slot is an empty frame: the finish caption printed over it (the pull
    viewer's .mod-label, the binder's .collection-mods) would make it read as a card back, so it waits.
    The button's accessible name already carries the finish. */
-.card-image:is([data-state='rendering'], [data-state='loading']) ~ :is(.mod-label, .collection-mods) {
+.card-image-slot:is([data-state='rendering'], [data-state='loading']) ~ :is(.mod-label, .collection-mods) {
   visibility: hidden;
 }
 
@@ -43,25 +94,28 @@
 
 /* Shimmer only for players who have not asked for reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
-  .card-image[data-state='rendering'],
-  .card-image[data-state='loading'] {
+  .card-image-placeholder::before {
     animation: card-image-shimmer var(--dur-shimmer) ease-in-out infinite;
   }
 
   /* CardImage marks a loading image that is scrolled out of view; the ghost pass has nothing to shimmer. */
-  .card-image[data-state][data-offscreen],
-  .card-image.misprint-ghost[data-state] {
+  .card-image[data-state][data-offscreen] + .card-image-placeholder::before {
     animation-play-state: paused;
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  /* Keep the original still background on the img. */
+  .card-image-placeholder { display: none; }
+}
+
 @keyframes card-image-shimmer {
   from {
-    background-position: 100% 0;
+    transform: translateX(0);
   }
 
   to {
-    background-position: -100% 0;
+    transform: translateX(50%);
   }
 }
 

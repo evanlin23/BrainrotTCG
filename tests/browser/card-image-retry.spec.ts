@@ -46,7 +46,7 @@ test('Retry sits above a holo card\'s foil and shine, and gets focus back when t
     return {
       retry: z(element.querySelector('.card-image-retry')!),
       // Everything else positioned in the card: holo foil and shine, and any misprint ghost or sticker.
-      others: [z(element, '::before'), z(element, '::after'),
+      others: [z(element.querySelector('.holo-rainbow-layer')!), z(element, '::after'),
         ...Array.from(element.querySelectorAll('.misprint-ghost, .modifier-sticker'), (layer) => z(layer))],
     };
   });

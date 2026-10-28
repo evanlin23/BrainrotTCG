@@ -194,10 +194,19 @@ const CardImage = ({
       }}
     />
   );
-  if (!retry || !failed) return image;
+  // A replaced img cannot host a moving pseudo-element. Keep the image itself (including its events,
+  // classes and Retry focus) and reserve one matching box for the clipped compositor shimmer. Ghosts
+  // remain direct images: their second ink pass has no loading placeholder of its own.
+  const framed = className?.split(/\s+/).includes('misprint-ghost') ? image : (
+    <span className="card-image-slot" data-state={state}>
+      {image}
+      {shimmering && <span className="card-image-placeholder" aria-hidden="true" />}
+    </span>
+  );
+  if (!retry || !failed) return framed;
   return (
     <>
-      {image}
+      {framed}
       <button
         ref={retryButton}
         type="button"
