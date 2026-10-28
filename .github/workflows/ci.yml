@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   # `npm run check` (package.json) split into stages that run side by side, so independent failures
   # show in one run, each in its own job with its own time. Together they run every part of it;

@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: browser-tests-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 # Every job here that runs Playwright (the shards, the burn-in, the cross-browser smoke and the visual
 # baselines) runs in Playwright's official image, whose tag must equal the installed @playwright/test
 # (a test in scripts/hof-workflows.test.ts checks it and that the digest is pinned like the actions). The image
