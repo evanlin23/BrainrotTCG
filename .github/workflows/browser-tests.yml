@@ -2,11 +2,14 @@ name: Browser Tests
 
 on:
   pull_request:
-  push:
-    branches-ignore: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: browser-tests-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 # Every job here that runs Playwright (the shards, the burn-in, the cross-browser smoke and the visual
 # baselines) runs in Playwright's official image, whose tag must equal the installed @playwright/test
