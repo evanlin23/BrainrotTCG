@@ -5,7 +5,8 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
-import { checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { buildCardsCatalog, buildSetsCatalog } from './build-api.ts';
+import { checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
 import { robotsTxt, sitemapXml } from './crawler-files.ts';
 import { generatePreviews } from './preview-pages.ts';
 
@@ -179,6 +180,21 @@ describe('checkSite', () => {
     expect((await checkSite(options)).errors).toEqual([]);
   });
 
+  it("passes the API catalogs build-api makes, and fails one naming an assets/ file the build doesn't have", async () => {
+    const { options, outDir } = await build(GITHUB);
+    write(`${outDir}api/sets.json`, JSON.stringify(buildSetsCatalog()));
+    write(`${outDir}api/cards.json`, JSON.stringify(buildCardsCatalog()));
+    // Player submissions are free text, not addresses this build makes.
+    write(`${outDir}api/hall-of-fame.json`, JSON.stringify([{ name: 'assets/cards/genesis/x.webp' }]));
+    expect((await checkSite(options)).errors).toEqual([]);
+
+    const [card] = buildCardsCatalog().cards;
+    write(`${outDir}api/cards.json`, JSON.stringify({ cards: [{ ...card, image: `assets/cards/${card.setId}/${card.id}.webp` }] }));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'api/cards.json', error: `Names assets/cards/${card.setId}/${card.id}.webp, which isn't in the build` },
+    ]);
+  });
+
   it('fails a page whose og:image has no size', async () => {
     const { options, outDir } = await build(GITHUB);
     const file = `${outDir}index.html`;
@@ -315,7 +331,7 @@ describe('checkSite', () => {
       { path: 'index.html', error: "Loads assets/index-AbCd1234.js, outside /BrainrotTCG/assets/, so it isn't hashed" },
       { path: 'index.html', error: "Loads https://cdn.example/x.css, outside /BrainrotTCG/assets/, so it isn't hashed" },
       { path: 'assets/logo.png', error: "Has no content hash in its name, but assets/ is cached as if it never changes" },
-      { path: 'cards/a.webp', error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' },
+      { path: 'cards/a.webp', error: 'Keeps its name between deploys outside the top level, p/, s/ and api/ (the cache contract in docs/HOSTING.md)' },
     ]);
   });
 
@@ -354,6 +370,23 @@ describe('checkSite', () => {
   });
 });
 
+describe('checkApiLinks', () => {
+  const present = new Set(['assets/locked-in-alien-AbCd1234.webp']);
+  const { base, site } = GITHUB;
+
+  it('passes hashed files in the build, however they are addressed, and ignores other text', () => {
+    const json = { cards: [{ image: 'assets/locked-in-alien-AbCd1234.webp', a: `${base}assets/locked-in-alien-AbCd1234.webp`, b: `${site}assets/locked-in-alien-AbCd1234.webp`, caption: 'Your time is limited', n: 3 }] };
+    expect(checkApiLinks('api/cards.json', json, present, base, site)).toEqual([]);
+  });
+
+  it("fails an address that isn't in the build, as an unhashed card path never is", () => {
+    expect(checkApiLinks('api/cards.json', [{ image: 'assets/cards/genesis/gone.webp' }, { image: `${site}assets/gone-AbCd1234.webp` }], present, base, site)).toEqual([
+      { path: 'api/cards.json', error: "Names assets/cards/genesis/gone.webp, which isn't in the build" },
+      { path: 'api/cards.json', error: `Names ${site}assets/gone-AbCd1234.webp, which isn't in the build` },
+    ]);
+  });
+});
+
 describe('checkFileCount', () => {
   it('passes up to 19,000 files and fails a build with more, under Cloudflare Pages\' 20,000', () => {
     expect(MAX_SITE_FILES).toBe(19_000);
@@ -384,7 +417,7 @@ describe('first-load budget', () => {
 });
 
 describe('checkCacheContract', () => {
-  const files = ['index.html', 'og-image.jpg', 'assets/index-AbCd1234.js', 'assets/cards/genesis/a-AbCd_-12.webp', 'p/genesis.html', 's/genesis/index.html', '_headers'];
+  const files = ['index.html', 'og-image.jpg', 'assets/index-AbCd1234.js', 'assets/cards/genesis/a-AbCd_-12.webp', 'p/genesis.html', 's/genesis/index.html', 'api/sets.json', 'api/cards.json', '_headers'];
 
   it('passes the files a build names, with no _headers or one that keeps only assets/ forever', () => {
     expect(checkCacheContract(files, '/', undefined)).toEqual([]);

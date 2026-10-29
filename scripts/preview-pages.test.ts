@@ -192,7 +192,8 @@ describe('generatePreviews (pages only)', () => {
   it.each(HOSTS)('writes pages where $name serves them, with pictures from the site', async ({ base, site }) => {
     const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'preview-pages-'))}/`;
     dirs.push(outDir);
-    const { pages, images } = await generatePreviews({ outDir, pagesOnly: true, base, site });
+    const set = SETS[SETS.length - 1];
+    const { pages, images } = await generatePreviews({ outDir, pagesOnly: true, base, site, versions: [set], sets: [set] });
     expect(images).toBe(0);
 
     const files = readdirSync(outDir, { recursive: true, withFileTypes: true })
@@ -203,7 +204,6 @@ describe('generatePreviews (pages only)', () => {
     for (const file of files) expect(file).toMatch(/^(p\/[0-9a-f]{8}\.html|s\/[a-z0-9-]+\/index\.html)$/);
 
     // The pages the app links to (src/game/pulls.ts: BASE_URL + the page + '#/pull/...').
-    const set = SETS[SETS.length - 1];
     const [a, b] = set.cards;
     for (const pagePath of [previewPath({ setId: set.id, cardIds: [a.id, b.id], hand: 'FULL_HOUSE' }), cardPreviewPath(set.id, a.id)]) {
       expect(files).toContain(pagePath);
@@ -228,7 +228,7 @@ describe('generatePreviews (pages only)', () => {
         expect(meta.has('og:url')).toBe(false);
       }
     }
-    expect(files.filter((f) => f.startsWith('s/'))).toEqual(setStubs().map((s) => s.path).sort());
+    expect(files.filter((f) => f.startsWith('s/'))).toEqual(setStubs([set]).map((s) => s.path).sort());
   });
 
   it("writes a page per modifier for each card of a set with modifiers, naming it, with the card's own picture", async () => {

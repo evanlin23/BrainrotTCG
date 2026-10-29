@@ -8,7 +8,7 @@ import { expectSummaryTakesClicks, fingerFor, monitor, recordShownToasts } from 
  * every time a sheet closes; and none shows over the pack while it is torn and revealed, or covers the pack's X,
  * the headline, the cards or the buttons at any phone size. Phone emulation (touch, Chromium), not a physical
  * phone; the mobile-chromium project runs it (the desktop one leaves it out, in playwright.config.ts). A toast
- * is held with focus while it is measured, so none times out between steps, and the page's own clock is
+ * is held from the moment it shows, so none times out between steps, and the page's own clock is
  * waited on, never a fixed pause.
  */
 
@@ -200,7 +200,7 @@ test('a swiped toast only fades out with reduced motion', async ({ page, baseURL
 test('a toast the player saw does not come back each time a card close-up closes', async ({ page, baseURL }) => {
   test.setTimeout(120000);
   const { errors, toast } = await toSummaryWithToast(page, baseURL!, { clock: true });
-  // Held by focus, so it is still the one up once the page's clock has moved far enough for it to count as seen.
+  // Held from the moment it shows, so it is still the one up once the page's clock has moved far enough for it to count as seen.
   await page.clock.fastForward(2000);
   await expect(toast).toBeVisible();
 

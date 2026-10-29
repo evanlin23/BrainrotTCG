@@ -37,6 +37,13 @@ vi.mock('../../game/history', async (importOriginal) => ({
   getHistory,
 }));
 const actualHistory = await vi.importActual<typeof import('../../game/history')>('../../game/history');
+// A re-opened pack's cards come from the pack store, not the history entry: a test fills it by hand.
+const { getStoredPack } = vi.hoisted(() => ({ getStoredPack: vi.fn() }));
+vi.mock('../../game/packStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/packStore')>()),
+  getStoredPack,
+}));
+const actualPackStore = await vi.importActual<typeof import('../../game/packStore')>('../../game/packStore');
 // The engine checks are BestHighlights' own tests (and bestSources'): here they settle as each test says.
 const { checkBestPack, checkBestCard } = vi.hoisted(() => ({ checkBestPack: vi.fn(), checkBestCard: vi.fn() }));
 vi.mock('../../game/bestSources', async (importOriginal) => ({
@@ -78,6 +85,7 @@ beforeEach(() => {
   myPackCacheState.mockReset().mockReturnValue('ready');
   hydrateMyPacks.mockReset().mockResolvedValue('ready');
   getHistory.mockReset().mockImplementation(actualHistory.getHistory);
+  getStoredPack.mockReset().mockImplementation(actualPackStore.getStoredPack);
   checkBestPack.mockReset().mockReturnValue(new Promise(() => {}));
   checkBestCard.mockReset().mockReturnValue(new Promise(() => {}));
   expectingSeen.mockReset();
@@ -177,7 +185,9 @@ describe('saved packs still being read', () => {
     myStats.mockReturnValue(null);
     myPackCacheState.mockReturnValue('loading');
     render();
-    expect(document.querySelector('.pulls-note [role="status"]')?.textContent).toContain('Reading your saved packs');
+    // (The Best pack's own "None yet." is a status too: it needs no wait, so it reads at once.)
+    const notes = [...document.querySelectorAll('.pulls-note [role="status"]')].map((n) => n.textContent);
+    expect(notes.some((note) => note?.includes('Reading your saved packs'))).toBe(true);
     expect(document.querySelector('.profile-summary')).toBeNull();
     expect(document.body.textContent).not.toContain("don't have their cards on this device");
 
@@ -323,6 +333,45 @@ describe('the page', () => {
     act(() => note.querySelector('button')!.click());
     expect(onOpenSave).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).not.toContain('Back up your save');
+  });
+
+  it('displays observational drought counters when player history exists', () => {
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    getHistory.mockReturnValue([
+      {
+        setId: 'genesis',
+        setVersion: 1,
+        nonce: 0,
+        key,
+        cards: [{ id: 'skibidi-toilet', holo: false }],
+        hand: 'No Match',
+        score: 50,
+        openedAt: 1000,
+      },
+    ]);
+    render();
+    const section = document.querySelector('.profile-drought-section');
+    expect(section).not.toBeNull();
+    expect(section!.textContent).toContain('Packs since last');
+    expect(section!.textContent).toContain('Independent odds');
+    expect(section!.textContent).toContain('Brainrot');
+  });
+
+  it('recounts the drought counters when a re-open run fills in a pack\'s cards', () => {
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    const set = getSet('genesis', 1)!;
+    const brainrot = set.cards.find((c) => c.rarity === 'BRAINROT')!;
+    // The entry carries no cards: they are read from the pack store, empty until the re-open run saves them.
+    getHistory.mockReturnValue([
+      { setId: 'genesis', setVersion: 1, nonce: 0, key, hand: 'No Match', score: 50, openedAt: 1000 },
+    ]);
+    render();
+    const brainrotCount = () => document.querySelector('.profile-drought-stats dd')!.getAttribute('aria-label');
+    expect(brainrotCount()).toContain('at least');
+
+    getStoredPack.mockReturnValue(brainrot.id);
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.HISTORY })));
+    expect(brainrotCount()).toBe('Brainrot: 0 packs (pulled in your most recent pack)');
   });
 });
 
@@ -596,13 +645,14 @@ describe('Best card place while the Best cards are weighed', () => {
     return release;
   };
 
-  it('expects nothing while the saved packs are still being read, even with winners to weigh', async () => {
+  it('holds place while saved packs are still being read, so content arriving late does not shift layout', async () => {
     seedUnscored();
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
     myPackCacheState.mockReturnValue('loading');
     await act(async () => render());
     expect(expectingSeen).toHaveBeenCalled();
-    expect(expectingSeen.mock.calls.every(([value]) => value === false)).toBe(true);
+    expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
     expect(rebuildBestCards).not.toHaveBeenCalled();
   });
 
@@ -669,15 +719,50 @@ describe('Best card place while the Best cards are weighed', () => {
     expect(heldPlace()).toBe(false);
   });
 
-  it('expects again only after the packs are ready: loading first, ready later', async () => {
+  it('holds place while loading, continues holding while rebuilding, and releases once settled', async () => {
     seedUnscored();
-    gated();
+    const release = gated();
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
     await act(async () => render());
-    expect(expecting()).toBe(false);
+    expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
 
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 0, cache: 'ready' });
     await act(async () => window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.HISTORY })));
     expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
+    expect(rebuildBestCards).toHaveBeenCalledTimes(1);
+
+    await act(async () => release());
+    expect(expecting()).toBe(false);
+    expect(heldPlace()).toBe(false);
+  });
+
+  const anyPending = () => document.querySelector('section.profile-highlight .profile-highlight-pending') !== null;
+
+  it('releases the held place when reading the saved packs failed: nothing more is coming', async () => {
+    seedUnscored();
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'failed' });
+    myPackCacheState.mockReturnValue('failed');
+    await act(async () => render());
+    expect(expecting()).toBe(false);
+    expect(anyPending()).toBe(false);
+    expect(document.body.textContent).toContain('Not ranked yet');
+  });
+
+  it('releases the held place when no read is coming, though a legacy best pack is recorded', async () => {
+    myProfileInfo.mockReturnValue(null);
+    await act(async () => render({ stats: { highestPackLegacy: true, highestPackCards: [] } }));
+    expect(expecting()).toBe(false);
+    expect(anyPending()).toBe(false);
+    expect(document.body.textContent).toContain("from before verifiable pulls");
+  });
+
+  it('expects nothing on an empty profile with no saved packs', async () => {
+    myProfileInfo.mockReturnValue(null);
+    await act(async () => render());
+    expect(expecting()).toBe(false);
+    expect(heldPlace()).toBe(false);
+    expect(document.querySelector('section.profile-highlight')).toBeNull();
   });
 });

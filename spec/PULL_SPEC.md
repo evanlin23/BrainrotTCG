@@ -51,7 +51,8 @@ A set is a JSON document (`src/content/sets/<id>/set.json`; older versions are k
 Rarities, rarest first (this order is normative): `BRAINROT, LEGENDARY, EPIC, RARE, UNCOMMON, COMMON`.
 
 A released `set@version` never changes (the repository's `src/content/sets.lock.json` guards this;
-take set files from a commit you trust). Archived sets (`archivedAt`) still verify.
+take set files from a commit you trust). Archived sets (`archivedAt`) still verify. External fan tools
+and verifiers can also fetch canonical set versions from the static API at `/api/sets.json` (see `docs/API.md`).
 
 ## 4. Ticket (proof of work)
 

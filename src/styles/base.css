@@ -279,6 +279,23 @@ a {
   min-height: var(--touch-target);
 }
 
+/* A link inside a sentence: the sentence's size and line height, so the line doesn't grow to 44px. The
+   44px target is an invisible hit area around the words instead. */
+.link-btn--inline {
+  position: relative;
+  min-height: 0;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.link-btn--inline::after {
+  content: '';
+  position: absolute;
+  inset: -14px -4px;
+  inset: calc((1lh - var(--touch-target)) / 2) -4px;
+}
+
 /* ---- Surfaces ---- */
 
 .panel {
