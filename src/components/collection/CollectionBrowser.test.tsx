@@ -323,6 +323,25 @@ describe('completed sets', () => {
     expect(headerOf(set().name).textContent).toContain('Complete: every card collected');
   });
 
+  it('shows holo completion percentage in the binder header and progress bar when holos are owned', () => {
+    // 3 of 12 cards as holo = 25% holo
+    render(ownAll((i) => i < 3));
+    const header = headerOf(set().name);
+    const holoPct = header.querySelector('.collection-set-holo-pct');
+    expect(holoPct?.textContent).toBe('25% holo');
+    expect(holoPct?.getAttribute('title')).toBe(`3 of ${cardsOf().length} cards collected as holo`);
+    const holoBar = header.closest('.collection-set-header')?.querySelector('.collection-set-bar-holo');
+    expect(holoBar).not.toBeNull();
+    expect(holoBar?.getAttribute('style')).toContain('width: 25%');
+  });
+
+  it('hides the holo percentage badge when the set reaches Master status', () => {
+    render(ownAll(() => true));
+    const header = headerOf(set().name);
+    expect(header.querySelector('.collection-set-holo-pct')).toBeNull();
+    expect(header.querySelector('.set-badge--master')?.textContent).toBe('Master');
+  });
+
   it('shows the tag beside Archived on an archived set\'s header', () => {
     const archived = SETS.find((s) => s.archivedAt)!;
     render(Object.fromEntries(getSetCards(archived.id).map((card) => [card.key, { card, normalCount: 1, holoCount: 0 } satisfies CollectionItem])));
