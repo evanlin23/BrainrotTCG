@@ -11,7 +11,7 @@ import { bragText } from '../../game/share';
 import { useHallOfFameSubmit } from './useHallOfFameSubmit';
 import { renderPoster } from '../../game/bragImage';
 import Sheet from '../ui/Sheet';
-import { NOT_QUALIFYING } from '../ui/rankingsRule';
+import NotQualifyingNote from '../ui/NotQualifyingNote';
 import PackCardViewer from '../ui/PackCardViewer';
 import { revealOrder } from '../../game/reveal';
 import SharePreviewSheet from './SharePreviewSheet';
@@ -26,10 +26,12 @@ export interface ShareTarget {
 interface ShareSheetProps {
   target: ShareTarget;
   onClose: () => void;
+  /** Go to Rankings' "How Rankings work", from the note on why a pull has no Submit. The sheet closes first. */
+  onOpenRankingsHelp?: () => void;
 }
 
 /** Share a whole pack: the poster you'll send, then share it or the link. */
-const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
+const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) => {
   const player = getPlayer();
   const set = getLatestSet(target.ref.setId);
   const setName = set?.name ?? target.ref.setId;
@@ -94,7 +96,19 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
           joins && <HallOfFameSubmit proof={proof} id={id} score={target.score.score} />
         ) : (
           <p className="share-note">
-            <Info aria-hidden="true" /> {NOT_QUALIFYING}
+            <Info aria-hidden="true" />{' '}
+            {/* One flex item, so the sentence stays whole around its link. */}
+            <span>
+              <NotQualifyingNote
+                onOpenHelp={
+                  onOpenRankingsHelp &&
+                  (() => {
+                    onClose();
+                    onOpenRankingsHelp();
+                  })
+                }
+              />
+            </span>
           </p>
         )
       }

@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
-import { ALL_CARDS, getCard, type Card } from '../data/cards';
-import { collectionNeedsRecovery, DATA_VERSION_KEY, hydrateCollection, runMigrations } from './migrations';
+import type { CollectionItem } from '../types';
+import { ALL_CARDS, cardPoints, getCard, type Card } from '../data/cards';
+import { collectionRecoveryFile, collectionRecoveryPrint, discardCollectionRecovery, persistCollection } from '../game/collectionRecovery';
+import { recordPack } from '../game/packProgress';
+import { isCardOwned, ownedCount } from '../game/versions';
+import { getAccountValue } from './achievementChecks';
+import { collectionNeedsRecovery, collectionNeedsRepair, DATA_VERSION_KEY, hydrateCollection, runMigrations } from './migrations';
 
 const current = ALL_CARDS[0];
 const unknown: Card = {
@@ -111,6 +116,163 @@ describe('v2 collection migration', () => {
     expect(Object.keys(hydrateCollection(migrated))).toEqual(['genesis/chimpanzini-bananini']);
     expect(collectionNeedsRecovery(migrated)).toBe(true);
     expect(store.get('brainrot-data-version')).toBe('3');
+  });
+});
+
+describe('repairing bad copy counts when the save loads (#1109)', () => {
+  const stub = (store: Map<string, string>, fail?: (key: string) => boolean) => vi.stubGlobal('localStorage', {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      if (fail?.(key)) throw new DOMException('full', 'QuotaExceededError');
+      store.set(key, value);
+    },
+    removeItem: (key: string) => { store.delete(key); },
+  });
+  const ARCHIVE = STORAGE_KEYS.COLLECTION_RECOVERY;
+  const ref = { id: current.id, key: current.key };
+  afterEach(() => {
+    // collectionRecovery keeps payloads storage refused in memory for the visit: forget them between tests.
+    stub(new Map());
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('repairs a mixed-sign and a fully negative entry, and every reader sees the same copies', () => {
+    const raw = JSON.stringify({
+      mixed: { card: ref, normalCount: -3, holoCount: 2 },
+      negative: { card: ref, normalCount: -3, holoCount: -1, count: -4 },
+      fractional: { card: ref, normalCount: 2.5, holoCount: '1' },
+    });
+    const parsed = JSON.parse(raw);
+    const loaded = hydrateCollection(parsed) as Record<string, CollectionItem>;
+    expect(loaded.mixed).toMatchObject({ normalCount: 0, holoCount: 2 });
+    expect(loaded.negative).toMatchObject({ normalCount: 0, holoCount: 0, count: 0 });
+    expect(loaded.fractional).toMatchObject({ normalCount: 2, holoCount: 0 });
+    expect(JSON.stringify(parsed)).toBe(raw);
+    // The next write keeps the stored bytes aside first; a save file with such a count is still refused.
+    expect(collectionNeedsRepair(parsed)).toBe(true);
+    expect(collectionNeedsRecovery(parsed)).toBe(false);
+
+    expect([ownedCount(loaded.mixed), isCardOwned(loaded.mixed)]).toEqual([2, true]);
+    expect([ownedCount(loaded.negative), isCardOwned(loaded.negative)]).toEqual([0, false]);
+    expect(getAccountValue({ mixed: loaded.mixed, negative: loaded.negative }))
+      .toBe(2 * cardPoints(current.rarity, true));
+  });
+
+  it('adds a pull to the repaired count, not to the stored negative one', () => {
+    const loaded = hydrateCollection({ [current.key]: { card: ref, normalCount: -3, holoCount: 2 } }) as Record<string, CollectionItem>;
+    const pulled = { ...current, uniqueId: 1, isRevealed: true, isHolo: false };
+    const pack = { cards: [pulled], setId: current.setId, setVersion: 1, nonce: 1, publicKeyHex: 'ab'.repeat(32) };
+    const { progress } = recordPack({ stats: { packsOpened: 0, holoCards: {} }, collection: loaded, hallOfFame: {} }, pack, {});
+    expect(progress.collection[current.key]).toMatchObject({ normalCount: 1, holoCount: 2 });
+  });
+
+  it('keeps the stored bytes aside on the next write, so the raw counts can be recovered', () => {
+    const raw = JSON.stringify({ [current.key]: { card: ref, normalCount: -3, holoCount: 2 } });
+    const store = new Map<string, string>([[STORAGE_KEYS.COLLECTION, raw], ['brainrot-player-v1', '{"id":"me"}']]);
+    stub(store);
+    const loaded = hydrateCollection(JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!));
+    expect(persistCollection(loaded)).toBe('recovered');
+    expect(JSON.parse(store.get(ARCHIVE)!)).toEqual({ raw, player: '{"id":"me"}' });
+    expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!)[current.key]).toMatchObject({ normalCount: 0, holoCount: 2 });
+    // The repaired save is valid, so later writes keep nothing more.
+    expect(persistCollection(loaded)).toBe('saved');
+  });
+
+  it('reads a valid save unchanged, byte for byte, and keeps nothing aside', () => {
+    const raw = JSON.stringify({
+      [current.key]: { card: current, normalCount: 3, holoCount: 0, count: 3, finishes: { GOLD: 1 } },
+      migrated: { card: current, normalCount: null, holoCount: 1 },
+    });
+    const parsed = JSON.parse(raw);
+    expect(JSON.stringify(hydrateCollection(parsed))).toBe(raw);
+    expect(collectionNeedsRepair(parsed)).toBe(false);
+    const store = new Map<string, string>([[STORAGE_KEYS.COLLECTION, raw]]);
+    stub(store);
+    expect(persistCollection(hydrateCollection(parsed))).toBe('saved');
+    expect(store.has(ARCHIVE)).toBe(false);
+  });
+
+  it('repairs v1 counts in migration after keeping the original collection aside', () => {
+    const raw = JSON.stringify({
+      image: { card: { id: 'image' }, normalCount: -3, holoCount: 2 },
+      [current.key]: { card: ref, count: -5, holoCount: -1 },
+    });
+    const store = new Map<string, string>([[STORAGE_KEYS.COLLECTION, raw]]);
+    stub(store);
+    expect(runMigrations()).toBe(true);
+    const migrated = JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!);
+    expect(migrated['genesis/chimpanzini-bananini']).toMatchObject({ normalCount: 0, holoCount: 2 });
+    expect(migrated[current.key]).toMatchObject({ normalCount: 0, holoCount: 0 });
+    expect(collectionNeedsRepair(migrated)).toBe(false);
+    expect(JSON.parse(store.get(ARCHIVE)!)).toEqual({ raw, player: null });
+    expect(store.get(DATA_VERSION_KEY)).toBe('3');
+  });
+
+  it('migrates valid v1 counts as before, keeping nothing aside', () => {
+    const store = new Map<string, string>([[STORAGE_KEYS.COLLECTION, JSON.stringify({ image: { card: { id: 'image' }, count: 2, holoCount: 1 } })]]);
+    stub(store);
+    expect(runMigrations()).toBe(true);
+    expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!)['genesis/chimpanzini-bananini']).toMatchObject({ normalCount: 2, holoCount: 1 });
+    expect(store.has(ARCHIVE)).toBe(false);
+  });
+
+  it.each([
+    ['every write fails', () => true],
+    ['only the archive write fails', (key: string) => key === ARCHIVE],
+  ])('changes nothing stored when %s, and the next load repairs after keeping the original', async (_, fail) => {
+    const raw = JSON.stringify({ image: { card: { id: 'image' }, normalCount: -3, holoCount: 2 } });
+    const store = new Map<string, string>([[STORAGE_KEYS.COLLECTION, raw]]);
+    stub(store, fail);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(runMigrations()).toBe(false);
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
+    expect(store.has(DATA_VERSION_KEY)).toBe(false);
+    expect(store.has(ARCHIVE)).toBe(false);
+    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw, player: null });
+
+    // The next load (a fresh module, as a reload is) with room again.
+    stub(store);
+    vi.resetModules();
+    const reloaded = await import('./migrations');
+    expect(reloaded.runMigrations()).toBe(true);
+    expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!)['genesis/chimpanzini-bananini']).toMatchObject({ normalCount: 0, holoCount: 2 });
+    expect(JSON.parse(store.get(ARCHIVE)!)).toEqual({ raw, player: null });
+    expect(store.get(DATA_VERSION_KEY)).toBe('3');
+  });
+
+  it('repairs misprints, finishes and modifier points, and a pull adds to the repaired values', () => {
+    const loaded = hydrateCollection({
+      [current.key]: { card: ref, normalCount: 1, holoCount: 0, misprints: -2, finishes: { GOLD: -1, BOGUS: 3 }, modifierPoints: -5 },
+      text: { card: ref, normalCount: 1, holoCount: 0, finishes: 'GOLD', misprints: 1.5 },
+    }) as Record<string, CollectionItem>;
+    // A finish this build doesn't know keeps its count: readers skip it, and a newer build may read it.
+    expect(loaded[current.key]).toEqual({ card: current, normalCount: 1, holoCount: 0, misprints: 0, finishes: { GOLD: 0, BOGUS: 3 }, modifierPoints: 0 });
+    expect(loaded.text).toEqual({ card: current, normalCount: 1, holoCount: 0, misprints: 1 });
+
+    const pulled = { ...current, uniqueId: 1, isRevealed: true, isHolo: false, finish: 'GOLD' as const, misprint: true };
+    const pack = { cards: [pulled], setId: current.setId, setVersion: 1, nonce: 1, publicKeyHex: 'ab'.repeat(32) };
+    const { progress } = recordPack({ stats: { packsOpened: 0, holoCards: {} }, collection: loaded, hallOfFame: {} }, pack, {});
+    expect(progress.collection[current.key]).toMatchObject({ normalCount: 2, misprints: 1, finishes: { GOLD: 1 } });
+  });
+
+  it('reads a finish this build does not know, with a valid count, as stored, so a write keeps it', () => {
+    const stored = { [current.key]: { card: current, normalCount: 1, holoCount: 0, finishes: { GOLD: 1, FUTURE: 2 } } };
+    expect(JSON.stringify(hydrateCollection(stored))).toBe(JSON.stringify(stored));
+    expect(collectionNeedsRepair(stored)).toBe(false);
+  });
+
+  it('falls back to a valid legacy count beside a bad normal count, so a pull adds to it', () => {
+    const loaded = hydrateCollection({ [current.key]: { card: ref, normalCount: -3, count: 2, holoCount: 0 } }) as Record<string, CollectionItem>;
+    expect(loaded[current.key]).toMatchObject({ normalCount: 2, count: 2 });
+    expect(ownedCount(loaded[current.key])).toBe(2);
+    expect(getAccountValue(loaded)).toBe(2 * cardPoints(current.rarity, false));
+    const pulled = { ...current, uniqueId: 1, isRevealed: true, isHolo: false };
+    const pack = { cards: [pulled], setId: current.setId, setVersion: 1, nonce: 1, publicKeyHex: 'ab'.repeat(32) };
+    const { progress } = recordPack({ stats: { packsOpened: 0, holoCards: {} }, collection: loaded, hallOfFame: {} }, pack, {});
+    expect(ownedCount(progress.collection[current.key])).toBe(3);
   });
 });
 

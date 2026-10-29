@@ -14,10 +14,10 @@ import { monitor } from './support';
  */
 
 const VIEWPORTS = [
-  { name: '320x640', width: 320, height: 640, project: 'mobile-chromium' },
-  { name: '360x740', width: 360, height: 740, project: 'mobile-chromium' },
-  { name: '390x844', width: 390, height: 844, project: 'mobile-chromium' },
-  { name: '1280x800', width: 1280, height: 800, project: 'desktop-chromium' },
+  { name: '320x640', width: 320, height: 640, tag: '@mobile-only' },
+  { name: '360x740', width: 360, height: 740, tag: '@mobile-only' },
+  { name: '390x844', width: 390, height: 844, tag: '@mobile-only' },
+  { name: '1280x800', width: 1280, height: 800, tag: '@desktop-only' },
 ];
 const ZOOMS = [
   { name: 'default text', rootPx: 16 },
@@ -106,8 +106,7 @@ function expectBeside(l: Awaited<ReturnType<typeof layoutOf>>, label: string) {
 
 for (const viewport of VIEWPORTS) {
   for (const zoom of ZOOMS) {
-    test(`Back up and Restore stay readable at ${viewport.name}, ${zoom.name} (#691)`, async ({ page, baseURL }, testInfo) => {
-      test.skip(testInfo.project.name !== viewport.project, 'One emulated screen size per project.');
+    test(`Back up and Restore stay readable at ${viewport.name}, ${zoom.name} (#691)`, { tag: viewport.tag }, async ({ page, baseURL }) => {
       const { errors, main, backUp, restore } = await openSettings(page, baseURL!, viewport, zoom);
       const where = `${viewport.name}, ${zoom.name}`;
 
@@ -156,8 +155,7 @@ for (const viewport of VIEWPORTS) {
 // The copy of the current save is the write the browser refuses: "Replace without a copy" is the longest label in these rows.
 for (const viewport of VIEWPORTS) {
   for (const zoom of ZOOMS) {
-    test(`the no-room question stays readable at ${viewport.name}, ${zoom.name} (#691)`, async ({ page, baseURL }, testInfo) => {
-      test.skip(testInfo.project.name !== viewport.project, 'One emulated screen size per project.');
+    test(`the no-room question stays readable at ${viewport.name}, ${zoom.name} (#691)`, { tag: viewport.tag }, async ({ page, baseURL }) => {
       const { errors, main, restore } = await openSettings(page, baseURL!, viewport, zoom);
       const where = `${viewport.name}, ${zoom.name}`;
       await page.evaluate(() => {
@@ -177,8 +175,7 @@ for (const viewport of VIEWPORTS) {
   }
 }
 
-test('a wide window keeps Back up and Restore on one line each (#691)', async ({ page, baseURL }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop-chromium', 'The desktop counterpart of the phone checks above.');
+test('a wide window keeps Back up and Restore on one line each (#691)', { tag: '@desktop-only' }, async ({ page, baseURL }) => {
   const { errors, backUp, restore } = await openSettings(page, baseURL!, VIEWPORTS[3], ZOOMS[0]);
   for (const [name, row] of [['back up', backUp], ['restore', restore]] as const) {
     expectBeside(await expectReadable(row, `desktop, ${name}`, [name === 'back up' ? 'Export' : 'Import']), `desktop ${name}`);
