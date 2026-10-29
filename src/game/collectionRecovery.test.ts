@@ -73,14 +73,26 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual(loaded);
   });
 
-  it('still saves the repaired counts when storage has no room for the original, keeping it for this visit', () => {
-    const raw = JSON.stringify({ [card.key]: { card, normalCount: -3, holoCount: 2 } });
-    const data = seed(raw, (key) => key === ARCHIVE);
+  it.each([
+    ['storage is full', 0, (key: string) => key === ARCHIVE],
+    ['the original is over the archive budget', ARCHIVE_BUDGET, () => false],
+  ])('keeps a collection with repaired counts stored while %s, so its bytes are never only in this tab', (_, pad, fail) => {
+    const raw = JSON.stringify({ [card.key]: { card, normalCount: -3, holoCount: 2 }, pad: { card, normalCount: 1, holoCount: 0, note: 'x'.repeat(pad) } });
+    const data = seed(raw, fail);
     const loaded = hydrateCollection(JSON.parse(raw));
-    expect(persistCollection(loaded)).toBe('recovered');
-    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual(loaded);
+    expect(persistCollection(loaded)).toBe('blocked');
+    expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
+    expect(data.has(ARCHIVE)).toBe(false);
+    // Downloadable this visit meanwhile; the next load reads the stored counts repaired again.
     expect(collectionRecoveryState()).toBe('unsaved');
     expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw, player: null });
+  });
+
+  it('still saves past full storage when the stored collection only has unreadable entries, as before', () => {
+    const raw = JSON.stringify({ [card.key]: item, bad: { card: false } });
+    const data = seed(raw, (key) => key === ARCHIVE);
+    expect(persistCollection({ [card.key]: item })).toBe('recovered');
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual({ [card.key]: item });
   });
 
   it('does not allocate a recovery archive for a new or fully readable collection', () => {

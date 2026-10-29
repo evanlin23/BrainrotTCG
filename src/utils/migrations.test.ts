@@ -218,22 +218,54 @@ describe('repairing bad copy counts when the save loads (#1109)', () => {
     expect(store.has(ARCHIVE)).toBe(false);
   });
 
-  it('keeps the original for this visit when storage is full, and loses nothing when the repair write fails', () => {
+  it.each([
+    ['every write fails', () => true],
+    ['only the archive write fails', (key: string) => key === ARCHIVE],
+  ])('changes nothing stored when %s, and the next load repairs after keeping the original', async (_, fail) => {
     const raw = JSON.stringify({ image: { card: { id: 'image' }, normalCount: -3, holoCount: 2 } });
     const store = new Map<string, string>([[STORAGE_KEYS.COLLECTION, raw]]);
-    stub(store, () => true);
+    stub(store, fail);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(runMigrations()).toBe(false);
     expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
     expect(store.has(DATA_VERSION_KEY)).toBe(false);
+    expect(store.has(ARCHIVE)).toBe(false);
     expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw, player: null });
 
-    // Room again: the retry repairs, and the original it kept this visit is still there to download, once.
+    // The next load (a fresh module, as a reload is) with room again.
     stub(store);
-    expect(runMigrations()).toBe(true);
+    vi.resetModules();
+    const reloaded = await import('./migrations');
+    expect(reloaded.runMigrations()).toBe(true);
     expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!)['genesis/chimpanzini-bananini']).toMatchObject({ normalCount: 0, holoCount: 2 });
-    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw, player: null });
+    expect(JSON.parse(store.get(ARCHIVE)!)).toEqual({ raw, player: null });
+    expect(store.get(DATA_VERSION_KEY)).toBe('3');
+  });
+
+  it('repairs misprints, finishes and modifier points, and a pull adds to the repaired values', () => {
+    const loaded = hydrateCollection({
+      [current.key]: { card: ref, normalCount: 1, holoCount: 0, misprints: -2, finishes: { GOLD: -1, BOGUS: 3 }, modifierPoints: -5 },
+      text: { card: ref, normalCount: 1, holoCount: 0, finishes: 'GOLD', misprints: 1.5 },
+    }) as Record<string, CollectionItem>;
+    expect(loaded[current.key]).toEqual({ card: current, normalCount: 1, holoCount: 0, misprints: 0, finishes: { GOLD: 0 }, modifierPoints: 0 });
+    expect(loaded.text).toEqual({ card: current, normalCount: 1, holoCount: 0, misprints: 1 });
+
+    const pulled = { ...current, uniqueId: 1, isRevealed: true, isHolo: false, finish: 'GOLD' as const, misprint: true };
+    const pack = { cards: [pulled], setId: current.setId, setVersion: 1, nonce: 1, publicKeyHex: 'ab'.repeat(32) };
+    const { progress } = recordPack({ stats: { packsOpened: 0, holoCards: {} }, collection: loaded, hallOfFame: {} }, pack, {});
+    expect(progress.collection[current.key]).toMatchObject({ normalCount: 2, misprints: 1, finishes: { GOLD: 1 } });
+  });
+
+  it('falls back to a valid legacy count beside a bad normal count, so a pull adds to it', () => {
+    const loaded = hydrateCollection({ [current.key]: { card: ref, normalCount: -3, count: 2, holoCount: 0 } }) as Record<string, CollectionItem>;
+    expect(loaded[current.key]).toMatchObject({ normalCount: 2, count: 2 });
+    expect(ownedCount(loaded[current.key])).toBe(2);
+    expect(getAccountValue(loaded)).toBe(2 * cardPoints(current.rarity, false));
+    const pulled = { ...current, uniqueId: 1, isRevealed: true, isHolo: false };
+    const pack = { cards: [pulled], setId: current.setId, setVersion: 1, nonce: 1, publicKeyHex: 'ab'.repeat(32) };
+    const { progress } = recordPack({ stats: { packsOpened: 0, holoCards: {} }, collection: loaded, hallOfFame: {} }, pack, {});
+    expect(ownedCount(progress.collection[current.key])).toBe(3);
   });
 });
 

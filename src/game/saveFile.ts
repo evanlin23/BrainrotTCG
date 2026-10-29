@@ -3,7 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine';
 import { getCard } from '../data/cards';
 import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
-import { exportedCollectionRecovery, isArchive } from './collectionRecovery';
+import { exportedCollection, exportedCollectionRecovery, isArchive } from './collectionRecovery';
 import { isBestCardsStore, resetBestCards } from './bestCards';
 import { isLegacyPull, isStored, withReadableCache } from './history';
 import { exportPlayer, importPlayer, isCurrentPlayer, newPlayerRecord, newSaveStamp, parsePlayer, playerUnreadable, SAVE_STAMP_KEY, sameSave, saveMark, type SaveMark } from './player';
@@ -174,19 +174,24 @@ export const NO_COPY_NOTE = "Couldn't keep a backup of your current save. Nothin
 const IMPORT_BACKUP_KEY = 'brainrot-before-import-v1';
 
 /** Private backup: recovery payloads remain opaque, separate from the active identity/state. */
-export const exportSaveFile = (): string => JSON.stringify({
-  // History and stats as this app reads them, so the file imports again (#652, #1053): history's
-  // unreadable cached codes are dropped, and unreadable stats are rebuilt (their copy is kept aside,
-  // and goes in the file even while storage has no room for it).
-  ...Object.fromEntries(SAVE_FIELDS.map(([field, key]) => [field,
-    key === STORAGE_KEYS.HISTORY ? withReadableCache(localStorage.getItem(key))
-      : key === STORAGE_KEYS.STATS ? exportedStats(localStorage.getItem(key))
-        : key === STORAGE_KEYS.COLLECTION_RECOVERY ? exportedCollectionRecovery(localStorage.getItem(key)) : localStorage.getItem(key)])),
-  player: exportPlayer(),
-  exportedAt: new Date().toISOString(),
-  version: 2,
-  dataVersion: CURRENT_DATA_VERSION,
-}, null, 2);
+export const exportSaveFile = (): string => {
+  // First, as it may keep the stored collection's bytes aside for the kept-aside data read below.
+  const collection = exportedCollection(localStorage.getItem(STORAGE_KEYS.COLLECTION));
+  return JSON.stringify({
+    // History, stats and collection as this app reads them, so the file imports again (#652, #1053, #1109):
+    // history's unreadable cached codes are dropped, unreadable stats are rebuilt and bad collection counts
+    // repaired (their copy is kept aside, and goes in the file even while storage has no room for it).
+    ...Object.fromEntries(SAVE_FIELDS.map(([field, key]) => [field,
+      key === STORAGE_KEYS.HISTORY ? withReadableCache(localStorage.getItem(key))
+        : key === STORAGE_KEYS.STATS ? exportedStats(localStorage.getItem(key))
+          : key === STORAGE_KEYS.COLLECTION ? collection
+            : key === STORAGE_KEYS.COLLECTION_RECOVERY ? exportedCollectionRecovery(localStorage.getItem(key)) : localStorage.getItem(key)])),
+    player: exportPlayer(),
+    exportedAt: new Date().toISOString(),
+    version: 2,
+    dataVersion: CURRENT_DATA_VERSION,
+  }, null, 2);
+};
 
 /** Under Export before it is used: what the file holds. */
 export const EXPORT_KEY_NOTE = 'Includes your secret player key. Keep the file private.';

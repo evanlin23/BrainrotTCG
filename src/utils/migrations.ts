@@ -6,9 +6,10 @@
  */
 import legacyGenesisIds from '../content/sets/genesis/legacy-ids.json';
 import { CARD_RARITIES, getCard, scoreCards, type Card } from '../data/cards';
+import { FINISH_MULTIPLIER } from '../engine';
 import { STORAGE_KEYS } from '../constants';
 // A cycle (collectionRecovery reads collectionNeedsRecovery from here), safe because both only call at run time.
-import { keepUnreadableAside } from '../game/collectionRecovery';
+import { keepUnreadableAside, keptInStorage } from '../game/collectionRecovery';
 
 export const DATA_VERSION_KEY = 'brainrot-data-version';
 export const CURRENT_DATA_VERSION = 3;
@@ -65,30 +66,56 @@ const isReadablePackCard = (value: unknown): value is AnyRecord => {
     && typeof value.rarity === 'string' && Object.prototype.hasOwnProperty.call(CARD_RARITIES, value.rarity);
 };
 
-/** The stored copy counts: the legacy `count` is a normal count too, and readers use it before or after normalCount. */
-const COUNT_FIELDS = ['normalCount', 'holoCount', 'count'] as const;
-
-/** What a stored copy count reads as: a non-negative whole number. Missing or null (migrateV2's unreadable count) reads as none. */
-const isCountOrNone = (value: unknown): boolean =>
-  value === undefined || value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
+const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
 /** A count the save can't hold (#1109): negative or non-integer reads as the whole copies it can stand for, else 0. */
 const repairCount = (value: unknown): number =>
   (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), Number.MAX_SAFE_INTEGER) : 0);
 
-const hasBadCount = (item: Record<string, unknown>): boolean => COUNT_FIELDS.some((field) => !isCountOrNone(item[field]));
+const isFinish = (finish: string): boolean => Object.prototype.hasOwnProperty.call(FINISH_MULTIPLIER, finish);
+const isFinishCounts = (value: unknown): boolean => isRecord(value)
+  && Object.entries(value).every(([finish, count]) => isFinish(finish) && isCount(count));
+
+/**
+ * The entry fields a save file may hold (game/saveFile.ts collectionEntry), each with its repair. A null
+ * normal or holo count (migrateV2's unreadable count) reads as none, as an import takes it.
+ */
+const COUNT_FIELDS: readonly [field: string, valid: (value: unknown) => boolean, repair: (value: unknown) => unknown][] = [
+  ['normalCount', (v) => v === null || isCount(v), repairCount],
+  ['holoCount', (v) => v === null || isCount(v), repairCount],
+  ['count', isCount, repairCount],
+  ['misprints', isCount, repairCount],
+  ['modifierPoints', (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0, () => 0],
+  // Only the finishes there are, each with a count: anything else is no finish count a reader can use.
+  ['finishes', isFinishCounts, (v) => (isRecord(v)
+    ? Object.fromEntries(Object.entries(v).filter(([finish]) => isFinish(finish)).map(([finish, count]) => [finish, repairCount(count)]))
+    : undefined)],
+];
+
+const hasBadCount = (item: Record<string, unknown>): boolean =>
+  COUNT_FIELDS.some(([field, valid]) => item[field] !== undefined && !valid(item[field]));
 
 /** The entry with every bad count repaired; the same object when there is none, so a valid save reads unchanged. */
 const withRepairedCounts = <T extends Record<string, unknown>>(item: T): T => {
   if (!hasBadCount(item)) return item;
   const repaired: Record<string, unknown> = { ...item };
-  for (const field of COUNT_FIELDS) if (!isCountOrNone(item[field])) repaired[field] = repairCount(item[field]);
+  for (const [field, valid, repair] of COUNT_FIELDS) {
+    if (item[field] === undefined || valid(item[field])) continue;
+    // A bad normal count beside a valid legacy count: every reader falls back to that count, so keep it.
+    repaired[field] = field === 'normalCount' && isCount(item.count) ? item.count : repair(item[field]);
+    if (repaired[field] === undefined) delete repaired[field];
+  }
   return repaired as T;
 };
 
+/** The stored collection with each readable entry's bad counts repaired and everything else as stored, for a save file. */
+export const repairCollectionCounts = (value: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(value).map(([key, item]) =>
+    [key, isRecord(item) && isReadableCard(item.card) ? withRepairedCounts(item) : item]));
+
 /**
  * Refresh readable collection cards without rewriting the original saved payload. A readable entry
- * with a negative or non-integer count is read with that count repaired, so every reader sees the
+ * with a negative or non-integer count (or misprints, finishes, modifier points) is read repaired, so every reader sees the
  * same copies; collectionNeedsRepair tells the next write to keep the original bytes aside first.
  */
 export function hydrateCollection<T extends { card: Partial<Card> & { id: string } }>(collection: Record<string, T>): Record<string, T & { card: Card }>;
@@ -151,10 +178,10 @@ const migrateV2 = (): boolean => {
       const prev = next[key] as AnyRecord | undefined;
       let normal = Number(item.normalCount ?? item.count ?? 0);
       let holo = Number(item.holoCount ?? 0);
-      if (!isCountOrNone(normal) || !isCountOrNone(holo)) {
+      if (!isCount(normal) || !isCount(holo)) {
         repaired = true;
-        normal = isCountOrNone(normal) ? normal : repairCount(normal);
-        holo = isCountOrNone(holo) ? holo : repairCount(holo);
+        normal = isCount(normal) ? normal : repairCount(normal);
+        holo = isCount(holo) ? holo : repairCount(holo);
       }
       next[key] = {
         card: hydrateCard({ ...(item.card as AnyRecord), id: String((item.card as AnyRecord)?.id ?? oldKey), key }),
@@ -170,9 +197,11 @@ const migrateV2 = (): boolean => {
       while (key in next) key = `${key}#unreadable`;
       next[key] = item;
     }
-    // A repaired count replaces the stored one, so keep the original bytes aside first (in this tab
-    // only when storage is full). If they can't be read, write nothing: the stage is retried.
-    if (repaired && keepUnreadableAside(STORAGE_KEYS.COLLECTION, () => true) === 'blocked') return false;
+    // A repaired count replaces the stored one, so keep the original bytes aside in storage first. If
+    // storage can't keep them (full, or over the archive's budget), write nothing: the stage is retried,
+    // and the upgrade screen offers the save as stored. A copy kept for this tab only would go with it.
+    if (repaired && (keepUnreadableAside(STORAGE_KEYS.COLLECTION, () => true) === 'blocked'
+      || !keptInStorage(STORAGE_KEYS.COLLECTION))) return false;
     if (!write(STORAGE_KEYS.COLLECTION, next)) return false;
   }
 

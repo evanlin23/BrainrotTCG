@@ -1,5 +1,5 @@
 import { STORAGE_KEYS } from '../constants';
-import { collectionNeedsRecovery, collectionNeedsRepair } from '../utils/migrations';
+import { collectionNeedsRecovery, collectionNeedsRepair, repairCollectionCounts } from '../utils/migrations';
 import { setStoredData } from '../utils/storage';
 
 /** player.ts keeps its key private; the archive only snapshots the raw value. */
@@ -169,24 +169,60 @@ export const keptInStorage = (storageKey: typeof STORAGE_KEYS.COLLECTION | KeptK
   }
 };
 
-/** Unparseable bytes are unreadable too, and so is a count hydration repaired: the write would replace it. */
-const collectionUnreadable = (raw: string): boolean => {
+const parsedCollection = (raw: string): { value: unknown } | null => {
   try {
-    const value: unknown = JSON.parse(raw);
-    return collectionNeedsRecovery(value) || collectionNeedsRepair(value);
+    return { value: JSON.parse(raw) };
   } catch {
-    return true;
+    return null;
+  }
+};
+
+/** A count hydration repaired (utils/migrations.ts): the next write would replace the stored one. */
+const collectionRepaired = (raw: string): boolean => {
+  const parsed = parsedCollection(raw);
+  return parsed !== null && collectionNeedsRepair(parsed.value);
+};
+
+/** Unparseable bytes are unreadable too, and so is a repaired count. */
+const collectionUnreadable = (raw: string): boolean => {
+  const parsed = parsedCollection(raw);
+  return parsed === null || collectionNeedsRecovery(parsed.value) || collectionNeedsRepair(parsed.value);
+};
+
+/** Whether the stored collection holds a count hydration repaired; false when there is none or it can't be read. */
+const storedCollectionRepaired = (): boolean => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.COLLECTION);
+    return raw !== null && collectionRepaired(raw);
+  } catch {
+    return false;
   }
 };
 
 /**
  * Hydration may hide unreadable entries. Never let the next write silently erase them: keep their
- * original bytes aside first, then write the collection.
+ * original bytes aside first, then write the collection. A stored collection whose counts hydration
+ * repaired stays stored until its bytes are in the stored archive (as stats do, game/statsRecovery.ts):
+ * the game reads it repaired either way, and a copy kept for this tab only would go when it closes.
  */
 export const persistCollection = (next: unknown): CollectionSaveResult => {
   const archive = keepUnreadableAside(STORAGE_KEYS.COLLECTION, collectionUnreadable);
-  if (archive === 'blocked' || !setStoredData(STORAGE_KEYS.COLLECTION, next)) return 'blocked';
+  if (archive === 'blocked') return 'blocked';
+  if (archive === 'archived' && !keptInStorage(STORAGE_KEYS.COLLECTION) && storedCollectionRepaired()) return 'blocked';
+  if (!setStoredData(STORAGE_KEYS.COLLECTION, next)) return 'blocked';
   return archive === 'archived' ? 'recovered' : 'saved';
+};
+
+/**
+ * The stored collection as a backup file holds it: counts hydration repaired are written repaired, so
+ * the file imports again (an import refuses bad counts). Their stored bytes are kept aside first, so the
+ * file's kept-aside data carries them too, even while storage has no room for them. Everything else
+ * goes as stored.
+ */
+export const exportedCollection = (raw: string | null): string | null => {
+  if (raw === null || !collectionRepaired(raw)) return raw;
+  keepUnreadableAside(STORAGE_KEYS.COLLECTION, collectionUnreadable);
+  return JSON.stringify(repairCollectionCounts(JSON.parse(raw)));
 };
 
 /**

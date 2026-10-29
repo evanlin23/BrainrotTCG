@@ -155,6 +155,33 @@ describe('Save & backup preflight', () => {
     expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
   });
 
+  it('exports bad stored collection counts repaired, so the file imports, with the stored bytes kept aside (#1109)', () => {
+    const card = ALL_CARDS[0];
+    const raw = JSON.stringify({
+      [card.key]: { card: { id: card.id, key: card.key }, normalCount: -3, holoCount: 2, misprints: -2, finishes: { GOLD: -1 } },
+    });
+    store.set(STORAGE_KEYS.COLLECTION, raw);
+    const saved = exportSaveFile();
+    const file = JSON.parse(saved);
+    expect(JSON.parse(file.collection)[card.key]).toMatchObject({ normalCount: 0, holoCount: 2, misprints: 0, finishes: { GOLD: 0 } });
+    // The raw counts stay in this browser's kept-aside data, and the file carries them there too.
+    expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(raw);
+    expect(JSON.parse(file.collectionRecovery).raw).toBe(raw);
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
+
+    store.set(STORAGE_KEYS.COLLECTION, '{}');
+    expect(importSaveFile(saved)).toBeNull();
+    expect(hydrateCollection(JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!))[card.key]).toMatchObject({ normalCount: 0, holoCount: 2 });
+    expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(raw);
+  });
+
+  it('exports a valid stored collection exactly as stored, keeping nothing aside', () => {
+    const raw = fixture().collection;
+    store.set(STORAGE_KEYS.COLLECTION, raw);
+    expect(JSON.parse(exportSaveFile()).collection).toBe(raw);
+    expect(store.has(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(false);
+  });
+
   it('keeps the show-every-page flag through an export and import', () => {
     store.set(STORAGE_KEYS.SETTINGS, '{"particlesEnabled":false,"showAllPages":true}');
     const saved = exportSaveFile();
