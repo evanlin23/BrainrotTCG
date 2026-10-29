@@ -34,8 +34,9 @@ edit, push, comment on GitHub or merge.
      remove; keep navigation, version selection, accessible names, per-set vs global counts and
      standalone images. Never hide save, trust or privacy errors. A screenshot or test count alone
      isn't approval. You can't render the PR: the implementer supplies bounded, sanitized
-     before/after observations on the exact head (or `npm run audit:agent` output for meaningful flow
-     changes). Missing: `changes-needed` naming the evidence, or the precise external blocker.
+     before/after observations on the exact head (for meaningful flow changes, plus or instead a
+     task-only audit record on that head: `/qa`, `npm run audit:agent` for the Claude runner; see
+     docs/DEVELOPMENT.md). Missing: `changes-needed` naming the evidence, or the precise external blocker.
    - Architecture or public-resource growth (new route, asset, dependency, storage key, network
      call or untrusted input): who owns the responsibility, any simpler existing option, async and
      resource lifetime, bounded untrusted data, compatibility, extension by increments. Don't ask

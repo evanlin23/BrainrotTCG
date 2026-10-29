@@ -7,7 +7,7 @@
 <!-- Only what applies; pure docs need none. The reviewer picks evidence from the diff.
 Visible flow: the player problem, observable acceptance, and sanitized before/after observations of
 affected states on this head (empty/loading/error, narrow and enlarged text, keyboard), or
-`npm run audit:agent` output for a meaningful flow change.
+a task-only audit record (`/qa`; `npm run audit:agent` for Claude) for a meaningful flow change.
 Behaviour, storage, proof, workflow: the contract case you tested beyond your own assertions.
 Reproduced defect: the closure note from docs/DEVELOPMENT.md (root cause, escape class, regression
 test, sibling scan, prevention action).

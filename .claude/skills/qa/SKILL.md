@@ -9,10 +9,12 @@ disable-model-invocation: true
 
 Keep one persistent coordinator in the main thread, responsive to the owner. Use the existing
 `.claude/agents/` roles; native player simulations use host tools. Add no framework, dependency, CI or schedule.
-This invocation authorizes one bounded run through issues and genuine smallest tested fixes in
-draft PRs, one observable outcome per PR. Findings aren't a quota: never invent a defect, empty PR,
+This owner invocation is the "if asked" in CLAUDE.md: it authorizes one bounded run through issues
+and genuine smallest tested fixes in draft PRs, one observable outcome per PR, and nothing beyond
+this run. Findings aren't a quota: never invent a defect, empty PR,
 or report-only placeholder to produce a matching issue/PR count. Report an unsafe or blocked fix.
 An explicit `/qa` or owner request authorizes these routine outputs without per-issue approval.
+Follow CLAUDE.md's checks and merge bar; nothing here widens them.
 Inside `/work`, use this checklist under its existing coordinator, authority, holds and budget.
 
 ## 1. Establish scope and authority
