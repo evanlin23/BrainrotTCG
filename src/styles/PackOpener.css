@@ -1278,17 +1278,16 @@ button.reveal-card {
         min-height: 0;
         overflow-y: auto;
         overscroll-behavior: contain;
-        scrollbar-width: thin;
-        scrollbar-color: var(--border-strong) transparent;
-    }
-
-    .reveal-side::-webkit-scrollbar {
-        width: 6px;
-    }
-
-    .reveal-side::-webkit-scrollbar-thumb {
-        background: var(--border-strong);
-        border-radius: var(--radius-full);
+        /*
+         * A phone's scrollbar is an overlay that hides until touched, so the column shows that it scrolls
+         * by fading out under its bottom edge (#898). The padding is as tall as the fade, so at the end of
+         * the scroll the last row sits clear of it; a column that fits shows no fade over any content. It
+         * is a mask, so it needs no colour to match and works over the spotlit stage. No scrollbar styling:
+         * Chromium ignores ::-webkit-scrollbar once scrollbar-width is set, and overlays ignore both.
+         */
+        padding-bottom: 1rem;
+        -webkit-mask-image: linear-gradient(to bottom, var(--black) calc(100% - 1rem), transparent);
+        mask-image: linear-gradient(to bottom, var(--black) calc(100% - 1rem), transparent);
     }
 
     .reveal-side .reveal-bottom {

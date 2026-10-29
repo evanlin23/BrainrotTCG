@@ -80,6 +80,61 @@ for (const size of SIZES) {
       await expect(card).toHaveAttribute('aria-label', 'Flip card 2 of 5', { timeout: 10000 });
       expect(errors).toEqual([]);
     });
+
+    test.describe('on a phone, where scrollbars are overlays', () => {
+      test.use({ isMobile: true, hasTouch: true });
+
+      test('a column that scrolls fades out under its bottom edge, and its last row clears the fade', async ({ page, baseURL }, testInfo) => {
+        test.skip(testInfo.project.name !== 'desktop-chromium', 'A window-size check; the desktop project runs it once.');
+        test.setTimeout(60000);
+        const errors = await monitor(page, baseURL!);
+        const side = page.locator('.reveal-side');
+        const open = async () => {
+          await page.getByRole('button', { name: /^Open pack/ }).focus();
+          await page.keyboard.press('Space');
+          await expect(page.locator('.reveal-card:focus')).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
+          await tapSpace(page);
+          await expect(page.locator('.reveal-rarity .rarity-pill')).toBeVisible();
+        };
+        const measure = () => side.evaluate((node) => {
+          const el = node as HTMLElement;
+          const style = getComputedStyle(el);
+          const last = el.querySelector('.reveal-bottom')!.getBoundingClientRect();
+          return {
+            gutter: el.offsetWidth - el.clientWidth,
+            overflow: el.scrollHeight - el.clientHeight,
+            mask: style.maskImage,
+            fade: parseFloat(style.paddingBottom),
+            lastBottomFromEdge: el.getBoundingClientRect().bottom - last.bottom,
+          };
+        });
+        // At normal text the column fits: nothing scrolls and no row is under the fade.
+        await page.goto('./');
+        await open();
+        const fits = await measure();
+        expect(fits.overflow, 'at 100% text the column fits').toBeLessThanOrEqual(0);
+        expect(fits.lastBottomFromEdge, 'the last row is clear of the fade').toBeGreaterThanOrEqual(fits.fade - 0.5);
+
+        await page.goto('./');
+        await scaleText(page, 200);
+        await open();
+
+        // The premise: no scrollbar takes any room, so a styled scrollbar could not be the cue.
+        const top = await measure();
+        expect(top.gutter, 'an overlay scrollbar takes no width').toBe(0);
+        expect(top.overflow, 'at 200% text the column scrolls').toBeGreaterThan(0);
+        expect(top.mask, 'the bottom edge fades').toContain('linear-gradient');
+        expect(top.fade, 'the fade is 1rem tall (32px at 200% text)').toBe(32);
+        expect(top.lastBottomFromEdge, 'the unscrolled column ends under the fade, so it is visibly cut').toBeLessThan(top.fade);
+
+        // At the end of the scroll the last row (Skip) is clear of the fade, whole and tappable.
+        await side.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+        const end = await measure();
+        expect(end.lastBottomFromEdge, 'the last row clears the fade at the end').toBeGreaterThanOrEqual(end.fade - 0.5);
+        await page.locator('.reveal-skip').click({ trial: true });
+        expect(errors).toEqual([]);
+      });
+    });
   });
 }
 
