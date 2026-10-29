@@ -65,7 +65,28 @@ describe('pack generation', () => {
   it('matches the configured odds', () => {
     const counts: Record<string, number> = {};
     let holos = 0;
-    const packs = 40_000;
+    // Every rarity and holo roll once, as createRng's int would give them: uniform in [0, n).
+    for (let roll = 0; roll < ODDS_TOTAL; roll++) {
+      const int = (n: number) => {
+        expect(Number.isInteger(n) && n > 0).toBe(true);
+        return roll % n;
+      };
+      const [card] = packFromDraws({ ...TEST_SET, packSize: 1 }, { int });
+      expect(TEST_SET.cards.find((c) => c.id === card.cardId)?.rarity).toBe(card.rarity);
+      counts[card.rarity] = (counts[card.rarity] ?? 0) + 1;
+      if (card.isHolo) holos++;
+    }
+    for (const [rarity, weight] of Object.entries(TEST_SET.odds)) {
+      expect(counts[rarity] ?? 0).toBe(weight);
+    }
+    expect(holos).toBe(TEST_SET.holoOdds);
+  });
+
+  it('matches the configured odds through the real createRng', () => {
+    // Fixed seeds, so the counts are the same on every run; the margins are about 4 standard deviations.
+    const counts: Record<string, number> = {};
+    let holos = 0;
+    const packs = 4_000;
     for (let i = 0; i < packs; i++) {
       for (const card of generatePack(TEST_SET, sha256(utf8(`seed-${i}`)))) {
         counts[card.rarity] = (counts[card.rarity] ?? 0) + 1;
@@ -74,9 +95,9 @@ describe('pack generation', () => {
     }
     const total = packs * TEST_SET.packSize;
     for (const [rarity, weight] of Object.entries(TEST_SET.odds)) {
-      expect(Math.abs(counts[rarity] / total - weight / 10_000)).toBeLessThan(0.004);
+      expect(Math.abs((counts[rarity] ?? 0) / total - weight / ODDS_TOTAL)).toBeLessThan(0.015);
     }
-    expect(Math.abs(holos / total - 0.05)).toBeLessThan(0.003);
+    expect(Math.abs(holos / total - TEST_SET.holoOdds / ODDS_TOTAL)).toBeLessThan(0.006);
   });
 
   it('rng.int stays in range', () => {
@@ -226,15 +247,20 @@ describe('odds', () => {
     const { cards } = exactSlot(TEST_SET);
     const counts: Record<string, number> = {};
     const pack: string[] = [];
+    const tally = new Map<string, number>();
     const walk = (chance: number) => {
       if (pack.length === TEST_SET.packSize) {
-        const key = handFromCounts([...new Set(pack)].map((id) => pack.filter((c) => c === id).length));
+        const key = handFromCounts([...tally.values()]);
         counts[key] = (counts[key] ?? 0) + chance;
         return;
       }
       for (const [id, p] of cards) {
         pack.push(id);
+        tally.set(id, (tally.get(id) ?? 0) + 1);
         walk(chance * p);
+        const count = tally.get(id)!;
+        if (count === 1) tally.delete(id);
+        else tally.set(id, count - 1);
         pack.pop();
       }
     };

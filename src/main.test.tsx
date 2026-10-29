@@ -27,6 +27,14 @@ let errors: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  // vi.clearAllMocks() does not clear mockImplementation or mockReturnValue; reset startup mocks
+  // so tests mutating their behavior don't poison other tests under --sequence.shuffle.
+  startup.receiveSave.mockReset();
+  startup.runMigrations.mockReset().mockReturnValue(true);
+  startup.migratePullLog.mockReset();
+  startup.resumeReopening.mockReset();
+  startup.warmUpFirstPack.mockReset();
+  startup.warmUpArgon2.mockReset();
   document.body.innerHTML = '<div id="root"></div>';
   errors = vi.spyOn(console, 'error').mockImplementation(() => {});
 });

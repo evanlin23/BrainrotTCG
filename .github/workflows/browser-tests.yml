@@ -2,11 +2,14 @@ name: Browser Tests
 
 on:
   pull_request:
-  push:
-    branches-ignore: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 # Every job here that runs Playwright (the shards, the burn-in, the cross-browser smoke and the visual
 # baselines) runs in Playwright's official image, whose tag must equal the installed @playwright/test
@@ -117,8 +120,8 @@ jobs:
   # - scripts/burn-in-plan.ts picks the specs and the repeats: 10 when few specs changed, scaled
   #   to a fixed budget of spec runs as the list grows, never below 2, and never dropping a spec.
   #   The longest it can take is the whole suite twice, split over 3 shards.
-  # - It runs on pushes and pull requests alike, because either event's `browser-tests` result
-  #   can satisfy branch protection, so both must burn in.
+  # - It runs on every pull request and manual dispatch alike, so whichever run's `browser-tests`
+  #   result satisfies branch protection has burned in.
   # - A branch that changes no spec or helper stops after the plan.
   browser-burn-in-plan:
     runs-on: ubuntu-latest
