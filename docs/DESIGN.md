@@ -82,6 +82,10 @@ from a 390 px wide screen.
     doesn't stop it. The card viewer offers Retry, and failed art also retries when the device comes
     back online. Standard UI transitions are 120–320 ms (rare pull celebrations and card shimmers run
     longer, and specific card/reveal effects animate properties like box-shadow or clip-path).
+11. **Zero-backend by design.** The project runs no server, database or account service (#243, #85
+    and #490 are closed as rejected). Proofs are re-derivable by anyone, GitHub Pages hosts the site
+    (Cloudflare Pages when configured, see Hosting), and GitHub Issues and Actions run the Hall of
+    Fame.
 
 ## First-pack flow decision (#898)
 
@@ -194,7 +198,14 @@ results rules below (#339).
   apart and is what a named row shows too. The profile's check line reads "This profile checks out:
   every pack re-opened in your browser", and its in-progress and interrupted lines say "in your
   browser" too: it says what was checked and where, never whose device made the packs, so one
-  line is true for the owner and a guest alike without a branch on who is looking.
+  line is true for the owner and a guest alike without a branch on who is looking. A shared link
+  re-opens only the best packs by default and then pauses: that state shows no progress bar or
+  spinner, its footnote reads "* the pack count is the link's own; cards, holo and best score are from the N
+  best packs only, and the rest of the packs are not checked", "How do we know?" says the best packs
+  were re-opened in your browser and the rest are not checked until you ask (the level and pack
+  count are only what the link claims), and the level stays "claimed". "Verify all N packs" (short label, the hint is
+  secondary text) re-opens the rest, moves focus to the status line, and keeps the best packs'
+  own "Verified" badges.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); small controls get
   44 px hit areas (pack-targets.spec measures the gear, set steps, Card guide, sheet and page
   closes, Skip, the logo link and the profile's "What do these numbers mean?" summary at 390 px,

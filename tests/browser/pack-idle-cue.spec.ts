@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { fingerFor, monitor } from './support';
+import { finishOpenCue, holdOpenCue } from './openCue';
 
 /**
  * The idle cue on a sealed pack (DESIGN.md Flow 2): while the pack sits untouched its top strip lifts
@@ -54,6 +55,31 @@ test('a sealed pack waiting for a touch lifts its top strip, and puts it down fo
   // The hint clears by itself and the strip starts lifting again.
   await expect(shell(page)).toHaveClass(/\bis-idle\b/);
   await expect.poll(() => idleAnimations(page)).toEqual(['pack-idle-lift', 'pack-idle-lift']);
+  expect(errors).toEqual([]);
+});
+
+test('a key that tears the pack mid-lift still slides the strip away, as a swipe or a tap does', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  // The fixture player, and a log of every transform transition the stylesheet starts on the torn strip.
+  await page.addInitScript((origin) => {
+    (window as unknown as { slid: string[] }).slid = [];
+    document.addEventListener('transitionrun', (event) => {
+      const name = event.target instanceof Element ? event.target.className.toString().split(' ').pop()! : '';
+      if (event.propertyName === 'transform' && /^pack-(half-top|top-piece)$/.test(name)) (window as unknown as { slid: string[] }).slid.push(name);
+    }, true);
+    if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
+    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 21, createdAt: 1 }));
+    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
+  }, new URL(baseURL!).origin);
+  const errors = await monitor(page, baseURL!);
+  await load(page);
+
+  // The cue is running: the key meets the strip mid-animation, which is what Chrome treats as no transition.
+  await expect.poll(() => idleAnimations(page)).toEqual(['pack-idle-lift', 'pack-idle-lift']);
+  await page.getByRole('button', { name: /^Open pack/ }).focus();
+  await page.keyboard.press('Space');
+  await expect(shell(page)).toHaveClass(/\bis-cut\b/);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { slid: string[] }).slid.sort())).toEqual(['pack-half-top', 'pack-top-piece']);
   expect(errors).toEqual([]);
 });
 
@@ -146,13 +172,14 @@ test('with motion the pack draws no perforation of its own: the lift is the cue'
 
 test('a first-time player sees the finger first, and the strip starts lifting when it has retired', async ({ page, baseURL }) => {
   const errors = await monitor(page, baseURL!);
+  await holdOpenCue(page);
   await load(page, { cueDone: false });
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
   await expect(shell(page)).not.toHaveClass(/\bis-idle\b/);
   expect(await idleAnimations(page)).toEqual([]);
 
-  // Finishing the finger's animation ends the cue, as in open-cue.spec.ts.
-  await page.evaluate(() => document.querySelectorAll('.open-cue-travel, .open-cue-tear').forEach((target) => target.getAnimations().forEach((animation) => animation.finish())));
+  // Retire the held finger through its real animationend, then the idle strip can start.
+  await finishOpenCue(page);
   await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/);
   await expect(shell(page)).toHaveClass(/\bis-idle\b/);
   await expect.poll(() => idleAnimations(page)).toHaveLength(2);
