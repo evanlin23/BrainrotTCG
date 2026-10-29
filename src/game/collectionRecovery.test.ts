@@ -62,6 +62,27 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!)).toEqual({ raw, player: null });
   });
 
+  it('keeps a collection with a count hydration repaired aside before replacing it (#1109)', () => {
+    const raw = JSON.stringify({ [card.key]: { card, normalCount: -3, holoCount: 2 }, other: { card, normalCount: -1, holoCount: -1 } });
+    const data = seed(raw);
+    const loaded = hydrateCollection(JSON.parse(raw));
+    expect(loaded[card.key]).toMatchObject({ normalCount: 0, holoCount: 2 });
+    expect(loaded.other).toMatchObject({ normalCount: 0, holoCount: 0 });
+    expect(persistCollection(loaded)).toBe('recovered');
+    expect(archiveIn(data)).toEqual({ raw, player: null });
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual(loaded);
+  });
+
+  it('still saves the repaired counts when storage has no room for the original, keeping it for this visit', () => {
+    const raw = JSON.stringify({ [card.key]: { card, normalCount: -3, holoCount: 2 } });
+    const data = seed(raw, (key) => key === ARCHIVE);
+    const loaded = hydrateCollection(JSON.parse(raw));
+    expect(persistCollection(loaded)).toBe('recovered');
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual(loaded);
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw, player: null });
+  });
+
   it('does not allocate a recovery archive for a new or fully readable collection', () => {
     for (const raw of [null, '{}', JSON.stringify({ [card.key]: item })]) {
       const data = seed(raw);

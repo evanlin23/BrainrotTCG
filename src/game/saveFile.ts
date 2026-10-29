@@ -98,8 +98,8 @@ const SAVE_FIELDS = [
 /**
  * A raw storage value handed over by the old address (move.ts), held to the same rules as a file field,
  * except for what that address's own storage keeps on purpose: migrateV2 takes any first-format
- * collection entry (a missing card comes from its key) and any holoCards value, and stores a count it
- * can't read as NaN, which JSON writes as null and the app counts as 0. Before v3, best-pack cards
+ * collection entry (a missing card comes from its key) and any holoCards value, and repairs a count it
+ * can't read (negative, fractional or not a number) after keeping the original collection aside. Before v3, best-pack cards
  * are checked as their readers take them (olderBestCard). Hydration leaves out a later
  * entry it can't read, which collectionRecovery archives, or keeps in place when it can't. The old
  * address only redirects, so refusing those would leave the save with nowhere to go.

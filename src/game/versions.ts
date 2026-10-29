@@ -34,9 +34,7 @@ export const sameVersion = (a: CardVersion, b: CardVersion): boolean =>
  */
 export const ownedCount = (item: (Pick<CollectionItem, 'normalCount' | 'holoCount'> & { count?: number }) | undefined | null): number => {
   if (!item) return 0;
-  const normal = Math.max(0, item.normalCount || item.count || 0);
-  const holo = Math.max(0, item.holoCount || 0);
-  return normal + holo;
+  return (item.normalCount || item.count || 0) + (item.holoCount || 0);
 };
 
 /**
@@ -71,8 +69,8 @@ export const ownedVersions = (
   };
 
   const [setId, cardId] = cardKey.split('/');
-  let normal = Math.max(0, item.normalCount || item.count || 0);
-  let holo = Math.max(0, item.holoCount || 0);
+  let normal = item.normalCount || item.count || 0;
+  let holo = item.holoCount || 0;
   const finishes = { ...item.finishes };
   let misprints = item.misprints ?? 0;
   for (const entry of history) {

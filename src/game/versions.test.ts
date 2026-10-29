@@ -122,9 +122,5 @@ describe('owned versions', () => {
     expect(isCardOwned({ count: 3, normalCount: 0, holoCount: 0 })).toBe(true);
     expect(ownedCount({ count: 0, normalCount: 0, holoCount: 0 })).toBe(0);
     expect(isCardOwned({ count: 0, normalCount: 0, holoCount: 0 })).toBe(false);
-    expect(ownedCount({ normalCount: -3, holoCount: 0 })).toBe(0);
-    expect(isCardOwned({ normalCount: -3, holoCount: 0 })).toBe(false);
-    expect(ownedCount({ normalCount: -3, holoCount: 5 })).toBe(5);
-    expect(isCardOwned({ normalCount: -3, holoCount: 5 })).toBe(true);
   });
 });

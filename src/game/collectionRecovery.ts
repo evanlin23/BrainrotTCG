@@ -1,5 +1,5 @@
 import { STORAGE_KEYS } from '../constants';
-import { collectionNeedsRecovery } from '../utils/migrations';
+import { collectionNeedsRecovery, collectionNeedsRepair } from '../utils/migrations';
 import { setStoredData } from '../utils/storage';
 
 /** player.ts keeps its key private; the archive only snapshots the raw value. */
@@ -169,10 +169,11 @@ export const keptInStorage = (storageKey: typeof STORAGE_KEYS.COLLECTION | KeptK
   }
 };
 
-/** Unparseable bytes are unreadable too. */
+/** Unparseable bytes are unreadable too, and so is a count hydration repaired: the write would replace it. */
 const collectionUnreadable = (raw: string): boolean => {
   try {
-    return collectionNeedsRecovery(JSON.parse(raw));
+    const value: unknown = JSON.parse(raw);
+    return collectionNeedsRecovery(value) || collectionNeedsRepair(value);
   } catch {
     return true;
   }
