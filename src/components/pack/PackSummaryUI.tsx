@@ -25,6 +25,8 @@ interface PackSummaryUIProps {
   onShare?: () => void;
   /** The pull these cards came from: a card opened up close can then be shared or saved as an image that links to it. */
   pack?: PullRef;
+  /** Go to Rankings' "How Rankings work" (the summary stays mounted under the page, as for any page). */
+  onOpenRankingsHelp?: () => void;
   /** Keep optional work waiting until these cards have decoded (off while a sheet covers them). */
   holdOptional?: boolean;
 }
@@ -38,7 +40,7 @@ interface PackSummaryUIProps {
  * starts here, never mid-reveal: the link carries the whole pack, so it would spoil the cards still face
  * down.
  */
-const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional = false }: PackSummaryUIProps) => {
+const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRankingsHelp, holdOptional = false }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
   // The "select a card" hint stays until a card is opened on this visit.
   const [viewed, setViewed] = useState(false);
@@ -75,7 +77,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
       <div className="summary-content" onFocus={clearActions} onClickCapture={blockClicks}>
         <div className="summary-details">
           <PackHeadline cards={openedCards} headingRef={headingRef}>
-            {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
+            {pack && <SummaryHallOfFame pack={pack} score={packScore} onOpenRankingsHelp={onOpenRankingsHelp} />}
           </PackHeadline>
           <div className="summary-guide-line">
             {!viewed && <p className="summary-caption">Select a card to view</p>}

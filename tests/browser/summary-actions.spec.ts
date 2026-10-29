@@ -251,7 +251,9 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
   const line = page.locator('.summary-hof');
   await expect(line).toContainText("Doesn't qualify for Rankings, which take a Full House or better, or a Brainrot Score of");
   await expect(line).toContainText('See How Rankings work.');
-  await expect(line.getByRole('button')).toHaveCount(0);
+  // "How Rankings work" is the one button in the line (it goes to that section of Rankings, below).
+  await expect(line.getByRole('button')).toHaveCount(1);
+  await expect(line.getByRole('button', { name: 'How Rankings work' })).toBeVisible();
   await expect(line).toBeInViewport({ ratio: 1 });
   const { fits, lines } = await line.evaluate((el) => ({
     fits: el.scrollWidth <= el.clientWidth,
@@ -260,6 +262,32 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
   expect(fits).toBe(true);
   expect(lines).toBeLessThanOrEqual(3);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+  expect(errors).toEqual([]);
+});
+
+// "How Rankings work" in that note is a real button: it opens Rankings with that section open and in view, by
+// keyboard too, and Close returns to the same summary (it stays mounted under a page).
+test('"How Rankings work" in the note opens that section of Rankings, and Close comes back to the summary', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const { errors } = await openSummary(page, baseURL!);
+  const help = page.locator('.summary-hof').getByRole('button', { name: 'How Rankings work' });
+  // The words are small, but the button's hit area is 44px tall around them.
+  const reach = await help.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const [x, y] = [box.left + box.width / 2, box.top + box.height / 2];
+    return [y - 20, y + 20].map((at) => document.elementFromPoint(x, at)?.closest('button') === el);
+  });
+  expect(reach).toEqual([true, true]);
+  await help.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/#\/rankings$/);
+  const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+  const how = rankings.locator('details.hof-how');
+  await expect(how).toHaveJSProperty('open', true);
+  await expect(how.locator('summary')).toBeFocused();
+  await expect(how).toBeInViewport();
+  await rankings.getByRole('button', { name: 'Close Rankings' }).click();
+  await expect(page.locator('.summary-cards')).toBeVisible();
   expect(errors).toEqual([]);
 });
 

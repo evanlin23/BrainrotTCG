@@ -116,9 +116,11 @@ interface PackOpenerProps {
   shown?: boolean;
   /** Go to Settings, Save & backup: where an unreadable player record's refusal sends the player. */
   onOpenSave?: () => void;
+  /** Go to Rankings' "How Rankings work", from the results screen's note on why a pull has no Submit. */
+  onOpenRankingsHelp?: () => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true, onOpenSave }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true, onOpenSave, onOpenRankingsHelp }: PackOpenerProps) => {
   // Where the pack is, from the tear to the packs screen (packLifecycle.ts). What the stage doesn't say is
   // the reveal's own state below: which card is up, what is locked, what is being celebrated.
   const [stage, send] = usePackLifecycle();
@@ -880,6 +882,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 onClose={closeSummary}
                 onShare={openedPack ? () => onShare(dealtPack()!) : undefined}
                 pack={pullRef}
+                onOpenRankingsHelp={onOpenRankingsHelp}
                 holdOptional={!disabled}
               />
             )}

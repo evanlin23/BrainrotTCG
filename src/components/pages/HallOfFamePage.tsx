@@ -4,8 +4,9 @@ import CardImage from '../cards/CardImage';
 import Sheet from '../ui/Sheet';
 import PastDaysSheet from './PastDaysSheet';
 import Tabs from '../ui/Tabs';
+import type { PageSection } from '../ui/Page';
 import { tabPanelProps } from '../ui/tabPanel';
-import { QUALIFY_HAND, QUALIFY_RULE, QUALIFY_SCORE, RANKINGS_HELP } from '../ui/rankingsRule';
+import { QUALIFY_HAND, QUALIFY_RULE, QUALIFY_SCORE, RANKINGS_HELP, RANKINGS_HELP_ID } from '../ui/rankingsRule';
 import '../../styles/HallOfFame.css';
 import { getCard } from '../../data/cards';
 import { modifierClasses } from '../../game/modifiers';
@@ -78,7 +79,15 @@ const publishedTime = (iso: string) =>
 type RankingsTab = 'today' | 'all';
 
 /** The Rankings page (#/rankings). */
-const HallOfFamePage = () => {
+/** `section` is the part of this page a link asked for (App's openPage): "How Rankings work" opens when asked for. */
+const HallOfFamePage = ({ section }: { section?: PageSection }) => {
+  const helpRequest = section?.id === RANKINGS_HELP_ID ? section.n : undefined;
+  const [helpOpen, setHelpOpen] = useState(helpRequest !== undefined);
+  const [seenHelpRequest, setSeenHelpRequest] = useState(helpRequest);
+  if (helpRequest !== seenHelpRequest) {
+    setSeenHelpRequest(helpRequest);
+    if (helpRequest !== undefined) setHelpOpen(true);
+  }
   const [entries, setEntries] = useState<HallOfFameEntry[] | null>(null);
   const [tab, setTab] = useState<RankingsTab>('today');
   const [legendsOpen, setLegendsOpen] = useState(false);
@@ -300,7 +309,7 @@ const HallOfFamePage = () => {
         )}
       </div>
 
-      <details className="hof-how">
+      <details id={RANKINGS_HELP_ID} className="hof-how" open={helpOpen} onToggle={(event) => setHelpOpen(event.currentTarget.open)}>
         <summary>{RANKINGS_HELP}</summary>
         <div className="hof-how-body">
           <p>
