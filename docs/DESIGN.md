@@ -82,7 +82,10 @@ from a 390 px wide screen.
     doesn't stop it. The card viewer offers Retry, and failed art also retries when the device comes
     back online. Standard UI transitions are 120–320 ms (rare pull celebrations and card shimmers run
     longer, and specific card/reveal effects animate properties like box-shadow or clip-path).
-11. **Zero-backend by design.** The project runs no server, database or account service (#243, #85 and #490 are closed as rejected). Proofs are re-derivable by anyone, GitHub Pages hosts the site, and GitHub Issues and Actions run the Hall of Fame.
+11. **Zero-backend by design.** The project runs no server, database or account service (#243, #85
+    and #490 are closed as rejected). Proofs are re-derivable by anyone, GitHub Pages hosts the site
+    (Cloudflare Pages when configured, see Hosting), and GitHub Issues and Actions run the Hall of
+    Fame.
 
 ## First-pack flow decision (#898)
 

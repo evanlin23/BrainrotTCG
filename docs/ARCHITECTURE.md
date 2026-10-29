@@ -1027,10 +1027,10 @@ No signed name bytes, released proof rules or generator versions change in this 
 ### Scalable-profile decision (#323)
 
 Status: decided. #323 closed on 2026-10-16 with production aggregate formats deferred; the feasibility
-prototype below was tracked in #490, closed as rejected on 2026-10-29 (see the zero-backend
+prototype below was tracked in #490, rejected by the owner on 2026-10-29 (see the zero-backend
 decision below).
 
-**Decision: defer production aggregate formats; proceed with one bounded feasibility prototype.**
+**Decision: defer production aggregate formats; the bounded feasibility prototype proposed here is not planned (#490 rejected, see below).**
 A minimal input ledger is interim provenance protection, not the owner's final history-free design.
 Current profile v1 signs assignments for tickets 0..N−1 as runs, XP and up to five best-pack claims
 (min(5, N)). The bounds below (N ≤ 100,000, at most 64 set entries) come from
@@ -1060,12 +1060,12 @@ establishes IVC/compression primitives, not practical browser proving for 32MiB/
 parameter/setup trust needs separate review. Checkpoints instead require named verifier key/rules,
 range commitment, budgets, availability, rollback/key-rotation and owner acceptance of service trust.
 
-Next prototype stays outside production builds/formats: one exact released derivation/aggregate
+A prototype, if the owner ever reopens it, would stay outside production builds/formats: one exact released derivation/aggregate
 step in one selected circuit/zkVM, engine fixture equality and altered-input rejection. Measure
 prover time/peak memory, parameters/download bytes, proof versus resumable-state bytes, verification,
 browser/WASM feasibility and export/restore/continue; all benchmarks are **unrun**. Compare bounded
 checkpoint replay budgets without deployment, then choose proceed/defer. The prototype's tracking
-issue, #490, is closed as rejected. Neither route witnesses human play, animation completion, wall-clock time or
+issue, #490, was rejected by the owner. Neither route witnesses human play, animation completion, wall-clock time or
 undeclared lifetime mining; self-signed totals/Merkle roots alone do not prove aggregate correctness.
 
 ### Serverless and Zero-Backend Architecture Decision (#243, #85, #490)
@@ -1076,8 +1076,9 @@ Status: decided. Owner decision, 2026-10-29: #243, #85 and #490 stay closed as r
    account service.
 2. **#85 (global profile leaderboard)** and **#490 (aggregate profile verification)**: rejected.
 3. **Proofs** stay re-derivable by anyone from the signed bytes.
-4. **Hosting and rankings**: GitHub Pages hosts the site, and GitHub Issues and Actions build the
-   Hall of Fame list (see the Hall of Fame section above).
+4. **Hosting and rankings**: GitHub Pages hosts the site (Cloudflare Pages when configured, see
+   Hosting). GitHub Issues and Actions build the Hall of Fame list and the Rankings files from
+   verified issues, not from Nostr relay feeds alone (see the Hall of Fame section above).
 
 Client-side profile verification (Profiles and levels) is a separate feature and is not part of this
 decision. The decision says nothing about Nostr submission or relay writes.
