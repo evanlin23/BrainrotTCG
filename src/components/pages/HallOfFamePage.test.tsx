@@ -6,6 +6,9 @@ import { ALL_CARDS } from '../../data/cards';
 import type { HallOfFameEntry } from '../../game/hallOfFameList';
 import type { PastDay, PublishedRankings } from '../../game/publishedRankings';
 import { archivedPull, HALL_OF_FAME_MIN_MULTIPLIER, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP } from '../../engine';
+import Page from '../ui/Page';
+import { sheetLoader } from '../ui/sheetEntry';
+import { RANKINGS_HELP_ID } from '../ui/rankingsRule';
 import HallOfFamePage from './HallOfFamePage';
 
 const { loadHallOfFame, loadPending, checkPull } = vi.hoisted(() => ({ loadHallOfFame: vi.fn(), loadPending: vi.fn(), checkPull: vi.fn() }));
@@ -542,6 +545,51 @@ describe('How Rankings work', () => {
     expect(text).toContain('Submitting is not a rank');
     expect(text).toContain('Hall of Fame');
     expect(how()!.open).toBe(false);
+  });
+
+  describe('when a link asks for it', () => {
+    const page = (section?: { id: string; n: number }) => <HallOfFamePage section={section} />;
+    const rankings = async (section?: { id: string; n: number }) => {
+      loadHallOfFame.mockResolvedValue([ENTRY]);
+      await act(async () => root.render(page(section)));
+    };
+
+    it('is the section the app asks for by its id, and is open', async () => {
+      await rankings({ id: RANKINGS_HELP_ID, n: 1 });
+      expect(how()!.id).toBe(RANKINGS_HELP_ID);
+      expect(document.getElementById(RANKINGS_HELP_ID)).toBe(how());
+      expect(how()!.open).toBe(true);
+    });
+
+    it('opens, is scrolled to and takes focus when the Rankings page is asked for it', async () => {
+      const scroll = vi.fn();
+      Element.prototype.scrollIntoView = scroll;
+      loadHallOfFame.mockResolvedValue([ENTRY]);
+      const load = sheetLoader(() => Promise.resolve({ default: HallOfFamePage }));
+      const section = { id: RANKINGS_HELP_ID, n: 1 };
+      await act(async () => root.render(<Page load={load} title="Rankings" skeleton="rows" section={section} screenProps={{ section }} onClose={() => {}} />));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(how()!.open).toBe(true);
+      expect(scroll).toHaveBeenCalledTimes(1);
+      expect(scroll.mock.contexts[0]).toBe(how());
+      expect(document.activeElement).toBe(how()!.querySelector('summary'));
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    });
+
+    it('stays closed when no section, or another one, was asked for', async () => {
+      await rankings({ id: 'achievements', n: 1 });
+      expect(how()!.open).toBe(false);
+    });
+
+    it('opens again when asked again after the reader closed it, and keeps a manual toggle', async () => {
+      await rankings({ id: RANKINGS_HELP_ID, n: 1 });
+      await act(async () => { how()!.open = false; how()!.dispatchEvent(new Event('toggle')); });
+      expect(how()!.open).toBe(false);
+      await act(async () => root.render(page({ id: RANKINGS_HELP_ID, n: 1 })));
+      expect(how()!.open).toBe(false);
+      await act(async () => root.render(page({ id: RANKINGS_HELP_ID, n: 2 })));
+      expect(how()!.open).toBe(true);
+    });
   });
 
   it('keeps the explanation on both tabs', async () => {

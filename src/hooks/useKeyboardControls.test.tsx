@@ -3,11 +3,21 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useKeyboardControls } from './useKeyboardControls';
+import { STAGE_CLICK_GUARD_MS, useStageClickGuard } from './useStageClickGuard';
 
 type Options = Parameters<typeof useKeyboardControls>[0];
 const Probe = (options: Options) => {
   useKeyboardControls(options);
   return null;
+};
+/**
+ * The wiring PackOpener does: one guard, keyed to the summary, drives both the page's data-settling (as
+ * PackSummaryUI renders it) and the keyboard. The summary can appear well after this mounts.
+ */
+const Wired = ({ showSummary, ...rest }: Omit<Options, 'summarySettling'>) => {
+  const { settling } = useStageClickGuard(undefined, showSummary);
+  useKeyboardControls({ ...rest, showSummary, summarySettling: settling });
+  return <div id="summary" data-settling={settling || undefined} />;
 };
 
 let root: Root | null = null;
@@ -18,6 +28,7 @@ const render = (overrides: Partial<Options> = {}) => act(() => {
     <Probe
       isOpening
       showSummary={false}
+      summarySettling={false}
       disabled={false}
       onCloseSummary={() => {}}
       onOpenPack={() => {}}
@@ -334,5 +345,87 @@ describe('Space and Enter on a focused button (#312)', () => {
     card.setAttribute('data-pack-keys', '');
     for (const code of ['Space', 'Enter'] as const) expect(key(card, code).defaultPrevented).toBe(true);
     expect(interact).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Space and Enter on summary settle guard (#972, #1109)', () => {
+  const pressKey = (code: string, init: KeyboardEventInit = {}) => pressOn(document.body, code, init);
+  const settling = () => document.getElementById('summary')!.hasAttribute('data-settling');
+  const renderWired = (overrides: Partial<Omit<Options, 'summarySettling'>> = {}) => act(() => {
+    root ??= createRoot(document.body.appendChild(document.createElement('div')));
+    root.render(
+      <Wired
+        isOpening
+        showSummary={false}
+        disabled={false}
+        onCloseSummary={() => {}}
+        onOpenPack={() => {}}
+        handleInteractionRef={{ current: () => {} }}
+        {...overrides}
+      />,
+    );
+  });
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('ignores Space and Enter while the summary is settling, and accepts them once it is not', () => {
+    const onCloseSummary = vi.fn();
+    render({ isOpening: false, showSummary: true, summarySettling: true, onCloseSummary });
+    for (const code of ['Space', 'Enter', 'NumpadEnter']) expect(pressKey(code).defaultPrevented).toBe(true);
+    expect(onCloseSummary).not.toHaveBeenCalled();
+
+    render({ isOpening: false, showSummary: true, summarySettling: false, onCloseSummary });
+    pressKey('Space');
+    pressKey('Enter');
+    expect(onCloseSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens the keys the moment data-settling clears, not before, however late the summary came', () => {
+    const onCloseSummary = vi.fn();
+    renderWired({ showSummary: false, onCloseSummary });
+    // The reveal runs a while first: the window starts when the summary does, not at mount.
+    act(() => { vi.advanceTimersByTime(250); });
+    renderWired({ isOpening: false, showSummary: true, onCloseSummary });
+    expect(settling()).toBe(true);
+
+    act(() => { vi.advanceTimersByTime(STAGE_CLICK_GUARD_MS - 1); });
+    expect(settling()).toBe(true);
+    pressKey('Space');
+    expect(onCloseSummary, 'a key got through before data-settling cleared').not.toHaveBeenCalled();
+
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(settling()).toBe(false);
+    pressKey('Space');
+    expect(onCloseSummary, 'data-settling cleared but Space was still ignored').toHaveBeenCalledTimes(1);
+    pressKey('Enter');
+    expect(onCloseSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops a held Space from reveals when the summary appears and guards immediate close', () => {
+    const interact = vi.fn();
+    const onCloseSummary = vi.fn();
+    renderWired({ isOpening: true, showSummary: false, handleInteractionRef: { current: interact }, onCloseSummary });
+
+    // Hold space during card reveal
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true }));
+    });
+    expect(interact).toHaveBeenCalledTimes(1);
+
+    // Summary mounts
+    renderWired({ isOpening: false, showSummary: true, handleInteractionRef: { current: interact }, onCloseSummary });
+    act(() => { vi.advanceTimersByTime(200); });
+    // Hold does not repeat into summary, nor close it
+    expect(interact).toHaveBeenCalledTimes(1);
+    expect(onCloseSummary).not.toHaveBeenCalled();
+
+    // Settle completes: the hold timer was cleared, so it still has not repeated
+    act(() => { vi.advanceTimersByTime(STAGE_CLICK_GUARD_MS); });
+    expect(interact).toHaveBeenCalledTimes(1);
+    expect(onCloseSummary).not.toHaveBeenCalled();
+
+    // A fresh press closes summary
+    pressKey('Space');
+    expect(onCloseSummary).toHaveBeenCalledTimes(1);
   });
 });

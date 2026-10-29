@@ -15,6 +15,7 @@
  * - the cache contract (docs/HOSTING.md): everything in assets/ has a content hash in its name, pages
  *   load their code and styles from there, every other file sits at the top or in p/ or s/, and a
  *   _headers file, if there is one, marks only assets/ immutable;
+ * - every assets/ address api/sets.json and api/cards.json give is a hashed file in the build;
  * - the build has at most MAX_SITE_FILES files (Cloudflare Pages takes 20,000 per deploy);
  * - the code and styles index.html loads before the app can first render come to at most
  *   MAX_FIRST_LOAD_BYTES gzipped (#776).
@@ -104,9 +105,31 @@ const filesIn = (dir: string): string[] =>
  * A sourcemap, if a build emits one, is named after its file plus `.map`, so it's hashed too.
  */
 export const HASHED_ASSET = /^assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+(?:\.map)?$/;
-const REVALIDATED = /^(?:[^/]+|[ps]\/.+)$/;
+const REVALIDATED = /^(?:[^/]+|[ps]\/.+|api\/.+)$/;
 /** The longest a file that keeps its name may be cached without revalidating: a day. */
 export const MAX_REVALIDATED_AGE = 86400;
+
+/**
+ * Problems with the addresses a published API catalog (api/sets.json or api/cards.json, from
+ * scripts/build-api.ts) gives for the site's own files: any string naming something in assets/ must
+ * be a file in the build, so a fan tool following it never lands on a missing file. (Every file in
+ * assets/ has a content hash in its name: checkCacheContract.) `base` is BASE_PATH;
+ * the address may be relative to the site (assets/...), under base, or absolute under `site`.
+ */
+export const checkApiLinks = (file: string, json: unknown, present: ReadonlySet<string>, base: string, site: string): AssetValidationError[] => {
+  const errors: AssetValidationError[] = [];
+  const visit = (value: unknown) => {
+    if (typeof value === 'string') {
+      const local = value.startsWith(site) ? value.slice(site.length) : value.startsWith(base) ? value.slice(base.length) : value;
+      const target = local.replace(/[?#].*$/, '').replace(/^\.?\//, '');
+      if (!target.startsWith('assets/')) return;
+      if (!present.has(target)) errors.push({ path: file, error: `Names ${value}, which isn't in the build` });
+    } else if (Array.isArray(value)) value.forEach(visit);
+    else if (value && typeof value === 'object') Object.values(value).forEach(visit);
+  };
+  visit(json);
+  return errors;
+};
 
 /** The names of the files a build is made from (in src/ and public/), which no hashed name can be. */
 export const sourceNames = (root = ROOT): Set<string> =>
@@ -123,7 +146,7 @@ export const checkCacheContract = (files: readonly string[], base: string, heade
     if (file.startsWith('assets/')) {
       if (!HASHED_ASSET.test(file) || sources.has(path.posix.basename(file).replace(/\.map$/, ''))) errors.push({ path: file, error: "Has no content hash in its name, but assets/ is cached as if it never changes" });
     } else if (!REVALIDATED.test(file)) {
-      errors.push({ path: file, error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' });
+      errors.push({ path: file, error: 'Keeps its name between deploys outside the top level, p/, s/ and api/ (the cache contract in docs/HOSTING.md)' });
     }
   }
   if (headers === undefined) return errors;
@@ -313,6 +336,19 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
   const expected = await expectedPreviewPages({ ...options, site });
   for (const [page, what] of expected) {
     if (!present.has(page)) fail(page, `Missing: the preview page for ${what}`);
+  }
+
+  // The catalogs scripts/build-api.ts makes from the set registry name only files this build has.
+  // (api/hall-of-fame.json is a copy of player submissions, whose names are free text.)
+  for (const file of ['api/sets.json', 'api/cards.json'].filter((f) => present.has(f))) {
+    let json: unknown;
+    try {
+      json = JSON.parse(readFileSync(path.join(outDir, file), 'utf8'));
+    } catch {
+      fail(file, "Isn't valid JSON");
+      continue;
+    }
+    errors.push(...checkApiLinks(file, json, present, base, site));
   }
 
   const optional = (file: string) => (present.has(file) ? readFileSync(path.join(outDir, file), 'utf8') : undefined);

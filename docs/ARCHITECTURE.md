@@ -933,7 +933,7 @@ or finishes regenerate their thumbnails while unchanged assets are skipped.
      file and leave the old one, and its check, in place.
 
 `npm run check` runs lint, types, all tests, set locks and card assets; `npm run build` packages the
-site and static previews. On every pull request and non-main push, CI runs both, the independent
+site and static previews. On every pull request and manual dispatch, CI runs both, the independent
 verifier (`python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json`), the
 browser smoke and actionlint, and pull requests also run `check:history`; deploys from main rerun
 the verifier, `npm run check` and `check:history`. These checks

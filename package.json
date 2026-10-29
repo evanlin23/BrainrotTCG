@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && tsx scripts/preview-pages.ts",
+    "build": "vite build && tsx scripts/build-api.ts && tsx scripts/preview-pages.ts",
+    "build:api": "tsx scripts/build-api.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.scripts.json",
     "preview": "vite preview",
@@ -67,8 +68,8 @@
     "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.72.0",
-    "vite": "^8.3.4",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^8.3.5",
     "vitest": "^5.0.3"
   }
 }

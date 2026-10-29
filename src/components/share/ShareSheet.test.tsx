@@ -113,6 +113,33 @@ describe('Hall of Fame in the pack share sheet', () => {
     expect(loadHallOfFame).not.toHaveBeenCalled();
   });
 
+  describe('"How Rankings work" in that note', () => {
+    const renderNote = async (onClose: () => void, onOpenRankingsHelp?: () => void) => {
+      vi.mocked(qualifiesForHallOfFame).mockReturnValue(false);
+      await act(async () => root.render(<ShareSheet target={target} onClose={onClose} onOpenRankingsHelp={onOpenRankingsHelp} />));
+      vi.mocked(qualifiesForHallOfFame).mockReturnValue(true);
+      return [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('qualify'))!;
+    };
+
+    it('is a button that closes the sheet and opens it, with the sentence unchanged', async () => {
+      const calls: string[] = [];
+      const note = await renderNote(() => calls.push('close'), () => calls.push('open'));
+      const help = note.querySelector('button')!;
+      expect(help.textContent).toBe('How Rankings work');
+      expect(note.textContent?.trim()).toBe(
+        `Doesn't qualify for Rankings, which take a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+. See How Rankings work.`,
+      );
+      expect(calls).toEqual([]);
+      act(() => help.click());
+      expect(calls).toEqual(['close', 'open']);
+    });
+
+    it('stays plain text where there is nowhere to go', async () => {
+      const note = await renderNote(() => {});
+      expect(note.querySelector('button')).toBeNull();
+    });
+  });
+
   it('offers Submit, with no qualifying note, for a pull that qualifies', async () => {
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
     expect(document.querySelector('.share-hof button')).not.toBeNull();
