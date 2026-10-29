@@ -47,6 +47,7 @@ interface EraSectionProps {
   set: SetDefinition;
   cards: Card[];
   have: number;
+  holo: number;
   done: ReturnType<typeof setProgress>;
   expanded: boolean;
   gridId: string;
@@ -59,8 +60,9 @@ interface EraSectionProps {
  * One started era: its header toggle and, while open, its grid. Memoized, with stable props, so
  * opening one era or tapping a card re-renders only what changed, not every open era's tiles.
  */
-const EraSection = memo(({ set, cards, have, done, expanded, gridId, owned, onToggle, onSelect }: EraSectionProps) => {
+const EraSection = memo(({ set, cards, have, holo, done, expanded, gridId, owned, onToggle, onSelect }: EraSectionProps) => {
   const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
+  const holoPct = cards.length > 0 ? Math.round((holo / cards.length) * 100) : 0;
   return (
     <section className="collection-set" style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}>
       <header className="collection-set-header">
@@ -82,6 +84,11 @@ const EraSection = memo(({ set, cards, have, done, expanded, gridId, owned, onTo
                   <span className="sr-only">{done === 'master' ? ': every card as a holo' : ': every card collected'}</span>
                 </>
               )}
+              {holo > 0 && done !== 'master' && (
+                <span className="collection-set-holo-pct tabular" title={`${holo} of ${cards.length} cards collected as holo`}>
+                  {holoPct}% holo
+                </span>
+              )}
             </span>
             <span className="collection-set-count tabular">
               {have}/{cards.length}
@@ -92,6 +99,7 @@ const EraSection = memo(({ set, cards, have, done, expanded, gridId, owned, onTo
         </h3>
         <span className="collection-set-bar" aria-hidden="true">
           <span style={{ width: `${(have / cards.length) * 100}%` }} />
+          {holo > 0 && <span className="collection-set-bar-holo" style={{ width: `${(holo / cards.length) * 100}%` }} />}
         </span>
       </header>
       {expanded && (
@@ -193,7 +201,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
     const have = cards.filter((c) => owned.has(c.key)).length;
     // An openable set shows a pocket for every card; an archived or draft one only the cards you own.
     const holo = cards.filter((c) => (owned.get(c.key)?.holoCount ?? 0) > 0).length;
-    return { set, cards, have, done: setProgress(have, holo, cards.length), pockets: isOpenable(set) ? cards.length : have };
+    return { set, cards, have, holo, done: setProgress(have, holo, cards.length), pockets: isOpenable(set) ? cards.length : have };
   }).filter((s) => s.have > 0 || isOpenable(s.set)), [owned]);
   // What you own first (in timeline order), then the eras you haven't opened yet as one short list.
   const started = sections.filter((s) => s.have > 0);
@@ -215,12 +223,13 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
         <p className="page-subtitle tabular">
           {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} total card points
         </p>
-        {started.map(({ set, cards, have, done }) => (
+        {started.map(({ set, cards, have, holo, done }) => (
           <EraSection
             key={set.id}
             set={set}
             cards={cards}
             have={have}
+            holo={holo}
             done={done}
             expanded={open[set.id] ?? true}
             gridId={`${gridIds}-${set.id}`}

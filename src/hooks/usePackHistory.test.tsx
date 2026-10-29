@@ -48,8 +48,19 @@ const packStillTakesBack = async () => {
   expect(onPackEntry()).toBe(false);
 };
 
+/** Resets jsdom's session history stack so tests are order-independent under --sequence.shuffle. */
+const resetHistory = () => {
+  const sessionHistory = (window as unknown as { _sessionHistory?: { _entries: unknown[]; _currentIndex: number } })._sessionHistory;
+  if (sessionHistory && Array.isArray(sessionHistory._entries)) {
+    sessionHistory._entries = [sessionHistory._entries[0]];
+    sessionHistory._currentIndex = 0;
+  }
+  history.replaceState(null, '', '/BrainrotTCG/');
+};
+
 beforeEach(async () => {
   vi.resetModules();
+  resetHistory();
   ({ usePackHistory, STRAY_BACK_TIMEOUT_MS } = await import('./usePackHistory'));
   backs = 0;
 });

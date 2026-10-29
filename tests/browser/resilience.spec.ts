@@ -185,6 +185,51 @@ test.describe('damaged storage', () => {
     expect(errors).toEqual([]);
   });
 
+  for (const [key, name] of [
+    [STORAGE_KEYS.SETTINGS, 'settings'],
+    [STORAGE_KEYS.ACHIEVEMENTS, 'achievements'],
+    [STORAGE_KEYS.BEST_CARDS, 'best cards'],
+    [STORAGE_KEYS.STORED_PACKS, 'stored packs'],
+    [STORAGE_KEYS.HALL_OF_FAME, 'Hall of Fame entries'],
+    [STORAGE_KEYS.SELECTED_SET, 'selected set'],
+    [STORAGE_KEYS.PENDING_PACK, 'legacy pending pack'],
+    [STORAGE_KEYS.PENDING_PACKS, 'pending packs shelf'],
+    [STORAGE_KEYS.PULLS, 'legacy pull log'],
+    ['brainrot-data-version', 'data version'],
+  ] as const) {
+    for (const [kind, value] of [['unreadable', GARBAGE], ['the wrong shape', '{"invalid":true}']] as const) {
+      test(`${name} that is ${kind} still loads, and the next pack is recorded in full`, async ({ page, baseURL }) => {
+        const errors = await loadSave(page, baseURL!, { [key]: value });
+        await openOne(page);
+        const after = await snapshot(page);
+        expect(after.history.map((record) => record.n).sort()).toEqual([0, 1]);
+        expect(cardCount(after.collection)).toBe(10);
+        expect(after.stats.packsOpened).toBe(2);
+        expect(await nextNonce(page)).toBe(2);
+        expect(await page.getByRole('alert').allInnerTexts()).toEqual([]);
+        const now = await raw(page, key);
+        expect(now === value || now === null || (() => { try { JSON.parse(now); return true; } catch { return false; } })(), key).toBe(true);
+        expect(errors).toEqual([]);
+      });
+    }
+  }
+
+  for (const [kind, value] of [['unreadable', GARBAGE], ['the wrong shape', '{"invalid":true}']] as const) {
+    test(`a collection recovery archive that is ${kind} still loads, says unreadable data was kept aside, and the next pack is recorded in full`, async ({ page, baseURL }) => {
+      const errors = await loadSave(page, baseURL!, { [STORAGE_KEYS.COLLECTION_RECOVERY]: value });
+      await expect(page.getByRole('alert').filter({ hasText: COLLECTION_NOTE })).toBeVisible();
+      await openOne(page);
+      const after = await snapshot(page);
+      expect(after.history.map((record) => record.n).sort()).toEqual([0, 1]);
+      expect(cardCount(after.collection)).toBe(10);
+      expect(after.stats.packsOpened).toBe(2);
+      expect(await nextNonce(page)).toBe(2);
+      const now = await raw(page, STORAGE_KEYS.COLLECTION_RECOVERY);
+      expect(now === value || now === null || (() => { try { JSON.parse(now); return true; } catch { return false; } })(), STORAGE_KEYS.COLLECTION_RECOVERY).toBe(true);
+      expect(errors).toEqual([]);
+    });
+  }
+
   test('a ticket counter set below zero moves on past the tickets already opened', async ({ page, baseURL }) => {
     const errors = await loadSave(page, baseURL!, { [PLAYER_KEY]: withPlayer({ nextNonce: -1 }) });
     await openOne(page);
@@ -370,12 +415,18 @@ test.describe('damaged backup files', () => {
 
     const files: [string, string | Buffer, boolean, string][] = [
       ['garbage bytes', Buffer.from([0x00, 0xff, 0xfe, 0x7b, 0x22, 0x9c, 0x0a]), false, "Couldn't read that file. Is it a save exported from Save & backup?"],
+      ['an HTML document', '<!DOCTYPE html><html><body>not a save</body></html>', false, "Couldn't read that file. Is it a save exported from Save & backup?"],
+      ['a plain text file', 'Brainrot TCG save export preview text', false, "Couldn't read that file. Is it a save exported from Save & backup?"],
+      ['a truncated backup file', JSON.stringify(backup).slice(0, 60), false, "Couldn't read that file. Is it a save exported from Save & backup?"],
       ['a JSON list', '[1,2,3]', false, "That file isn't a supported Brainrot TCG save."],
       ['an object with no save in it', '{"a":1}', true, "That file isn't a supported Brainrot TCG save."],
+      ['an unknown backup version', tampered({ version: 99 }), false, "That file isn't a supported Brainrot TCG save."],
       ['an unknown data version', tampered({ dataVersion: 99 }), false, 'This save uses an unsupported data version.'],
+      ['a data version below one', tampered({ dataVersion: 0 }), false, 'This save uses an unsupported data version.'],
       ['a negative pack count', tampered({ stats: JSON.stringify({ ...field('stats'), packsOpened: -1 }) }), true, 'The stats in this save is invalid. Nothing was imported.'],
       ['a negative ticket in the history', tampered({ history: JSON.stringify((field('history') as Record<string, unknown>[]).map((record) => ({ ...record, n: -1 }))) }), false, 'The history in this save is invalid. Nothing was imported.'],
       ['a negative ticket counter', tampered({ player: JSON.stringify({ ...field('player'), nextNonce: -1 }) }), false, "That file's player record can't be read, so it has no player key that works and can't be restored. Nothing was imported."],
+      ['an invalid player secret key', tampered({ player: JSON.stringify({ ...field('player'), secretKey: 'not-a-valid-hex-key' }) }), true, "That file's player record can't be read, so it has no player key that works and can't be restored. Nothing was imported."],
     ];
     for (const [name, content, asks, refusal] of files) {
       await test.step(name, async () => {
@@ -390,6 +441,49 @@ test.describe('damaged backup files', () => {
         expect(sameStorage(await storageOf(page), untouched)).toBe(true);
       });
     }
+
+    await test.step('a file too big for storage', async () => {
+      const huge = tampered({ settings: JSON.stringify({ cardBack: 'x'.repeat(6 * 1024 * 1024) }) });
+      await pickWithImport(page, { name: 'backup.txt', buffer: Buffer.from(huge) });
+      await expect(settings.restoreNote).toHaveText("There's no room in this browser's storage for this file and a copy of your current save. Nothing changed. Export your save first if you want to keep it, then replace it without a copy.");
+      const replaceWithoutCopy = settings.restore.getByRole('button', { name: 'Replace without a copy', exact: true });
+      await expect(replaceWithoutCopy).toBeVisible();
+      await replaceWithoutCopy.click();
+      await expect(settings.restoreNote).toHaveText("This file is too big for this browser's storage, so it can't be imported here. Nothing changed.");
+      await expect(settings.importButton).toBeVisible();
+      expect(sameStorage(await storageOf(page), untouched)).toBe(true);
+    });
+
+    expect(errors).toEqual([]);
+  });
+
+  test("importing another player's save asks first and leaves storage untouched when cancelled", async ({ page, baseURL }) => {
+    await holdTickets(page);
+    const errors = await seedSave(page, baseURL!);
+    await page.goto('./#/settings');
+    const settings = settingsOf(page);
+    await expect(settings.main).toBeVisible();
+
+    const downloaded = page.waitForEvent('download');
+    await settings.backUp.getByRole('button', { name: 'Export', exact: true }).click();
+    const download = await downloaded;
+    const backup = JSON.parse(await readFile((await download.path())!, 'utf8')) as Record<string, unknown>;
+    await download.delete();
+    const untouched = await storageOf(page);
+
+    const otherPlayer = JSON.stringify({
+      ...JSON.parse(backup.player as string) as object,
+      secretKey: 'ab'.repeat(32),
+      name: 'Other player',
+    });
+    const fileContent = JSON.stringify({ ...backup, player: otherPlayer });
+
+    await pickWithImport(page, { name: 'other-player.txt', buffer: Buffer.from(fileContent) });
+    await expect(settings.restoreNote).toHaveText("Replace this browser's save (Browser smoke fixture, 1 pack) with the file's (Other player, 1 pack)? Yours is kept as a backup.");
+    await settings.keep.click();
+    await expect(settings.restoreNote).toHaveText('Kept your save.');
+    await expect(settings.importButton).toBeVisible();
+    expect(sameStorage(await storageOf(page), untouched)).toBe(true);
     expect(errors).toEqual([]);
   });
 });
@@ -638,6 +732,56 @@ test.describe('clock rollover', () => {
 
     await rankings.getByRole('tab', { name: 'All-time', exact: true }).click();
     await expect(rows).toHaveCount(1);
+    expect(errors).toEqual([]);
+  });
+
+  test('opening a pack after the clock rolls back keeps the ticket sequence and records in full', async ({ page, baseURL }) => {
+    await page.clock.install({ time: new Date('2026-10-02T12:00:00.000Z') });
+    const errors = await seedSave(page, baseURL!);
+    await page.goto('./');
+    await packsScreen(page);
+
+    // Roll clock back by 24 hours to an earlier date
+    await page.clock.setFixedTime(new Date('2026-10-01T12:00:00.000Z'));
+    await openOne(page);
+
+    // Tickets sequence strictly continues from nextNonce, never moves back
+    expect(await tickets(page)).toEqual([0, 1]);
+    expect(await nextNonce(page)).toBe(2);
+    const after = await snapshot(page);
+    expect(after.stats.packsOpened).toBe(2);
+    expect(cardCount(after.collection)).toBe(10);
+    expect(after.history).toHaveLength(2);
+    expect(errors).toEqual([]);
+  });
+
+  test('Rankings loaded after a clock rollback across midnight UTC displays pulls under Today', async ({ page, baseURL }) => {
+    const errors = await monitor(page, baseURL!, 0, { returning: true });
+    await relaysAnswerEmpty(page);
+    const filed = {
+      id: 'fixture-today', proof: 'fixture-proof-today', name: 'Fixture today', fingerprint: 'abcd', setId: 'right-now',
+      setName: 'Right Now', hand: 'Full House', multiplier: 150, score: 50000, submittedAt: '2026-10-01T12:00:00.000Z',
+      cards: [], issue: 1000, githubUser: 'fixture',
+    };
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [filed] }));
+
+    // Start after midnight: pull is from yesterday
+    await page.clock.install({ time: new Date('2026-10-02T00:05:00.000Z') });
+    await page.goto('./#/rankings');
+    const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+    await expect(rankings.getByRole('status')).toHaveText('Rankings loaded.');
+    await expect(rankings.getByRole('tabpanel')).toContainText('No pulls filed today yet.');
+    const yesterday = rankings.getByRole('region', { name: "Yesterday's best", exact: true });
+    await expect(yesterday.locator('.hof-entry')).toHaveCount(1);
+
+    // Roll clock back across midnight to before the day ended and reload
+    await page.clock.setFixedTime(new Date('2026-10-01T23:55:00.000Z'));
+    await page.reload();
+    await expect(rankings.getByRole('status')).toHaveText('Rankings loaded.');
+    const rows = rankings.locator('.hof-list .hof-entry');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toHaveAttribute('href', '#/pull/fixture-proof-today');
+    await expect(rankings.getByRole('region', { name: "Yesterday's best", exact: true })).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 });

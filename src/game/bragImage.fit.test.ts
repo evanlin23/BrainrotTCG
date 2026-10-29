@@ -5,7 +5,7 @@ import { SETS, setCode } from '../content/sets';
 import { MAX_NAME_LENGTH, isValidName, normalizeName } from '../engine';
 import { FINISH_INFO, modifierLabel } from './modifiers';
 import { planQr } from './qrCode';
-import { ellipsize, fitLabelText, fitRarityLines, renderCardPoster, renderPoster, wrapParts, type CardPosterInput } from './bragImage';
+import { ellipsize, fitLabelText, fitRarityLines, isRtl, renderCardPoster, renderPoster, renderProfilePoster, wrapParts, type CardPosterInput, type ProfilePosterInput } from './bragImage';
 
 // Finishing card art needs real pixels; this suite is about text, so the art passes through untouched.
 vi.mock('./finishImage', () => ({ holdFinishedCardImage: (src: string) => ({ image: Promise.resolve(src), release: () => undefined }) }));
@@ -36,6 +36,8 @@ interface Drawn {
   y: number;
   size: number;
   align: string;
+  /** The context's base direction when it was drawn (absent on a context without one). */
+  direction?: string;
   maxWidth?: number;
   /** Unsqueezed advance width at the font in force when it was drawn. */
   width: number;
@@ -47,6 +49,7 @@ const fakeCanvas = () => {
   const ctx = {
     font: '',
     textAlign: 'left',
+    direction: 'ltr',
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 1,
@@ -57,7 +60,7 @@ const fakeCanvas = () => {
     measureText: (text: string) => ({ width: widthAt(text, sizeOf(ctx.font)) }),
     fillText: (text: string, x: number, y: number, maxWidth?: number) => {
       const size = sizeOf(ctx.font);
-      drawn.push({ text, x, y, size, align: ctx.textAlign, maxWidth, width: widthAt(text, size) });
+      drawn.push({ text, x, y, size, align: ctx.textAlign, direction: ctx.direction, maxWidth, width: widthAt(text, size) });
     },
     roundRect: (x: number, y: number, w: number, h: number) => rects.push({ x, y, w, h }),
     drawImage: vi.fn(),
@@ -221,6 +224,20 @@ describe('poster text fitting', () => {
       expect(sizeOf(canvas.ctx.font)).toBe(36);
       for (const line of lines) expect(canvas.ctx.measureText(line).width).toBeLessThanOrEqual(960);
     });
+
+    it('renderCardPoster wraps rarity across two lines and offsets stats when parts exceed one line', async () => {
+      canvas.drawn.length = 0;
+      await renderCardPoster({
+        ...cardInput({ rarityName: 'Legendary of the Ancient Cyber Realm' }),
+        stats: 'Rank 1 · 10,000 pts',
+      });
+      const lines = rarityDraws();
+      expect(lines.length).toBeGreaterThan(1);
+      expect(lines[0].y).toBe(1458);
+      expect(lines[1].y).toBe(1458 + 42);
+      const stats = canvas.drawn.find((d) => d.text === 'Rank 1 · 10,000 pts');
+      expect(stats?.y).toBe(1544);
+    });
   });
 
   describe('player name beside the QR code (#692)', () => {
@@ -278,6 +295,120 @@ describe('poster text fitting', () => {
       expect(extent(name).right).toBeLessThanOrEqual(qr.x);
       if (widthAt(playerName, 20) <= qr.x - 24 - 110) expect(name.text).toBe(playerName);
     });
+
+    it('keeps an over-long RTL name inside its slot, truncated with an ellipsis', async () => {
+      const longArabic = 'مرحبا بالعالم '.repeat(6).trim();
+      await renderCardPoster({ ...cardInput(), playerName: longArabic });
+      const name = nameDraw();
+      expect(extent(name).right).toBeLessThanOrEqual(70 + 940 - 40);
+      expect(name.text.includes('…')).toBe(true);
+    });
+  });
+
+  describe('base direction follows the first strong character', () => {
+    const draw = async (playerName: string, withDirection = true) => {
+      if (withDirection) canvas.ctx.direction = 'inherit';
+      canvas.drawn.length = 0;
+      await renderCardPoster({ ...cardInput(), playerName });
+      return canvas.drawn.find((d) => d.y === NAME_BASELINE)!;
+    };
+
+    it('draws RTL-first text right to left and puts the context back as it was', async () => {
+      expect((await draw('שלום Evan')).direction).toBe('rtl');
+      expect(canvas.ctx.direction).toBe('inherit');
+    });
+
+    it('draws a name that starts left to right the way pure LTR text is drawn, even with RTL letters after', async () => {
+      const mixed = await draw('Evan שלום');
+      expect(mixed.direction).toBe('inherit');
+      expect(mixed.text).toBe('Evan שלום');
+      expect((await draw('Evan')).direction).toBe('inherit');
+    });
+
+    it('leaves pure LTR text and the context direction untouched', async () => {
+      const plain = await draw('Poster QA');
+      expect(plain.direction).toBe('inherit');
+      expect(plain.text).toBe('Poster QA');
+      expect(canvas.ctx.direction).toBe('inherit');
+    });
+
+    it('skips digits and punctuation to the first letter, and does nothing on a context with no direction', async () => {
+      expect((await draw('123 שלום')).direction).toBe('rtl');
+      expect((await draw('1) Evan שלום')).direction).toBe('inherit');
+      delete (canvas.ctx as { direction?: string }).direction;
+      const bare = await draw('שלום', false);
+      expect(bare.direction).toBeUndefined();
+      expect('direction' in canvas.ctx).toBe(false);
+    });
+
+    it('ellipsize adds the RTL mark only after RTL-first text', () => {
+      canvas.ctx.font = '800 20px x';
+      const long = (text: string) => ellipsize(canvas.ctx, text.repeat(8), 150);
+      expect(long('שלום Evan ').endsWith('…\u200F')).toBe(true);
+      const ltrFirst = long('Evan שלום ');
+      expect(ltrFirst.endsWith('…')).toBe(true);
+      expect(ltrFirst).not.toContain('\u200F');
+      expect(long('Poster QA ')).not.toContain('\u200F');
+    });
+
+    it('isRtl reads only the first strong character', () => {
+      expect(isRtl('שלום Evan')).toBe(true);
+      expect(isRtl('Evan שלום')).toBe(false);
+      expect(isRtl('123 مرحبا')).toBe(true);
+      expect(isRtl('123 !?')).toBe(false);
+      expect(isRtl('')).toBe(false);
+    });
+  });
+
+  describe('profile poster direct render (#961)', () => {
+    it('renders level, numbers, set progress bars and the verified link', async () => {
+      canvas.drawn.length = 0;
+      const profileInput: ProfilePosterInput = {
+        playerName: 'SuperCollector',
+        fingerprint: '12345678abcdef01',
+        level: 12,
+        title: 'Sigma Master',
+        xp: 4500,
+        levelXp: 4000,
+        nextLevelXp: 5000,
+        packs: 20,
+        unique: 65,
+        totalCards: 108,
+        holos: 14,
+        bestScore: 42000,
+        points: 850,
+        milestone: 'Master',
+        milestoneFloor: 500,
+        sets: [
+          { code: 'GEN', color: '#ffcc00', have: 12, size: 12, done: 'complete' },
+          { code: 'PBR', color: '#00ffcc', have: 6, size: 12, done: null },
+        ],
+        best: {
+          cards: [
+            { image: 'card1.webp', name: 'Strawberry Elephant', isHolo: true },
+            { image: 'card2.webp', name: 'Sigma Wolf', isHolo: false },
+          ],
+          hand: 'Full House',
+          score: 42000,
+          setName: 'Genesis',
+        },
+        url: URL,
+      };
+
+      const blob = await renderProfilePoster(profileInput);
+      expect(blob).toBeDefined();
+      expect(blob.type).toBe('image/png');
+
+      const texts = canvas.drawn.map((d) => d.text);
+      expect(texts).toContain('Level 12 · Sigma Master');
+      expect(texts).toContain('20');
+      expect(texts).toContain('65/108');
+      expect(texts).toContain('14');
+      expect(texts).toContain('GEN');
+      expect(texts).toContain('PBR');
+      expect(texts).toContain('Best pull · Full House · 42,000');
+      expect(texts).toContain('SuperCollector');
+    });
   });
 
   describe('helpers', () => {
@@ -288,6 +419,14 @@ describe('poster text fitting', () => {
       const cut = ellipsize(canvas.ctx, family.repeat(10), 150);
       expect(cut.endsWith('…')).toBe(true);
       expect(cut.slice(0, -1).split(family).join('')).toBe('');
+      expect(canvas.ctx.measureText(cut).width).toBeLessThanOrEqual(150);
+    });
+
+    it('ellipsize appends an RTL mark for right-to-left text so the ellipsis stays on the reading end', () => {
+      canvas.ctx.font = '800 20px x';
+      const arabic = 'مرحبا بالعالم مرحبا بالعالم مرحبا بالعالم';
+      const cut = ellipsize(canvas.ctx, arabic, 150);
+      expect(cut.endsWith('…\u200F')).toBe(true);
       expect(canvas.ctx.measureText(cut).width).toBeLessThanOrEqual(150);
     });
 
@@ -312,6 +451,12 @@ describe('poster text fitting', () => {
       const cut = fitLabelText(canvas.ctx, text, 100, 52, '800', 'x');
       expect(sizeOf(canvas.ctx.font)).toBe(20);
       expect(cut.endsWith('…')).toBe(true);
+    });
+
+    it('isRtl identifies Arabic and Hebrew strings', () => {
+      expect(isRtl('مرحبا')).toBe(true);
+      expect(isRtl('שלום')).toBe(true);
+      expect(isRtl('Hello')).toBe(false);
     });
 
     it('wrapParts keeps every part in order', () => {
