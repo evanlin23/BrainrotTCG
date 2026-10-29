@@ -42,7 +42,7 @@
 }
 
 /* A pull that doesn't qualify: why Submit is missing, small and muted like the public-name notice. It has no
-   button, so it takes only its own lines, and a pull that doesn't qualify never gains a Submit, so nothing moves. */
+   Submit, so it takes only its own lines, and a pull that doesn't qualify never gains one, so nothing moves. */
 .pack-summary .summary-hof--why {
   min-height: 0;
   font-size: var(--text-xs);
