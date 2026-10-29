@@ -342,7 +342,7 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   leaves the switch out (the stored choice is kept). The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
   problem). On a phone (899 px or less) the wordmark sits flush at the left gutter and the gear at the
-  right edge, with the space between them (#803). The achievement toast lies over the header's left, so the
+  right edge, with the space between them (#803). On a phone the achievement toast lies over the header's left, so the
   gear must stay at the right edge, wherever the text size wraps it; before, the gear sat just after a
   wordmark set in from the left. A wide screen's header is unchanged. `visual-baselines` first-pack-narrow.png shows it.
 - **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit
@@ -406,13 +406,26 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   phone (899 px wide or less) it lies over the header, bottom-aligned, from the left gutter to the Settings
   button (the header puts Settings at the right edge), so it covers no set step, pack, guide link or tab; the
   kicker is one line, a level-up's line is clamped to one line, and the full text is still the button's name.
-  On a wide screen it lies over the wordmark too, left-aligned and no wider than the wordmark (it is held to 9.6em of the logo's size, where the wordmark measures about 9.7em, and to 24rem), so the nav, which starts just past the wordmark, is never under it. It is at least 44 px tall at every
+  On a wide screen (900 px and up) it is anchored at the top right on every screen, so it never jumps between
+  corners, and it is fitted so that it covers no control (the owner's call, 2026-10-29). On the pack's summary it
+  hangs under the header at the right (nothing the player can press is in that strip). The home screen has no
+  free strip: the header row holds the wordmark, the tabs and Settings, the set picker sits right under it and
+  the pack fills the middle. So there the toast takes the free column at the right of the pack, below the
+  set picker's row (5.25rem under the header, which clears the picker at normal and doubled text), and is
+  narrowed to that column: its left edge stays clear of the pack, whose width is the smaller of 80vw and what
+  the stage's height gives it, estimated from the window a little on the large side (`Toasts.css`). It is
+  held between 7.5rem and 24rem; narrower than 15rem it stacks, the icon and X on one row
+  and the text under them, with the title clamped to two lines (the full text is still the button's name). One case
+  has no room: a window nearly as tall as it is wide (1024x900, say) leaves a column under 7.5rem, and there
+  the toast keeps that floor and overlaps the pack's outer edge, never the set picker, the tabs or Settings. It is at least 44 px tall at every
   size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
   hold the toasts until they clear, and a toast the player had 1.5 s to see is let go then, not shown again in
   full. In pack focus mode it still overlays, under the pack's X, or beside the X at the right on a short
   screen (520 px tall or less, where the headline below it is kept clear by tight padding).
-  `tests/browser/toast-home.spec.ts` checks every home control at 360, 390, 1280, 640x360, 844x390, 900 and
-  1440, 200% text at 360, that nothing moves as the toast goes, the turn to landscape, and the sheet hold.
+  `tests/browser/toast-home.spec.ts` checks every home control (the pack, the set picker, the tabs, Settings, the
+  wordmark, the guide link and the announcement's link and close) at 360, 390, 640x360, 844x390, 900x700, 1024x768,
+  1280x800, 1440x900 and 1920x1080, at 200% text at 360 and on every wide screen, the pack's summary on every
+  wide screen at normal and doubled text, that nothing moves as the toast goes, the turn to landscape, and the sheet hold.
   `tests/browser/toast-touch.spec.ts` checks the tap, the X, the swipe, the seen toast, the pack hold, the reduced
   motion fade, and the 44 px target, a tap and what the toast covers on the home screen and the summary at
   five phone sizes, in touch emulation.

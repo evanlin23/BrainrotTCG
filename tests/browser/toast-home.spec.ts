@@ -3,10 +3,12 @@ import { expectSummaryTakesClicks, monitor, recordShownToasts } from './support'
 
 /**
  * The achievement toast on the home screen (#803). The first visit back after a pack's summary still has
- * the toast up. It takes no room: on a phone it lies over the header (clear of the Settings button), on a
- * wide screen it sits anchored at the top right under the header, consistent with the pack screen so it
- * never jumps between left and right. The page is laid out the same with a toast, after one and with none.
- * A card close-up (any sheet) holds it. Each toast is held from the moment it shows (from inside the page,
+ * the toast up, and it used to hang over the set picker, so a tap meant for a set step opened Profile
+ * instead. It takes no room: on a phone it lies over the header (clear of the Settings button), on a wide
+ * screen it stays anchored at the top right, as on the pack's summary, fitted to the free column at the
+ * right of the pack (and below the set picker's row), so with it up nothing the player can press is under
+ * it, the pack included, the centre of each control still reaches that control, and the page is laid out
+ * the same with a toast, after one and with none. A card close-up (any sheet) holds it. Each toast is held from the moment it shows (from inside the page,
  * as a resting pointer would: a stall of any length between two steps can't let it go) and sent away with
  * its X rather than waited out (the timing is the unit tests' job: a jump of Playwright's clock leaves
  * the exit animation behind the next toast's timer), so no step races a timer and none waits 5 or 6 seconds.
@@ -19,23 +21,28 @@ const VIEWPORTS = [
   // A phone on its side: the least height, where the pack is already only about 100px tall.
   { width: 640, height: 360 },
   { width: 844, height: 390 },
-  // Wide screens, from where the nav joins the header up.
+  // Wide screens, from where the nav joins the header up, to a full-HD window.
   { width: 900, height: 700 },
+  { width: 1024, height: 768 },
   { width: 1440, height: 900 },
+  { width: 1920, height: 1080 },
 ];
+const WIDE = VIEWPORTS.filter(({ width }) => width >= 900);
 
 /** Every control on the home screen, as the page lays it out. */
 const CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.app-utilities button', '.app-nav-item'];
-/** Controls that must never be covered on desktop screens, where the toast is anchored top-right. */
-const DESKTOP_CONTROLS = ['.app-utilities button', '.app-nav-item', '.card-guide-link'];
+/** Every control on the home screen of a wide screen: the phone's list, the wordmark and the announcement's link and close. */
+const DESKTOP_CONTROLS = [...CONTROLS, '.app-logo', '.news-banner-link', '.news-banner-dismiss'];
+/** Every control on the pack's summary (the screen the toast is first up on), the header's Settings button included; its tabs are hidden in focus mode. */
+const SUMMARY_CONTROLS = ['.app-logo', '.app-utilities button', '.pack-close', '.summary-card', '.pack-summary .link-btn', '.pack-summary .btn', '.card-guide-link'];
 /** The touch targets the toast must never squeeze below 44 CSS px (the pack to open and the set steps). */
 const TARGETS = ['.set-step', '[data-pack-open]'];
 const TARGET = 44;
 
 const ENLARGED = 'html { font-size: 200% !important; }';
 
-/** The controls the toast overlaps, and those whose centre a touch would hand to something else. */
-const blocked = (page: Page, selectors = CONTROLS) => page.evaluate((list) => {
+/** The controls the toast overlaps, and (unless `centres` is off, for a screen the page itself lays out past the window or over its own parts) those whose centre a touch would hand to something else. */
+const blocked = (page: Page, selectors = CONTROLS, centres = true) => page.evaluate(([list, checkCentres]) => {
   const toast = document.querySelector('.toast')!.getBoundingClientRect();
   const problems: string[] = [];
   for (const selector of list) {
@@ -44,12 +51,19 @@ const blocked = (page: Page, selectors = CONTROLS) => page.evaluate((list) => {
       if (!box.width || !box.height) continue;
       const label = `${selector}[${index}]`;
       if (toast.left < box.right && toast.right > box.left && toast.top < box.bottom && toast.bottom > box.top) problems.push(`${label} is under the toast`);
+      if (!checkCentres) continue;
       const at = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
       if (!at || !el.contains(at)) problems.push(`${label} loses its centre to ${at?.closest('.toast') ? 'the toast' : at?.className}`);
     }
   }
   return problems;
-}, selectors);
+}, [selectors, centres] as const);
+
+/** On a wide screen the toast is at the right edge (the page's gutter is 2rem, 64px at doubled text, at most). */
+const expectAnchoredRight = async (page: Page, width: number) => {
+  const box = (await page.locator('.toast').boundingBox())!;
+  expect(box.x + box.width, 'anchored to the right edge').toBeGreaterThanOrEqual(width - 72);
+};
 
 /** The controls too small to press, at the sizes the page lays them out. */
 const squeezed = (page: Page) => page.evaluate(([selectors, min]) => {
@@ -116,14 +130,11 @@ for (const viewport of VIEWPORTS) {
     const errors = await toSummary(page, baseURL!);
     const toast = await toHome(page);
 
-    const expectedControls = viewport.width < 900 ? CONTROLS : DESKTOP_CONTROLS;
+    const controls = viewport.width < 900 ? CONTROLS : DESKTOP_CONTROLS;
     for (const { kicker, name } of TOASTS) {
       await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
-      if (viewport.width >= 900) {
-        const box = (await toast.boundingBox())!;
-        expect(box.x + box.width, `${kicker}: anchored to the right`).toBeGreaterThan(viewport.width / 2);
-      }
-      await expect.poll(() => blocked(page, expectedControls), { message: `no control is under the ${kicker} toast` }).toEqual([]);
+      if (viewport.width >= 900) await expectAnchoredRight(page, viewport.width);
+      await expect.poll(() => blocked(page, controls), { message: `no control is under the ${kicker} toast` }).toEqual([]);
       expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
       expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
       // However little of it a short screen draws, the button's name is still all of it.
@@ -132,6 +143,50 @@ for (const viewport of VIEWPORTS) {
     }
     expect(errors).toEqual([]);
   });
+}
+
+// Doubled text on a wide screen: the toast and the set picker both grow, and the picker then runs the page's
+// width, so the toast must be below it as well as clear of the pack.
+for (const viewport of WIDE) {
+  test(`at 200% text both toasts leave every control uncovered on the home screen at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+    test.setTimeout(120000);
+    await page.setViewportSize(viewport);
+    const errors = await toSummary(page, baseURL!);
+    await page.addStyleTag({ content: ENLARGED });
+    const toast = await toHome(page);
+
+    for (const { kicker, name } of TOASTS) {
+      await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
+      await expectAnchoredRight(page, viewport.width);
+      await expect.poll(() => blocked(page, DESKTOP_CONTROLS), { message: `no control is under the ${kicker} toast` }).toEqual([]);
+      expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
+      expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
+      await expect(toast).toHaveAccessibleName(name);
+      await dismiss(page);
+    }
+    expect(errors).toEqual([]);
+  });
+}
+
+// The pack's summary is where the toast is first up: on a wide screen it hangs under the header at the
+// right, clear of the header's tabs and Settings, the X, the cards and the buttons, at normal and doubled text.
+for (const viewport of WIDE) {
+  for (const enlarged of [false, true]) {
+    test(`both toasts cover no control on the pack summary at ${viewport.width}x${viewport.height}${enlarged ? ' and 200% text' : ''}`, async ({ page, baseURL }) => {
+      test.setTimeout(120000);
+      await page.setViewportSize(viewport);
+      const errors = await toSummary(page, baseURL!);
+      if (enlarged) await page.addStyleTag({ content: ENLARGED });
+
+      for (const { kicker } of TOASTS) {
+        await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
+        await expectAnchoredRight(page, viewport.width);
+        await expect.poll(() => blocked(page, SUMMARY_CONTROLS, !enlarged), { message: `no control is under the ${kicker} toast` }).toEqual([]);
+        await dismiss(page);
+      }
+      expect(errors).toEqual([]);
+    });
+  }
 }
 
 // Doubled text makes both toasts (the grouped achievements, then the taller level-up with its line) at their

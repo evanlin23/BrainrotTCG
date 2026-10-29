@@ -190,14 +190,30 @@
   }
 }
 
-/* Wide screens: top right across both the pack screen and the home screen, so the toast
-   stays anchored in one consistent place without jumping between left and right. */
+
+/* Wide screens: the toast stays at the top right on every screen (the owner's call, so it never jumps
+   between corners), fitted so that it covers no control.
+   Pack summary (focus mode): it hangs under the header at the right, as it always did; nothing the player
+   can press is in that strip.
+   Home: the header row is full (wordmark, tabs and Settings), the set picker sits right under it, and the
+   pack is centred below, so the toast takes the free column at the right of the pack. Its left edge stays
+   clear of the pack, whose width is the smaller of 80vw and what the stage's height gives it (PackOpener.css:
+   the stage is the window less the header, the set picker and the guide row, about 12rem); both are
+   estimated here from the window, a little on the large side, so the toast is a little too narrow rather
+   than ever over the pack. It is held between 7.5rem and 24rem; narrower than 15rem it stacks (icon and X
+   on one row, the text under it). It starts below the set picker's row (5.25rem under the header: the
+   picker is 4rem to 5rem tall, and 3.9rem with doubled text), because with larger text the picker runs
+   the width of the page. Still a zero-height row: it takes no room. */
 @media (min-width: 900px) {
-  .app:not(.is-focus) .toast-region,
   .app.is-focus .toast-region {
-    top: var(--space-1);
-    width: min(92vw, 24rem);
-    max-width: 24rem;
+    margin: 0 var(--gutter) 0 auto;
+  }
+
+  .app:not(.is-focus) .toast-region {
+    container-type: inline-size;
+    top: 5.25rem;
+    width: clamp(7.5rem, calc(50vw - var(--gutter) - var(--space-3) - min(40vw, 800px, (100dvh - 12rem) / 1.806)), 24rem);
+    max-width: none;
     margin: 0 var(--gutter) 0 auto;
   }
 
@@ -213,5 +229,46 @@
   .app:not(.is-focus) .toast--detail .toast-desc {
     -webkit-line-clamp: 2;
     line-clamp: 2;
+  }
+
+  @container (max-width: 15rem) {
+    .app:not(.is-focus) .toast {
+      position: relative;
+    }
+
+    .app:not(.is-focus) .toast-open {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-1);
+      /* The X is 44px square at the top right, beside the icon; the text starts under both. */
+      padding: var(--space-2) var(--space-3) var(--space-2);
+    }
+
+    .toast-icon {
+      margin-bottom: var(--space-1);
+    }
+
+    .toast-dismiss {
+      position: absolute;
+      top: 0;
+      right: 0;
+    }
+
+    .toast-text {
+      width: 100%;
+    }
+
+    .toast-kicker,
+    .toast-title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .toast-title {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+    }
   }
 }
