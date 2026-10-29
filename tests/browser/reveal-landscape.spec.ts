@@ -134,6 +134,30 @@ for (const size of SIZES) {
         await page.locator('.reveal-skip').click({ trial: true });
         expect(errors).toEqual([]);
       });
+
+      test('Tabbing to Skip at an in-between text size scrolls it clear of the fade', async ({ page, baseURL }, testInfo) => {
+        test.skip(testInfo.project.name !== 'desktop-chromium', 'A window-size check; the desktop project runs it once.');
+        test.setTimeout(60000);
+        const errors = await monitor(page, baseURL!);
+        await page.goto('./');
+        // Sizes where the column scrolls by a little: Skip's focus scroll used to stop with it inside the fade.
+        await scaleText(page, size.height === 360 ? 130 : 120);
+        await page.getByRole('button', { name: /^Open pack/ }).focus();
+        await page.keyboard.press('Space');
+        await expect(page.locator('.reveal-card:focus')).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
+        await tapSpace(page);
+        await expect(page.locator('.reveal-rarity .rarity-pill')).toBeVisible();
+        const skip = page.locator('.reveal-skip');
+        for (let i = 0; i < 10 && !(await skip.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press('Tab');
+        await expect(skip).toBeFocused();
+        const gap = await page.locator('.reveal-side').evaluate((el) => {
+          const fade = parseFloat(getComputedStyle(el).paddingBottom);
+          return { overflow: el.scrollHeight - el.clientHeight, fade, fromEdge: el.getBoundingClientRect().bottom - el.querySelector('.reveal-skip')!.getBoundingClientRect().bottom };
+        });
+        expect(gap.overflow, 'the column scrolls at this size').toBeGreaterThan(0);
+        expect(gap.fromEdge, 'Skip\'s bottom against the fade').toBeGreaterThanOrEqual(gap.fade - 0.5);
+        expect(errors).toEqual([]);
+      });
     });
   });
 }

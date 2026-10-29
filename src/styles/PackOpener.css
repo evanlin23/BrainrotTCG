@@ -1286,6 +1286,8 @@ button.reveal-card {
          * Chromium ignores ::-webkit-scrollbar once scrollbar-width is set, and overlays ignore both.
          */
         padding-bottom: 1rem;
+        /* Keyboard focus scrolls the focused row clear of the fade, not just into the box. */
+        scroll-padding-bottom: 1rem;
         -webkit-mask-image: linear-gradient(to bottom, var(--black) calc(100% - 1rem), transparent);
         mask-image: linear-gradient(to bottom, var(--black) calc(100% - 1rem), transparent);
     }
