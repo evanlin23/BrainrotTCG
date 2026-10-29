@@ -291,9 +291,9 @@ an approval gate:
   workflow lint runs its test, which reads these promises from the workflow files. Its strictness is
   deliberate: it fails closed, so any drift between the workflow and the contract fails CI until
   both are changed together.
-  [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) skip
-  pushes to `main` (`branches-ignore`), so on a bypassed revision workflow lint (actionlint) and
-  browser tests may not have run.
+  [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) run
+  only on pull requests and manual dispatches, never on a push to `main`, so on a bypassed revision
+  workflow lint (actionlint) and browser tests may not have run.
 - Reviewer/operator, decision and known-good rollback target, plus any observed blockers: save loss
   or corruption, broken historical verification, persistent blank screens or missing assets, or
   inaccessible opening controls. Unresolved ones stay listed.
