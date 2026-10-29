@@ -49,6 +49,13 @@
   line-height: 1.4;
 }
 
+/* The app-level warning sits above the pack, so it scrolls inside itself rather than push the pack off a small screen (#1079). The Settings alert and the staging banner keep their natural height. */
+.save-warning--capped {
+  max-height: min(18rem, 35dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .save-warning .save-warning-action {
   margin-left: var(--space-2);
   color: inherit;

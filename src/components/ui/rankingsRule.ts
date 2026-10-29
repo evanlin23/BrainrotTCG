@@ -8,5 +8,9 @@ export const QUALIFY_RULE = `${QUALIFY_HAND}, or ${QUALIFY_SCORE}`;
 /** The Rankings page section that explains Submit, named where Submit is missing (#1004). */
 export const RANKINGS_HELP = 'How Rankings work';
 
-/** Why a pull that doesn't qualify has no Submit, in one short sentence. */
-export const NOT_QUALIFYING = `Doesn't qualify for Rankings, which take ${QUALIFY_RULE}. See ${RANKINGS_HELP}.`;
+/** The id of that section on the Rankings page: the section a link to it asks for (App's openPage). */
+export const RANKINGS_HELP_ID = 'how-rankings-work';
+
+/** Why a pull that doesn't qualify has no Submit, in one short sentence ending in the name of RANKINGS_HELP. */
+export const NOT_QUALIFYING_LEAD = `Doesn't qualify for Rankings, which take ${QUALIFY_RULE}. See `;
+export const NOT_QUALIFYING = `${NOT_QUALIFYING_LEAD}${RANKINGS_HELP}.`;

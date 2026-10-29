@@ -239,6 +239,17 @@ const graphemes = (text: string): string[] => {
   return Seg ? Array.from(new Seg(undefined, { granularity: 'grapheme' }).segment(text), (part) => part.segment) : Array.from(text);
 };
 
+const RTL_REGEX = /[\u0590-\u08FF\uFB1D-\uFDFD\uFE70-\uFEFC]/;
+/**
+ * Whether `text` reads right to left: its first strong character (any letter) is Arabic, Hebrew, Syriac,
+ * Thaana, etc., the way `dir="auto"` decides. Text with right-to-left letters after a left-to-right start
+ * keeps the left-to-right base direction, so its visual order is not flipped.
+ */
+export const isRtl = (text: string): boolean => {
+  const strong = /\p{L}/u.exec(text);
+  return strong !== null && RTL_REGEX.test(strong[0]);
+};
+
 /**
  * `text` cut at a character boundary and ended with an ellipsis until it measures within maxWidth
  * in the current font. Text that already fits is returned unchanged; display only, never stored.
@@ -246,12 +257,13 @@ const graphemes = (text: string): string[] => {
 export const ellipsize = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string => {
   if (ctx.measureText(text).width <= maxWidth) return text;
   const chars = graphemes(text);
+  const rtlSuffix = isRtl(text) ? '\u200F' : '';
   while (chars.length > 0) {
     chars.pop();
-    const cut = `${chars.join('').trimEnd()}\u2026`;
+    const cut = `${chars.join('').trimEnd()}\u2026${rtlSuffix}`;
     if (ctx.measureText(cut).width <= maxWidth) return cut;
   }
-  return '\u2026';
+  return `\u2026${rtlSuffix}`;
 };
 
 /**
@@ -389,8 +401,14 @@ const drawLabel = async (
   // The name stops short of the code (drawn last, at x + w - 40 - side) however wide it is.
   const textWidth = qr ? w - 80 - qr.side - LABEL_QR_GAP : w - 80;
   ctx.fillStyle = ink;
+  const rtl = isRtl(label.name);
   const name = fitLabelText(ctx, label.name, textWidth, 52, '800', BODY_FONT);
+  // Right-to-left text draws with that base direction, then the context goes back to whatever it had.
+  const directed = rtl && 'direction' in ctx;
+  const previousDirection = ctx.direction;
+  if (directed) ctx.direction = 'rtl';
   ctx.fillText(name, x + 40, y + 134, textWidth);
+  if (directed) ctx.direction = previousDirection;
   ctx.fillStyle = soft;
   ctx.font = `600 32px ${BODY_FONT}`;
   ctx.fillText(label.cert, x + 40, y + 186);
