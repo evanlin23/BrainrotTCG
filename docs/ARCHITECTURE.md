@@ -96,6 +96,7 @@ src/game/          Browser glue around the engine.
   move.ts            hands a save over from the site's old address, window to window (docs/HOSTING.md)
   saveFile.ts        save export and import: validate, back up, write, roll back on failure
   collectionRecovery.ts  keeps unreadable collection entries and stats aside instead of overwriting them
+                     (and a collection whose negative or fractional counts hydration repaired)
   statsRecovery.ts   rebuilds unreadable stats from what the save still proves, never from zero
   progressWriter.ts  stores committed progress field by field, behind both save guards, and owes
                      packs to the pending shelf until stored (App uses it via hooks/useProgressWriter.ts)
