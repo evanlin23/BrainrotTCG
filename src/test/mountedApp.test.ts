@@ -11,11 +11,14 @@ describe('mountedApp until', () => {
     app = await mountedApp({});
     await app.mount();
     let runs = 0;
+    const before = Date.now();
     await app.until('already true', () => {
       runs += 1;
       expect(document.querySelector('.app')).not.toBeNull();
     });
     expect(runs).toBe(1);
+    // The fake clock must not move: a met condition returns before any 25 ms advance.
+    expect(Date.now()).toBe(before);
   });
 
   it('times out when condition never holds within budget', async () => {
