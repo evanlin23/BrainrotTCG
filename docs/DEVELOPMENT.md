@@ -46,8 +46,8 @@ external blocker, never an implied pass. Don't trust the author's summary.
 | Architecture, public-resource growth | Responsibility owner, simpler existing option, async and resource lifetime, bounded untrusted data, compatibility. No speculative frameworks. |
 
 The reviewer can't render the PR. For a visible flow, the implementer gives bounded, sanitized
-before/after observations on the exact head, using the [DESIGN.md](DESIGN.md) rules and, for a
-meaningful flow change, [`npm run audit:agent`](#local-agent-usability-audit). Tests must be
+before/after observations on the exact head, using the [DESIGN.md](DESIGN.md) rules. Meaningful flow change: add (not instead of) a task-only audit record on the exact head, from an owner-run `/qa` or `npm run audit:agent`; if neither can run (`/qa` runs only when the owner invokes it), name the blocker. See
+[Local agent usability audit](#local-agent-usability-audit). Tests must be
 deterministic: reviewers block fixed sleeps, timing-dependent waits, and retries or skips a PR adds.
 
 ## Defect learning and issue closure
@@ -388,12 +388,33 @@ image draws different pixels and fails; that is not a design change.
 
 ## Local agent usability audit
 
-Owner decision, 2026-10-17: usability audits use Claude Code only (no Codex or other providers),
-driving the built site with Playwright. Results come from simulated agent reviewers in Chromium
-emulation, not human newcomers or a real device, and anything that cites one says so.
+For a bounded QA run that triages findings into issues and tested draft fixes, use
+[`/qa`](../.claude/skills/qa/SKILL.md); it combines scripted checks with the task-only audit below.
+
+Historical owner decision, 2026-10-17: usability audits used Claude Code only, driving the built
+site with Playwright. Owner decision, 2026-10-29: usability audits may use multiple providers
+(Claude and ChatGPT/Codex simulations), which supersedes the Claude-only restriction. `/qa` supports
+native ChatGPT/Codex subagents already available in the host. Prefer the owner-requested provider,
+otherwise an available provider with a guarded browser. No provider migration, new accounts or API
+keys, or extra sessions via `create_session`.
+
+`/qa` is a workflow with two simulation modes: the unchanged Claude-only CLI below, and native
+host subagent orchestration described in [chatgpt.md](../.claude/skills/qa/chatgpt.md). The latter
+doesn't require Claude installed and isn't a CLI flag. The coordinator owns fresh disposable
+browser contexts and guards; native tools may provide only an operational task-only boundary
+with ambient source/tools still available. Report that limitation, actual capabilities and
+conditions; don't claim the CLI's strict isolation or identical abilities. If browser effects
+can't be contained, that mode is blocked. A missing provider blocks only that provider; continue
+available authorized simulation or deterministic QA, naming the selected provider.
+
+Both modes produce simulated observations, not human/device evidence or independent statistical
+samples. Every participant start (including retries and retests) consumes the `/qa` provider-session
+budget: default 2 per invocation unless the owner explicitly enlarges it. Tool elapsed time isn't
+human reaction time. Report provider/host/model (unknown if unexposed), build SHA, exact browser,
+dimensions/input/motion/cache/network/CPU, tools/isolation limits, outcomes, caps and blocked actions.
 
 `npm run audit:agent -- --task=opening --turns=12 --seconds=180` (`scripts/agent-audit/run.ts`;
-boundary in docs/ARCHITECTURE.md) runs one fresh reviewer per task, one after another. Tasks are
+boundary in docs/ARCHITECTURE.md) launches only Claude, one fresh reviewer per task, sequentially. Tasks are
 `opening`, `sharing`, `results` and `recovery`, each limited to 30 to 180 seconds, 3 to 40 turns
 (model responses) and 40 browser calls. It needs Unix, Node 22, Playwright's Chromium and Claude
 Code 2.1.302 signed in (`claude auth status`). Another version, a signed-out CLI or any
@@ -457,8 +478,9 @@ budget (default 3 tasks, 45 minutes, 2 provider runs):
 
 - one player journey, rotating through opening, collection and detail, sharing, own and shared
   Profile, Rankings, Settings and help, and recovery, with a journey whose code changed since the
-  last review first. Opening, sharing and recovery use the task audit above (Claude only, a fresh
-  task-only reviewer, no coaching); the rest use fixture-based browser checks. Judge it with the
+  last review first. Opening, sharing and recovery use the Claude-only `npm run audit:agent` task (a fresh
+  task-only participant, no coaching; `scripts/quality-review.ts` plans only that runner, and a
+  native-provider `/qa` run is separate); the rest use fixture-based browser checks. Judge it with the
   player job, primary fact, next action check (#712). Separate same-scope duplication from necessary
   repeated context, accessible text and exported artifacts. A screenshot baseline (#745) never
   stands in for that review.
