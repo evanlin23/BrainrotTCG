@@ -10,8 +10,7 @@ import { expectPackDropped, monitor, expectSummaryTakesClicks } from './support'
 
 const LEVEL = 'perspective(1000px) rotateX(0deg) rotateY(0deg)';
 
-test('the card close-up levels, and stops tilting, when reduced motion turns on while it is open', async ({ page, baseURL }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop-chromium', 'Tilt follows a real mouse; the desktop project has one.');
+test('the card close-up levels, and stops tilting, when reduced motion turns on while it is open', { tag: '@desktop-only' }, async ({ page, baseURL }) => {
   test.setTimeout(90000);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
@@ -116,8 +115,7 @@ test.describe('forced colours', () => {
     expect(errors).toEqual([]);
   });
 
-  test('the chosen reward keeps a marker the other unlocked rewards lack after focus moves away', async ({ page, baseURL }, testInfo) => {
-    test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
+  test('the chosen reward keeps a marker the other unlocked rewards lack after focus moves away', { tag: '@desktop-only' }, async ({ page, baseURL }) => {
     // Enough saved packs for level 4, which unlocks the Midnight card back: 60 packs x 10 XP + 4 unique cards x 25 XP = 700,
     // and level 4 needs 600. If XP values or level thresholds change, revisit this count.
     const errors = await seed(page, baseURL!, 60);

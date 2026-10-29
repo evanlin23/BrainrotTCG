@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion, type PanInfo, type Variants } from 'framer-motion';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion, useIsPresent, type PanInfo, type Variants } from 'framer-motion';
 import { Award, ChevronsUp, Layers, X } from 'lucide-react';
 import type { Achievement } from '../../data/achievements';
 import { GROUPED_TOAST_MS, TOAST_MS, TOAST_SEEN_MS } from '../../constants/toast';
@@ -80,6 +80,20 @@ const focusVisible = (el: HTMLElement) => {
   }
 };
 
+// A helper component mounted with the toast: signals when the toast has actually mounted into the DOM
+// (after any prior toast's exit animation completes in AnimatePresence mode="wait").
+// A toast that is leaving (still mounted for its exit) is no longer up: it clears at once, and one that
+// comes back while the old one fades out is a fresh mount that sets it again.
+const ToastMount = ({ id, onMount, onUnmount }: { id: string; onMount: (id: string) => void; onUnmount: () => void }) => {
+  const present = useIsPresent();
+  useEffect(() => {
+    if (!present) return;
+    onMount(id);
+    return () => onUnmount();
+  }, [id, present, onMount, onUnmount]);
+  return null;
+};
+
 /**
  * Achievement unlocks, one small toast at a time at the top of the screen. A burst (one lucky pack
  * can unlock seven) becomes a single "N achievements" toast rather than a wall over the game.
@@ -90,6 +104,10 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
   const grouped = leadingAchievements.length >= GROUP_AT;
   const shown = grouped ? leadingAchievements : queue.slice(0, 1);
   const key = paused || held ? '' : shown.map((a) => a.id).join('|');
+  // The toast actually mounted and appearing on screen (after any previous toast's exit animation).
+  const [visibleKey, setVisibleKey] = useState('');
+  if (!key && visibleKey) setVisibleKey('');
+  const clearVisible = useCallback(() => setVisibleKey(''), []);
   // A toast fading out has already been put back in the queue, so a tap on it does nothing.
   const liveKey = useRef(key);
   // The toast (by key) the pointer or focus is on: its timer waits. Cleared when none is up, since a
@@ -98,7 +116,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
   const [focusOn, setFocusOn] = useState('');
   if (!key && pointerOn) setPointerOn('');
   if (!key && focusOn) setFocusOn('');
-  const holding = !!key && (pointerOn === key || focusOn === key);
+  const holding = !!visibleKey && (pointerOn === visibleKey || focusOn === visibleKey);
   const [away, setAway] = useState<Away>(STAY);
   // Set by a swipe, cleared by the click it ends in (or the next press or key): a swipe that stops short
   // is not a tap, and does not leave the toast deaf to Enter and Space.
@@ -120,20 +138,20 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
   }, [paused, onDismiss]);
   useEffect(() => {
     liveKey.current = key;
-    upSince.current = key ? { key, at: Date.now() } : null;
+    upSince.current = visibleKey ? { key: visibleKey, at: Date.now() } : null;
     // A swipe that sent the last toast away is over: the next one's first activation (a screen reader's
     // sends no press or key first) is a tap.
     swiped.current = false;
-  }, [key]);
+  }, [key, visibleKey]);
 
   useEffect(() => {
-    if (!key || holding) return;
+    if (!visibleKey || holding) return;
     const timer = window.setTimeout(() => {
       setAway(STAY);
-      onDismiss(key.split('|'));
+      onDismiss(visibleKey.split('|'));
     }, grouped ? GROUPED_TOAST_MS : TOAST_MS);
     return () => window.clearTimeout(timer);
-  }, [key, grouped, holding, onDismiss]);
+  }, [visibleKey, grouped, holding, onDismiss]);
 
   // The keyboard dismissed the toast it was on: the focus goes back to where it was before, not to the page.
   const handBackFocus = () => {
@@ -221,6 +239,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
               exit="leave"
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
+              <ToastMount id={key} onMount={setVisibleKey} onUnmount={clearVisible} />
               <button type="button" className="toast-open" onClick={() => leave(true)}>
                 <span className="toast-icon" aria-hidden="true">
                   {grouped || !shown[0].kicker ? <Award strokeWidth={2.4} /> : shown[0].opens === 'collection' ? <Layers strokeWidth={2.4} /> : <ChevronsUp strokeWidth={2.4} />}

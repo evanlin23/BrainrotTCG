@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { holdTickets, monitor } from './support';
+import { expectOpenCueHeld, finishOpenCue, holdOpenCue } from './openCue';
 
 /**
  * The opening cue (#628, #898): a finger and a partial tear play along the pack's seam, at most twice
@@ -25,14 +26,8 @@ async function load(page: Page) {
 
 test('a new player sees the cue on the first load, and a touch ends it for good', async ({ page, baseURL }) => {
   const errors = await monitor(page, baseURL!);
-  // Stretch the play so a slow machine can't finish it before the touch: only the touch ends it here.
-  await page.addInitScript(() => {
-    document.addEventListener('DOMContentLoaded', () => {
-      const style = document.createElement('style');
-      style.textContent = '.open-cue-travel, .open-cue-tear { animation-duration: 600s !important; }';
-      document.head.append(style);
-    });
-  });
+  // Only the touch ends the cue here, however long loading and aiming the touch take.
+  await holdOpenCue(page);
   await load(page);
 
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
@@ -41,6 +36,7 @@ test('a new player sees the cue on the first load, and a touch ends it for good'
   await expect.poll(() => plays(page)).toBe('1');
   expect(await pillAnimations(page)).toBe(1);
   expect(await keyframeAnimations(page, '.open-cue-travel')).toBeGreaterThan(0);
+  await expectOpenCueHeld(page);
 
   // The first touch stops it, and counts as understood.
   // The pack drops in on a spring and is visible long before it lands. Hovering waits for it to stop
@@ -68,14 +64,14 @@ test('left alone, the cue plays its twice, comes to rest, and the third load has
   // The page mines the next pack's ticket and then prefetches its art; a reload would abort that art
   // and the monitor would count it. With the ticket held, nothing is prefetched before a reload.
   await holdTickets(page);
+  await holdOpenCue(page);
   await load(page);
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
 
   await expect.poll(() => plays(page)).toBe('1');
 
-  // It plays once through and ends by itself, leaving the pill's arrows still. Finishing the finger's
-  // and the tear's animations fires the animationend the cue ends on, without waiting out the 2.4s.
-  await page.evaluate(() => document.querySelectorAll('.open-cue-travel, .open-cue-tear').forEach((target) => target.getAnimations().forEach((animation) => animation.finish())));
+  // Finishing the held finger and tear fires the real animationend, leaving the pill's arrows still.
+  await finishOpenCue(page);
   await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/);
   expect(await pillAnimations(page)).toBe(0);
   expect(await plays(page)).toBe('1');
@@ -83,6 +79,7 @@ test('left alone, the cue plays its twice, comes to rest, and the third load has
 
   await page.reload();
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
+  await expectOpenCueHeld(page);
   await expect.poll(() => plays(page)).toBe('2');
 
   await page.reload();

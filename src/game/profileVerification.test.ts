@@ -49,13 +49,13 @@ const honestProfile = async (seed: number, set: SetDefinition, count: number, xp
 };
 
 /** Run a check and resolve with its last report, once it says done or failed. */
-const verdict = (text: string, signal = new AbortController().signal) =>
+const verdict = (text: string, signal = new AbortController().signal, options?: import('./profileVerification').VerifyProfileOptions) =>
   new Promise<{ last: ProfileProgress; reports: ProfileProgress[] }>((resolve) => {
     const reports: ProfileProgress[] = [];
     verifyProfileLive(text, (p) => {
       reports.push(p);
-      if (p.done || p.error) resolve({ last: p, reports });
-    }, signal);
+      if (p.done || p.error || (options?.highlightsOnly && p.highlightsDone)) resolve({ last: p, reports });
+    }, signal, options);
   });
 
 let mining: { nonce: number; finish: () => void }[];
@@ -199,6 +199,65 @@ describe('verifying a shared profile', () => {
     expect(closed).toBe(1);
     // The pool rejected its pending ticket, which frees the optional-work slot and ends the check, which closes again.
     await closedTimes(2);
+  });
+
+  it('with highlightsOnly, re-opens only the best packs, marks highlightsDone, and closes workers without re-opening the rest', async () => {
+    standInPool();
+    const { text, keyHex } = await honestProfile(11, SET, 8);
+    const { last } = await verdict(text, new AbortController().signal, { highlightsOnly: true });
+    expect(last.highlightsDone).toBe(true);
+    expect(last.done).toBe(false);
+    expect(last.error).toBeUndefined();
+    expect(last.highlights).not.toBeNull();
+    expect(last.highlights?.length).toBe(last.checked.profile.highlights.length);
+    expect(last.packs.length).toBe(last.checked.profile.highlights.length);
+    await closedTimes(1);
+    for (const p of last.highlights!) {
+      expect(getReopened(SET, keyHex, p.nonce)).toEqual(p.cards);
+    }
+  });
+
+  it('a full check after a highlights-only one reuses the re-opened best packs and opens only the rest', async () => {
+    const opened: number[] = [];
+    vi.mocked(createTicketPool).mockImplementation(() => ({
+      size: 1,
+      ticket: (set, key, nonce) => (opened.push(nonce), standIn(set, key, nonce)),
+      close: closePool,
+    }));
+    const { text, packs } = await honestProfile(14, SET, 8);
+    const first = await verdict(text, new AbortController().signal, { highlightsOnly: true });
+    const best = first.last.checked.profile.highlights;
+    expect(first.last.done).toBe(false);
+    expect([...opened].sort((x, y) => x - y)).toEqual([...best].sort((x, y) => x - y));
+
+    opened.length = 0;
+    const { last } = await verdict(text, new AbortController().signal, { highlightsOnly: false });
+    expect(last.done).toBe(true);
+    expect(last.packs.map((p) => p.cards)).toEqual(packs.map((p) => p.cards));
+    const rest = Array.from({ length: 8 }, (_, n) => n).filter((n) => !best.includes(n));
+    expect([...opened].sort((x, y) => x - y)).toEqual(rest);
+  });
+
+  it('with highlightsOnly on a profile where all packs are highlights, verifies all and marks done', async () => {
+    standInPool();
+    const { text } = await honestProfile(12, SET, 3);
+    const { last } = await verdict(text, new AbortController().signal, { highlightsOnly: true });
+    expect(last.done).toBe(true);
+    expect(last.highlightsDone).toBe(true);
+    expect(last.packs.length).toBe(3);
+  });
+
+  it('with highlightsOnly, marks a profile with forged out-of-order highlights as fake', async () => {
+    standInPool();
+    const { secretKey, publicKey } = keysFor(13);
+    const packs = await standInPacks(publicKey, Array.from({ length: 6 }, () => SET));
+    const claims = claimsFor(packs);
+    const reversedHighlights = [...claims.highlights].reverse();
+    const runs = [{ setId: SET.id, setVersion: SET.version, count: 6 }];
+    const text = encodeProfile(signProfile({ publicKey, name: 'Tester', runs, xp: claims.xp, highlights: reversedHighlights }, secretKey));
+    const { last } = await verdict(text, new AbortController().signal, { highlightsOnly: true });
+    expect(last.error?.rule).toBe('claims');
+    expect(last.done).toBe(false);
   });
 });
 
