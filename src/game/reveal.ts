@@ -9,10 +9,10 @@ type Revealable = { rarity: Rarity; isHolo: boolean; finish?: Finish | null; mis
 /** What the card is worth: rarity times holo, finish and misprint, so a Platinum Common outranks a plain Rare. */
 const rank = (card: Revealable) => cardPoints(card.rarity, card.isHolo, card.finish, card.misprint);
 
-/** Individual card value, before any pack combo multiplier. The cutoff itself qualifies. */
+/** Individual card value, before any pack combo multiplier. The cutoff itself qualifies, as does any card of Brainrot rarity. */
 export const SPECIAL_REVEAL_CUTOFF = 5_000;
 export const SPECIAL_REVEAL_DURATION_MS = 3_000;
-export const isSpecialReveal = (card: Revealable): boolean => rank(card) >= SPECIAL_REVEAL_CUTOFF;
+export const isSpecialReveal = (card: Revealable): boolean => card.rarity === 'BRAINROT' || rank(card) >= SPECIAL_REVEAL_CUTOFF;
 
 /** Skip can pass ordinary cards, but every still-hidden valuable card must get its own reveal. */
 export const nextSpecialRevealIndex = (cards: readonly (Revealable & { isRevealed: boolean })[]): number =>
