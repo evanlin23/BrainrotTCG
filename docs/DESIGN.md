@@ -378,8 +378,12 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
   Where Submit is missing because a pull doesn't qualify, the results screen and the share sheet say
   so in one sentence made from the same rule text (`ui/rankingsRule.ts`) and name "How Rankings
-  work"; both surfaces say "Rankings", and "Hall of Fame" appears only in the disclosure's
-  "other screens call this the Hall of Fame".
+  work", which is a button (`link-btn link-btn--inline`: the sentence's own size, with a 44 px hit
+  area around the words that never overlaps the control beside or below it) that opens Rankings with
+  that section open and in view (the app's section request, id `how-rankings-work`; focus lands on
+  its summary). The share sheet closes first; the results screen stays mounted under the page, as for
+  any page, and Close returns to it. Both surfaces say "Rankings", and "Hall of Fame" appears only
+  in the disclosure's "other screens call this the Hall of Fame".
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest

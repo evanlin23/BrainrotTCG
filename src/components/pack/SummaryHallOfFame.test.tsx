@@ -113,8 +113,34 @@ describe('the Hall of Fame line on the pack summary', () => {
       `Doesn't qualify for Rankings, which take ${RULE}. See How Rankings work.`,
     );
     expect(el?.getAttribute('aria-hidden')).toBeNull();
-    expect(el?.querySelector('button')).toBeNull();
     expect(loadHallOfFame).not.toHaveBeenCalled();
+  });
+
+  describe('"How Rankings work" in that note', () => {
+    const renderNote = async (onOpenRankingsHelp?: () => void) => {
+      vi.mocked(qualifiesForHallOfFame).mockReturnValueOnce(false);
+      await act(async () => root.render(<SummaryHallOfFame pack={pack} score={score} onOpenRankingsHelp={onOpenRankingsHelp} />));
+      return container.querySelector('.summary-hof')!;
+    };
+
+    it('is a button that opens it, and the sentence reads the same', async () => {
+      const open = vi.fn();
+      const note = await renderNote(open);
+      const help = note.querySelector('button')!;
+      expect(note.querySelectorAll('button')).toHaveLength(1);
+      expect(help.textContent).toBe('How Rankings work');
+      expect(help.type).toBe('button');
+      expect(note.textContent).toBe(`Doesn't qualify for Rankings, which take ${RULE}. See How Rankings work.`);
+      expect(open).not.toHaveBeenCalled();
+      act(() => help.click());
+      expect(open).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays plain text where there is nowhere to go', async () => {
+      const note = await renderNote();
+      expect(note.querySelector('button')).toBeNull();
+      expect(note.textContent).toContain('See How Rankings work.');
+    });
   });
 
   it('says nothing about qualifying for a pull that does', async () => {

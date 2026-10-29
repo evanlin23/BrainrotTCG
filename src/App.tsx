@@ -13,6 +13,7 @@ import { sheetLoader } from './components/ui/sheetEntry';
 import SetPicker from './components/sets/SetPicker';
 import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
+import { RANKINGS_HELP_ID } from './components/ui/rankingsRule';
 import CardGuideButton from './components/ui/CardGuideButton';
 import { scoreCards } from './data/cards';
 import type { Achievement } from './data/achievements';
@@ -308,6 +309,9 @@ function App() {
     navigate(page);
   }, [navigate]);
 
+  /** "How Rankings work", opened and scrolled to, from the notes on why a pull has no Submit. */
+  const openRankingsHelp = useCallback(() => openPage('rankings', RANKINGS_HELP_ID), [openPage]);
+
   const handleSettingsChange = useCallback((newSettings: Settings) => {
     setSettings(newSettings);
   }, []);
@@ -567,6 +571,7 @@ function App() {
           openBlocked={staleSave}
           mountedSave={mountedSave}
           onOpenSave={() => openPage('settings', 'save-backup')}
+          onOpenRankingsHelp={openRankingsHelp}
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
@@ -589,7 +594,7 @@ function App() {
       )}
 
       {route === 'rankings' && (
-        <AppPage load={loadHallOfFame} title="Rankings" skeleton="rows" onClose={closePage} autoFocus={routeMoved} screenProps={{}} />
+        <AppPage load={loadHallOfFame} title="Rankings" skeleton="rows" section={section} onClose={closePage} autoFocus={routeMoved} screenProps={{ section }} />
       )}
 
       {route === 'profile' && (
@@ -633,7 +638,7 @@ function App() {
         }} />
       )}
 
-      {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
+      {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null), onOpenRankingsHelp: openRankingsHelp }} />}
 
       {viewProof && <DeferredSheet key={viewProof} load={loadPull} title="Shared pull" screenProps={{
         proof: viewProof,
