@@ -10,7 +10,7 @@ import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
 import type { PullRef } from '../../game/pulls';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
-import { STAGE_PRIMARY_ATTR, useStageClickGuard } from '../../hooks/useStageClickGuard';
+import { STAGE_PRIMARY_ATTR, type StageClickGuard } from '../../hooks/useStageClickGuard';
 import PackHeadline from './PackHeadline';
 import SummaryHallOfFame from './SummaryHallOfFame';
 import '../../styles/CollectionLabel.css';
@@ -29,6 +29,11 @@ interface PackSummaryUIProps {
   onOpenRankingsHelp?: () => void;
   /** Keep optional work waiting until these cards have decoded (off while a sheet covers them). */
   holdOptional?: boolean;
+  /**
+   * The summary's settle window (useStageClickGuard), owned by PackOpener so the keyboard (Space and Enter)
+   * reads the same state that holds these clicks and sets data-settling here (#972).
+   */
+  guard: StageClickGuard;
 }
 
 /**
@@ -40,7 +45,7 @@ interface PackSummaryUIProps {
  * starts here, never mid-reveal: the link carries the whole pack, so it would spoil the cards still face
  * down.
  */
-const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRankingsHelp, holdOptional = false }: PackSummaryUIProps) => {
+const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRankingsHelp, holdOptional = false, guard }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
   // The "select a card" hint stays until a card is opened on this visit.
   const [viewed, setViewed] = useState(false);
@@ -51,7 +56,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
   // A click that was meant for the last card (the player is clicking in one spot, #627) lands here as the
   // summary appears: it must not open a card up close, the Card guide, the share sheet or send a Hall of
   // Fame entry. Next pack is the one deliberate move.
-  const { blockClicks, settling } = useStageClickGuard();
+  const { blockClicks, settling } = guard;
   // The keyboard starts at the result, not on an action: the heading, so the cards come next.
   useEffect(() => {
     if (holdOptional) headingRef.current?.focus({ preventScroll: true });

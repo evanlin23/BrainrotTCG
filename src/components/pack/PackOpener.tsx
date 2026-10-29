@@ -13,6 +13,7 @@ import { useOpenCue } from '../../hooks/useOpenCue';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
+import { useStageClickGuard } from '../../hooks/useStageClickGuard';
 import { usePackHistory } from '../../hooks/usePackHistory';
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { BRAINROT_VOICES, EFFECT_SOUNDS, CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
@@ -681,10 +682,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     handleInteractionRef.current = handleInteraction;
   }, [handleInteraction]);
 
+  // The summary's settle window starts as it appears. Its clicks, its data-settling attribute and the keyboard
+  // all read this one state, so Space and Enter work the moment the attribute clears (#972).
+  const summaryGuard = useStageClickGuard(undefined, showSummary);
+
   // Use keyboard controls hook
   useKeyboardControls({
     isOpening,
     showSummary,
+    summarySettling: summaryGuard.settling,
     disabled,
     onCloseSummary: closeSummary,
     onOpenPack: handleOpen,
@@ -884,6 +890,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 pack={pullRef}
                 onOpenRankingsHelp={onOpenRankingsHelp}
                 holdOptional={!disabled}
+                guard={summaryGuard}
               />
             )}
           </Lifted>
