@@ -141,4 +141,13 @@ describe('owned playback clones', () => {
     expect(pausedClones()).toEqual([clone]);
     expect(clone.getAttribute('src')).toBe('');
   });
+
+  it('does not play or leak a clone when called after unmount', () => {
+    const [sound] = audio.preloadAudio(['/a.mp3']);
+    act(() => root.unmount());
+    const playSpy = vi.spyOn(HTMLAudioElement.prototype, 'play');
+    const clone = audio.playAndCleanup(sound);
+    expect(playSpy).not.toHaveBeenCalled();
+    expect(clone.getAttribute('src')).toBe('');
+  });
 });

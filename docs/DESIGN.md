@@ -26,7 +26,10 @@ from a 390 px wide screen.
    is swallowed (a press that moved more than `TAP_SLOP_PX`, 10px, is a drag). The keys work only with
    focus on the pack, never from the page. While the ticket works its name reads "Opening…" and input
    is ignored. Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
-   from the tear until the pack is put away) opens the selected set's card guide.
+   from the tear until the pack is put away) opens the selected set's card guide. The latest unread
+   news shows as a one-line chip beside it in that row, adding no height: it hides on narrow rows,
+   landscape phones and at 200% text on a phone, gives way to a save warning, and is never marked
+   read by being hidden, only by its dismiss button.
    The summary lists the cards in the order they were revealed (best last), each opening up close, where
    its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the
@@ -169,7 +172,9 @@ results rules below (#339).
 - #627: stationary-click loop from pack to summary; ignore clicks for about 400 ms after a stage
   change and during Opening so no viewer opens. The loop deliberately ends at the summary, where
   the player reads the score, views cards and shares, so a stray click must not skip it; Next pack
-  stays the one deliberate move. This replaces #627's pack-after-pack criterion.
+  stays the one deliberate move. This replaces #627's pack-after-pack criterion. The keyboard
+  follows the same window: on the summary Space and Enter are ignored until it ends
+  (`useKeyboardControls`), so a stuck or repeated press that opened the summary can't close it.
 - #778: results show the score only; direction and card-sum x combo explained once in the Card
   guide, with no chance line.
 - #639: shared pull shows attribution, then score once with combo and multiplier once, the five-card
@@ -376,8 +381,12 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
   Where Submit is missing because a pull doesn't qualify, the results screen and the share sheet say
   so in one sentence made from the same rule text (`ui/rankingsRule.ts`) and name "How Rankings
-  work"; both surfaces say "Rankings", and "Hall of Fame" appears only in the disclosure's
-  "other screens call this the Hall of Fame".
+  work", which is a button (`link-btn link-btn--inline`: the sentence's own size, with a 44 px hit
+  area around the words that never overlaps the control beside or below it) that opens Rankings with
+  that section open and in view (the app's section request, id `how-rankings-work`; focus lands on
+  its summary). The share sheet closes first; the results screen stays mounted under the page, as for
+  any page, and Close returns to it. Both surfaces say "Rankings", and "Hall of Fame" appears only
+  in the disclosure's "other screens call this the Hall of Fame".
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest

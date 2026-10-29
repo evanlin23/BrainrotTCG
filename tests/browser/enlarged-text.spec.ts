@@ -31,8 +31,7 @@ const unclipped = (target: Locator) => expect.poll(() => target.evaluate((root) 
 
 for (const width of [320, 390]) {
   for (const percent of [100, 200]) {
-    test(`Cards: unstarted eras fit a ${width} px phone at ${percent}% text (#681)`, async ({ page, baseURL }, testInfo) => {
-      test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
+    test(`Cards: unstarted eras fit a ${width} px phone at ${percent}% text (#681)`, { tag: '@mobile-only' }, async ({ page, baseURL }) => {
       await page.setViewportSize({ width, height: 700 });
       const errors = await monitor(page, baseURL!, 0, { returning: true });
       await page.goto('./#/cards');
@@ -59,8 +58,7 @@ for (const width of [320, 390]) {
   }
 }
 
-test('Cards: Spring Breakdown keeps its count on screen at 320 px and 200% text (#681)', async ({ page, baseURL }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
+test('Cards: Spring Breakdown keeps its count on screen at 320 px and 200% text (#681)', { tag: '@mobile-only' }, async ({ page, baseURL }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.goto('./#/cards');
@@ -78,8 +76,7 @@ test('Cards: Spring Breakdown keeps its count on screen at 320 px and 200% text 
 
 for (const width of [320, 390]) {
   for (const percent of [100, 200]) {
-    test(`Profile: the empty first-pack action fits a ${width} px phone at ${percent}% text (#682)`, async ({ page, baseURL }, testInfo) => {
-      test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
+    test(`Profile: the empty first-pack action fits a ${width} px phone at ${percent}% text (#682)`, { tag: '@mobile-only' }, async ({ page, baseURL }) => {
       await page.setViewportSize({ width, height: 700 });
       // A new player: no saved packs, so Profile shows its empty state.
       const errors = await monitor(page, baseURL!);

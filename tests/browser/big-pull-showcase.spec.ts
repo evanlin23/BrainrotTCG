@@ -50,7 +50,7 @@ test('shows a big pull with its ribbon clear of the card, and holds notices unti
   // The first pack leaves notices behind it (pack kept, level up).
   await tear(page);
   await page.getByRole('button', { name: 'Back to packs', exact: true }).click();
-  await expect(page.locator('.toast')).toBeVisible();
+  await expect(page.locator('.toast-region').locator('.toast')).toBeVisible();
 
   // The next pack's big pull goes on show while one of them is still up. Everything about the
   // showcase is read in one frame in the page, once the ribbon has finished its entrance (full
