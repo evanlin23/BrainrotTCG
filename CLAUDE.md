@@ -33,8 +33,8 @@ automatically.
   browser-test failure or when a UI, CSS or gesture change can't be checked otherwise, and grep
   `tests/browser` for any constant you changed.
 - CI runs `npm run check`, the build, the Python verifier, browser smoke and actionlint on every PR
-  and feature-branch push. Leave the build and verifier to CI unless you changed `src/engine`,
-  `spec/` or the build.
+  (a branch without a PR can start it with workflow_dispatch). Leave the build and verifier to CI
+  unless you changed `src/engine`, `spec/` or the build.
 
 ## Docs (read only the section you need)
 

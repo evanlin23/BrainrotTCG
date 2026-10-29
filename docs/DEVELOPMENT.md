@@ -113,7 +113,10 @@ Examples from merged fixes:
 
 CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python
 verifier, the browser smoke, actionlint and the deploy contract test (`python3
-scripts/deploy_contract_test.py`) on every pull request and on pushes to branches other than main.
+scripts/deploy_contract_test.py`) on every pull request. Pushes alone start no CI; for a branch
+without a pull request, run `ci.yml` or `browser-tests.yml` by hand (`workflow_dispatch`, e.g.
+`gh workflow run ci.yml --ref <branch>`). Each workflow keeps one `concurrency` group per pull
+request (or per ref for a manual run) with `cancel-in-progress`, so a newer run cancels the older one.
 In `ci.yml`, `npm run check` runs as four parallel stage jobs, each with its own result and time:
 `lint-and-types` (lint, import boundaries, both typechecks), `unit-tests` (`npm test` with coverage,
 then the escaped-defect replay), `content-checks` (set locks, card assets, old vectors and locks)
@@ -327,7 +330,7 @@ naming the state and its owner spec in `AXE_STATE_SPECS`; do not add another sca
 - A green scan is not a full accessibility audit or a physical-phone check. Keyboard order, focus rings,
   reduced motion, target sizes and screen-reader wording stay with the specs that own them.
 
-The `browser-burn-in` jobs run on every push and every pull request. They re-run each spec the branch
+The `browser-burn-in` jobs run on every pull request and manual run. They re-run each spec the branch
 adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes (directly or
 through other helpers), in both projects:
 - 10 more times when few specs changed;
