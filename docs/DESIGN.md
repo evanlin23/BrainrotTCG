@@ -206,7 +206,8 @@ results rules below (#339).
   closes, Skip, the logo link and the profile's "What do these numbers mean?" summary at 390 px,
   at 195 px and with doubled text). #943 keeps the achievement toast off the pack's X and holds it
   while the pointer or focus is on it; #803 also keeps it from covering a control on the home
-  screen (it takes no room and covers nothing there, see Toasts).
+  screen (it takes no room and covers no control there: on a phone it lies over the header, on a wide screen at
+  the top right, see Toasts).
 
 ## Looks like a card game, not like an AI demo
 
@@ -420,17 +421,26 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   set picker's row (5.25rem under the header, which clears the picker at normal and doubled text), and is
   narrowed to that column: its left edge stays clear of the pack, whose width is the smaller of 80vw and what
   the stage's height gives it, estimated from the window a little on the large side (`Toasts.css`). It is
-  held between 7.5rem and 24rem; narrower than 15rem it stacks, the icon and X on one row
-  and the text under them, with the title clamped to two lines (the full text is still the button's name). One case
-  has no room: a window nearly as tall as it is wide (1024x900, say) leaves a column under 7.5rem, and there
-  the toast keeps that floor and overlaps the pack's outer edge, never the set picker, the tabs or Settings. It is at least 44 px tall at every
+  held between `--toast-floor` (7.5rem, in tokens.css) and 24rem; narrower than 15rem it stacks, the icon and X on one row
+  and the text under them, with the title clamped to two lines (one, with the description, in a window 700 px tall
+  or less, so that doubled text does not reach the announcement's close; the full text is still the button's name).
+  A square or portrait window has no such column, since the pack takes 80% of the width. The toast could go nowhere
+  else on the home screen (the strip beside the picker row is under 60 px wide at 900 px, and the header row is full),
+  so the pack gives way instead: from 900 px up its width is also capped at the window less two toast floors, gutters
+  and gaps (`--pack-cap`, PackOpener.css), which leaves the toast its floor at the right at every size. The cap
+  changes nothing where a column already exists (windows about 1.2 times wider than tall, at normal text, and every
+  size checked at 1366x768 and up); it trims the pack in 1024x900 (730 to 655 px wide), 900x1200 (720 to 572),
+  1280x1200 and 1080x1920, and at doubled text on a 900 px wide window (323 to 300 at 900x700). One case is not
+  fixed: doubled text in a window under about 520 px tall (900x500, 1280x420), where the page itself has almost no
+  room left, still puts the toast over the announcement's close. It is at least 44 px tall at every
   size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
   hold the toasts until they clear, and a toast the player had 1.5 s to see is let go then, not shown again in
   full. In pack focus mode it still overlays, under the pack's X, or beside the X at the right on a short
   screen (520 px tall or less, where the headline below it is kept clear by tight padding).
   `tests/browser/toast-home.spec.ts` checks every home control (the pack, the set picker, the tabs, Settings, the
   wordmark, the guide link and the announcement's link and close) at 360, 390, 640x360, 844x390, 900x700, 1024x768,
-  1280x800, 1440x900 and 1920x1080, at 200% text at 360 and on every wide screen, the pack's summary on every
+  1280x800, 1440x900 and 1920x1080 and the square and portrait windows 1024x1000, 900x1200, 1280x1200 and 1080x1920
+  (and 900x600), at 200% text at 360 and on every wide screen, the pack's summary on every
   wide screen at normal and doubled text, that nothing moves as the toast goes, the turn to landscape, and the sheet hold.
   `tests/browser/toast-touch.spec.ts` checks the tap, the X, the swipe, the seen toast, the pack hold, the reduced
   motion fade, and the 44 px target, a tap and what the toast covers on the home screen and the summary at

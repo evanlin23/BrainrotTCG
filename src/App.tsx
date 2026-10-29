@@ -545,7 +545,7 @@ function App() {
         </div>
       </header>
 
-      {/* Right under the header, and the save warning when it shows: a toast takes no room, and on the home screen lies over the header's wordmark. Held while a pack is torn and revealed, so it is never over the pack. */}
+      {/* Right under the header, and the save warning when it shows: a toast takes no room: on a phone it lies over the header, on a wide screen it is at the top right, narrowed to clear the pack (Toasts.css). Held while a pack is torn and revealed, so it is never over the pack. */}
       <div className="toast-region" role="status" aria-live="polite">
         {AchievementToasts && (
           <AchievementToasts

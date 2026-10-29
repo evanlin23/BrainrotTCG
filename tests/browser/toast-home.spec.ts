@@ -26,6 +26,13 @@ const VIEWPORTS = [
   { width: 1024, height: 768 },
   { width: 1440, height: 900 },
   { width: 1920, height: 1080 },
+  // Square and portrait windows: the pack, 80% of the width at most, leaves no free column for the toast.
+  { width: 1024, height: 1000 },
+  { width: 900, height: 1200 },
+  { width: 1280, height: 1200 },
+  { width: 1080, height: 1920 },
+  // Short: at doubled text the toast reaches down to the announcement's close.
+  { width: 900, height: 600 },
 ];
 const WIDE = VIEWPORTS.filter(({ width }) => width >= 900);
 
@@ -59,11 +66,19 @@ const blocked = (page: Page, selectors = CONTROLS, centres = true) => page.evalu
   return problems;
 }, [selectors, centres] as const);
 
-/** On a wide screen the toast is at the right edge (the page's gutter is 2rem, 64px at doubled text, at most). */
-const expectAnchoredRight = async (page: Page, width: number) => {
+/** On a wide screen the toast is at the right edge (the page's gutter is 2rem, 64px at doubled text, at most) and at the top (no lower than 6.5rem under the header). */
+const expectAnchoredTopRight = async (page: Page, width: number) => {
   const box = (await page.locator('.toast').boundingBox())!;
   expect(box.x + box.width, 'anchored to the right edge').toBeGreaterThanOrEqual(width - 72);
+  const limit = await page.evaluate(() => document.querySelector('.app-header')!.getBoundingClientRect().bottom + 6.5 * parseFloat(getComputedStyle(document.documentElement).fontSize));
+  expect(box.y, 'anchored to the top').toBeLessThanOrEqual(limit);
 };
+
+/** The toast has finished entering (it comes in from 12px up, at no opacity), so a box measured now is the one that stays. */
+const settled = (page: Page) => expect.poll(() => page.locator('.toast').evaluate((el) => {
+  const style = getComputedStyle(el);
+  return style.opacity === '1' && (style.transform === 'none' || style.transform === 'matrix(1, 0, 0, 1, 0, 0)');
+}), { message: 'the toast has finished entering' }).toBe(true);
 
 /** The controls too small to press, at the sizes the page lays them out. */
 const squeezed = (page: Page) => page.evaluate(([selectors, min]) => {
@@ -133,7 +148,10 @@ for (const viewport of VIEWPORTS) {
     const controls = viewport.width < 900 ? CONTROLS : DESKTOP_CONTROLS;
     for (const { kicker, name } of TOASTS) {
       await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
-      if (viewport.width >= 900) await expectAnchoredRight(page, viewport.width);
+      if (viewport.width >= 900) {
+        await settled(page);
+        await expectAnchoredTopRight(page, viewport.width);
+      }
       await expect.poll(() => blocked(page, controls), { message: `no control is under the ${kicker} toast` }).toEqual([]);
       expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
       expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
@@ -157,7 +175,8 @@ for (const viewport of WIDE) {
 
     for (const { kicker, name } of TOASTS) {
       await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
-      await expectAnchoredRight(page, viewport.width);
+      await settled(page);
+      await expectAnchoredTopRight(page, viewport.width);
       await expect.poll(() => blocked(page, DESKTOP_CONTROLS), { message: `no control is under the ${kicker} toast` }).toEqual([]);
       expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
       expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
@@ -180,7 +199,8 @@ for (const viewport of WIDE) {
 
       for (const { kicker } of TOASTS) {
         await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
-        await expectAnchoredRight(page, viewport.width);
+        await settled(page);
+        await expectAnchoredTopRight(page, viewport.width);
         await expect.poll(() => blocked(page, SUMMARY_CONTROLS, !enlarged), { message: `no control is under the ${kicker} toast` }).toEqual([]);
         await dismiss(page);
       }
