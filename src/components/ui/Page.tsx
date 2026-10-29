@@ -53,7 +53,7 @@ const Page = <P extends object>({ load, title, screenProps, onClose, skeleton = 
     if (!ready || !section) return;
     const target = document.getElementById(section.id);
     if (!target) return;
-    target.querySelector<HTMLElement>('h2, h3')?.focus({ preventScroll: true });
+    target.querySelector<HTMLElement>('h2, h3, summary')?.focus({ preventScroll: true });
     target.scrollIntoView?.({ block: 'start' });
   }, [ready, section]);
 

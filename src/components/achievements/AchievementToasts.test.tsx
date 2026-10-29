@@ -287,6 +287,68 @@ describe('how long a toast stays up (#718)', () => {
     expect(opened).toEqual(['profile']);
   });
 
+  it('gives the next toast its full time from when it appears, not from when the previous toast started exiting', async () => {
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    expect(toasts()).toEqual(['Pack kept']);
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
+    expect(dismissed).toEqual([['pack-kept-1']]);
+
+    // Let the previous toast finish its 180ms exit animation
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    expect(toasts()).toEqual(['Level 2']);
+
+    // It should still be up TOAST_MS - 100 after appearing
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 100));
+    expect(dismissed).toEqual([['pack-kept-1']]);
+
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(dismissed).toEqual([['pack-kept-1'], ['level-2']]);
+  });
+
+  // The toast being replaced stays mounted for its 180ms exit, and its timer must not outlive it.
+  describe('while a toast is leaving', () => {
+    const dismissButton = () => document.querySelector<HTMLButtonElement>('button.toast-dismiss')!;
+
+    it('still dismisses a toast that returns inside the exit window of a pause', async () => {
+      act(() => root.render(<Harness initial={[kept]} />));
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      expect(toasts()).toEqual(['Pack kept']);
+      act(() => root.render(<Harness initial={[kept]} paused />));
+      await act(() => vi.advanceTimersByTimeAsync(40));
+      act(() => root.render(<Harness initial={[kept]} />));
+      await act(() => vi.advanceTimersByTimeAsync(TOAST_MS + 1000));
+      expect(dismissed).toEqual([['pack-kept-1']]);
+    });
+
+    it('does not dismiss a toast a second time when its timer would have fired mid-exit', async () => {
+      act(() => root.render(<Harness initial={[kept, levelUp]} />));
+      await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 60));
+      act(() => dismissButton().click());
+      expect(dismissed).toEqual([['pack-kept-1']]);
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      expect(dismissed).toEqual([['pack-kept-1']]);
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      expect(toasts()).toEqual(['Level 2']);
+    });
+
+    it('does not let the old key\'s timer drop its ids when another unlock changes the key, mid-exit', async () => {
+      const item = (n: number): ToastItem => ({ id: `a${n}`, name: `Achievement ${n}`, description: 'Done' });
+      const onDismiss = vi.fn();
+      const render = (queue: ToastItem[]) => act(() => root.render(<AchievementToasts queue={queue} onDismiss={onDismiss} onOpen={() => {}} />));
+      render([item(1), item(2), item(3)]);
+      await act(() => vi.advanceTimersByTimeAsync(GROUPED_TOAST_MS - 60));
+      // A fourth unlock changes the grouped toast's key, so the one up leaves and the new one replaces it.
+      render([item(1), item(2), item(3), item(4)]);
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      expect(onDismiss).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(200));
+      expect(toasts()).toEqual(['Achievement 1, Achievement 2, Achievement 3 +1 more']);
+      await act(() => vi.advanceTimersByTimeAsync(GROUPED_TOAST_MS));
+      expect(onDismiss).toHaveBeenCalledOnce();
+      expect(onDismiss).toHaveBeenCalledWith(['a1', 'a2', 'a3', 'a4']);
+    });
+  });
+
   it('gives a grouped toast longer than a single one', async () => {
     act(() => root.render(<Harness initial={[achievement(1), achievement(2), achievement(3)]} />));
     await act(() => vi.advanceTimersByTimeAsync(GROUPED_TOAST_MS - 100));

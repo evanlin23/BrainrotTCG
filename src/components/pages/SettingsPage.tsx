@@ -361,7 +361,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                     />
                     <SwitchRow
                         label="Pause on good pulls"
-                        desc={`Hold cards worth ${SPECIAL_REVEAL_CUTOFF.toLocaleString()}+ points for ${SPECIAL_REVEAL_DURATION_MS / 1000} seconds. Off: reveal effects still play, but you can skip.`}
+                        desc={`Hold every Brainrot card, and any card worth ${SPECIAL_REVEAL_CUTOFF.toLocaleString()}+ points, for ${SPECIAL_REVEAL_DURATION_MS / 1000} seconds. Off: reveal effects still play, but you can skip.`}
                         checked={settings.pauseBigPulls !== false}
                         onChange={() => onSettingsChange({ ...settings, pauseBigPulls: settings.pauseBigPulls === false })}
                     />
