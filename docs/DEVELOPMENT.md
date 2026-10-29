@@ -46,8 +46,8 @@ external blocker, never an implied pass. Don't trust the author's summary.
 | Architecture, public-resource growth | Responsibility owner, simpler existing option, async and resource lifetime, bounded untrusted data, compatibility. No speculative frameworks. |
 
 The reviewer can't render the PR. For a visible flow, the implementer gives bounded, sanitized
-before/after observations on the exact head, using the [DESIGN.md](DESIGN.md) rules and, for a
-meaningful flow change, a [task-only audit](#local-agent-usability-audit). Tests must be
+before/after observations on the exact head, using the [DESIGN.md](DESIGN.md) rules. Meaningful flow change: add (not instead of) a task-only audit record on the exact head, from an owner-run `/qa` or `npm run audit:agent`; if neither can run (`/qa` runs only when the owner invokes it), name the blocker. See
+[Local agent usability audit](#local-agent-usability-audit). Tests must be
 deterministic: reviewers block fixed sleeps, timing-dependent waits, and retries or skips a PR adds.
 
 ## Defect learning and issue closure
@@ -392,11 +392,11 @@ For a bounded QA run that triages findings into issues and tested draft fixes, u
 [`/qa`](../.claude/skills/qa/SKILL.md); it combines scripted checks with the task-only audit below.
 
 Historical owner decision, 2026-10-17: usability audits used Claude Code only, driving the built
-site with Playwright. Owner permission, 2026-10-26 ("do chatgpt subagent for the simulations? Add to
-qa?"): `/qa` also supports native ChatGPT/Codex subagents already available in the host. Prefer the
-owner-requested provider, otherwise an available provider with a guarded browser. This supersedes
-the provider restriction for the ongoing workflow, without migrating providers, creating accounts
-or API keys, or starting extra sessions via `create_session`.
+site with Playwright. Owner decision, 2026-10-29: usability audits may use multiple providers
+(Claude and ChatGPT/Codex simulations), which supersedes the Claude-only restriction. `/qa` supports
+native ChatGPT/Codex subagents already available in the host. Prefer the owner-requested provider,
+otherwise an available provider with a guarded browser. No provider migration, new accounts or API
+keys, or extra sessions via `create_session`.
 
 `/qa` is a workflow with two simulation modes: the unchanged Claude-only CLI below, and native
 host subagent orchestration described in [chatgpt.md](../.claude/skills/qa/chatgpt.md). The latter
@@ -478,8 +478,9 @@ budget (default 3 tasks, 45 minutes, 2 provider runs):
 
 - one player journey, rotating through opening, collection and detail, sharing, own and shared
   Profile, Rankings, Settings and help, and recovery, with a journey whose code changed since the
-  last review first. Opening, sharing and recovery use a supported task-audit mode above (a fresh
-  task-only participant, no coaching); the rest use fixture-based browser checks. Judge it with the
+  last review first. Opening, sharing and recovery use the Claude-only `npm run audit:agent` task (a fresh
+  task-only participant, no coaching; `scripts/quality-review.ts` plans only that runner, and a
+  native-provider `/qa` run is separate); the rest use fixture-based browser checks. Judge it with the
   player job, primary fact, next action check (#712). Separate same-scope duplication from necessary
   repeated context, accessible text and exported artifacts. A screenshot baseline (#745) never
   stands in for that review.

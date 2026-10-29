@@ -6,8 +6,8 @@
 
 <!-- Only what applies; pure docs need none. The reviewer picks evidence from the diff.
 Visible flow: the player problem, observable acceptance, and sanitized before/after observations of
-affected states on this head (empty/loading/error, narrow and enlarged text, keyboard), or
-a task-only audit record (`/qa`; `npm run audit:agent` for Claude) for a meaningful flow change.
+affected states on this head (empty/loading/error, narrow and enlarged text, keyboard).
+Meaningful flow change: add (not instead of) a task-only audit record on the exact head, from an owner-run `/qa` or `npm run audit:agent`; if neither can run (`/qa` runs only when the owner invokes it), name the blocker.
 Behaviour, storage, proof, workflow: the contract case you tested beyond your own assertions.
 Reproduced defect: the closure note from docs/DEVELOPMENT.md (root cause, escape class, regression
 test, sibling scan, prevention action).
