@@ -194,7 +194,13 @@ results rules below (#339).
   apart and is what a named row shows too. The profile's check line reads "This profile checks out:
   every pack re-opened in your browser", and its in-progress and interrupted lines say "in your
   browser" too: it says what was checked and where, never whose device made the packs, so one
-  line is true for the owner and a guest alike without a branch on who is looking.
+  line is true for the owner and a guest alike without a branch on who is looking. A shared link
+  re-opens only the best packs by default and then pauses: that state shows no progress bar or
+  spinner, its footnote reads "* from the N best packs only; the rest of the packs are not checked",
+  "How do we know?" says the best packs were re-opened in your browser and the rest are not checked
+  until you ask, and the level stays "claimed". "Verify all N packs" (short label, the hint is
+  secondary text) re-opens the rest, moves focus to the status line, and keeps the best packs'
+  own "Verified" badges.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); small controls get
   44 px hit areas (pack-targets.spec measures the gear, set steps, Card guide, sheet and page
   closes, Skip, the logo link and the profile's "What do these numbers mean?" summary at 390 px,
