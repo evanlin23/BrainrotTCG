@@ -19,7 +19,6 @@ import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { BRAINROT_VOICES, EFFECT_SOUNDS, CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import PackCuttingUI from './PackCuttingUI';
-import { endIdleCue } from './endIdleCue';
 import CardRevealUI from './CardRevealUI';
 import PackSummaryUI from './PackSummaryUI';
 import PackTopBar from './PackTopBar';
@@ -362,9 +361,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       send({ type: 'refuse', refusal: 'blocked' });
       return;
     }
-    endIdleCue(packRef.current);
     completeCut();
-  }, [disabled, isPackCut, isOpening, openBlocked, completeCut, touchPack, send, packRef]);
+  }, [disabled, isPackCut, isOpening, openBlocked, completeCut, touchPack, send]);
 
   /** Set when the player goes back to the sealed pack, so the pack takes focus once it's there. */
   const focusOpenRef = useRef(false);

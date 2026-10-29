@@ -141,7 +141,7 @@ deferred by budget, or evidence-only held work. Repeated agent agreement still n
   fix when required, within the remaining session budget; deterministic checks supplement it.
   Missing required simulation stays explicitly blocked/unrun, never implied green. Default budget
   is 2 sessions but up to 3 fixes: when no session remains for a fix's retest, deliver it with
-  "retest unrun: budget" as the named blocker (an accepted one), or stop; never imply it passed.
+  "retest unrun: budget" as the named blocker (accepted for /qa runs only, never an excuse to skip a retest or check on an ordinary PR, as `reviewer.md` says), or stop; never imply it passed.
 - Send the exact PR head, outcome, acceptance and invariants to an independent existing `reviewer`;
   don't send the author's reasoning as the review. It is read-only, never the implementer, and
   checks evidence independently under `.claude/agents/reviewer.md` (no rendering or running tests).
