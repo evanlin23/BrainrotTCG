@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { fingerFor, monitor } from './support';
+import { finishOpenCue, holdOpenCue } from './openCue';
 
 /**
  * The idle cue on a sealed pack (DESIGN.md Flow 2): while the pack sits untouched its top strip lifts
@@ -171,13 +172,14 @@ test('with motion the pack draws no perforation of its own: the lift is the cue'
 
 test('a first-time player sees the finger first, and the strip starts lifting when it has retired', async ({ page, baseURL }) => {
   const errors = await monitor(page, baseURL!);
+  await holdOpenCue(page);
   await load(page, { cueDone: false });
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
   await expect(shell(page)).not.toHaveClass(/\bis-idle\b/);
   expect(await idleAnimations(page)).toEqual([]);
 
-  // Finishing the finger's animation ends the cue, as in open-cue.spec.ts.
-  await page.evaluate(() => document.querySelectorAll('.open-cue-travel, .open-cue-tear').forEach((target) => target.getAnimations().forEach((animation) => animation.finish())));
+  // Retire the held finger through its real animationend, then the idle strip can start.
+  await finishOpenCue(page);
   await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/);
   await expect(shell(page)).toHaveClass(/\bis-idle\b/);
   await expect.poll(() => idleAnimations(page)).toHaveLength(2);
