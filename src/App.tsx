@@ -487,7 +487,7 @@ function App() {
   );
 
   return (
-    <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
+    <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`} data-toasts-ready={toastsLoaded || undefined}>
       {isStaging() && <p role="note" className="save-warning staging-banner">{STAGING_NOTE}</p>}
       {saveWarningShown && (
         <p role="alert" className="save-warning save-warning--capped">
