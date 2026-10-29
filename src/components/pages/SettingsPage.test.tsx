@@ -8,6 +8,7 @@ import { FULL_MOVE_NOTE, PARTIAL_MOVE_NOTE } from '../../game/move';
 import { DAMAGED_EXPORT_DONE_NOTE, DAMAGED_EXPORT_KEY_NOTE, EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, importSaveFile, NEW_PLAYER_NO_ROOM_NOTE, NO_ROOM_FOR_COPY_NOTE, NO_ROOM_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
 import { SAVE_STAMP_KEY, type SaveMark } from '../../game/player';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundGain } from '../../constants/audio';
+import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import { DEFAULT_SETTINGS, effectsLevel } from '../../utils/settings';
 import SettingsPage from './SettingsPage';
 import { DOWNLOAD_DAMAGED_LABEL, START_NEW_PLAYER_QUESTION, UNREADABLE_PLAYER_NOTE } from './UnreadablePlayerRow';
@@ -766,6 +767,14 @@ describe('Settings: particles copy', () => {
     expect(text).toMatch(/holos/);
     expect(text).toMatch(/swipe a pack open/);
     expect(text).toMatch(/Plain cards just flip/);
+  });
+});
+
+describe('Settings: pause on good pulls copy', () => {
+  it('names both ways a card is held: Brainrot rarity, or the points cutoff (#68)', () => {
+    const label = [...document.body.querySelectorAll('*')].find((el) => el.children.length === 0 && el.textContent === 'Pause on good pulls');
+    expect(label?.parentElement?.textContent).toContain(
+      `Hold every Brainrot card, and any card worth ${SPECIAL_REVEAL_CUTOFF.toLocaleString()}+ points, for ${SPECIAL_REVEAL_DURATION_MS / 1000} seconds.`);
   });
 });
 

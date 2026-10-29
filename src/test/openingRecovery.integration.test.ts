@@ -162,6 +162,15 @@ it('does not say a recovered pack was kept when the collection cannot be stored'
   // Still owed on the shelf, so a later load can keep it and say so then.
   expect(shelvedPacks().map((pack) => pack.n)).toEqual([0]);
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`)]);
+
+  // On a later load where storage succeeds, the owed pack is credited and announced (#1109 Item 10).
+  vi.mocked(Storage.prototype.setItem).mockRestore();
+  await app.reload();
+  await app.until('the recovered pack reaches the collection on the later load', () => expect(storedCards()).toBe(5));
+  await app.until('the later-load announcement says the pack was kept', () => expect(toastTexts()).toHaveLength(1));
+  expect(toastTexts()[0]).toContain('Pack kept');
+  expect(toastTexts()[0]).toContain('A pack from your last visit is in Cards');
+  expect(shelvedPacks()).toHaveLength(0);
 });
 
 it('waits for a slow ticket with the app held on the pack, then records the late pack once', async () => {

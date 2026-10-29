@@ -677,7 +677,11 @@ range and checks the claims. It cannot prove that the range includes all lifetim
 that no other keys were used, or when packs were opened.
 
 `src/game/profileVerification.ts` checks decoding/signature first, then derives highlights before the
-remaining tickets and validates XP/highlights. It imports no player, history, pack store or
+remaining tickets and validates XP/highlights. The shared-profile viewer asks for `highlightsOnly`
+by default: it re-opens only the best packs and pauses, so only those packs are verified; the rest
+are checked only when the viewer taps "Verify all N packs", and the profile counts as verified
+(claims checked) only when every pack is in. Whole-profile aggregates are not claimed from a
+highlights-only run (#85, #490). It imports no player, history, pack store or
 own-profile code (`myTickets.ts`, `packCache.ts`, `reopenJob.ts`, and `profiles.ts`, which
 re-exports it for older imports), so checking someone else's profile never reads or waits on your
 own save; it shares only the engine rules, `reopenCache.ts`,
@@ -933,7 +937,7 @@ or finishes regenerate their thumbnails while unchanged assets are skipped.
      file and leave the old one, and its check, in place.
 
 `npm run check` runs lint, types, all tests, set locks and card assets; `npm run build` packages the
-site and static previews. On every pull request and non-main push, CI runs both, the independent
+site and static previews. On every pull request and manual dispatch, CI runs both, the independent
 verifier (`python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json`), the
 browser smoke and actionlint, and pull requests also run `check:history`; deploys from main rerun
 the verifier, `npm run check` and `check:history`. These checks
