@@ -217,6 +217,27 @@ describe('verifying a shared profile', () => {
     }
   });
 
+  it('a full check after a highlights-only one reuses the re-opened best packs and opens only the rest', async () => {
+    const opened: number[] = [];
+    vi.mocked(createTicketPool).mockImplementation(() => ({
+      size: 1,
+      ticket: (set, key, nonce) => (opened.push(nonce), standIn(set, key, nonce)),
+      close: closePool,
+    }));
+    const { text, packs } = await honestProfile(14, SET, 8);
+    const first = await verdict(text, new AbortController().signal, { highlightsOnly: true });
+    const best = first.last.checked.profile.highlights;
+    expect(first.last.done).toBe(false);
+    expect([...opened].sort((x, y) => x - y)).toEqual([...best].sort((x, y) => x - y));
+
+    opened.length = 0;
+    const { last } = await verdict(text, new AbortController().signal, { highlightsOnly: false });
+    expect(last.done).toBe(true);
+    expect(last.packs.map((p) => p.cards)).toEqual(packs.map((p) => p.cards));
+    const rest = Array.from({ length: 8 }, (_, n) => n).filter((n) => !best.includes(n));
+    expect([...opened].sort((x, y) => x - y)).toEqual(rest);
+  });
+
   it('with highlightsOnly on a profile where all packs are highlights, verifies all and marks done', async () => {
     standInPool();
     const { text } = await honestProfile(12, SET, 3);

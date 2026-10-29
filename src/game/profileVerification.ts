@@ -53,7 +53,11 @@ let latestCheck = 0;
 
 /**
  * Check a profile, then re-open its packs on a pool of workers, its claimed best packs first,
- * reporting as they finish; when every pack is in, check its claims. Packs this device has
+ * reporting as they finish; when every pack is in, check its claims. With `highlightsOnly` it
+ * re-opens just the best packs and stops there, reporting `highlightsDone` with `done` false: the
+ * profile is then not verified as a whole (nothing but those packs was checked), and a second call
+ * without the option carries on, taking the best packs from the cache. A profile whose packs are all
+ * highlights has nothing to pause for and ends `done`. Packs this device has
  * re-opened before come from its cache. `checkProfile` errors (bad signature, unknown set, ...)
  * are thrown before anything is re-opened. A call stops reporting, and re-opening, once `signal`
  * aborts or a later call starts, so a pack that finishes late can't overwrite the newer check.
