@@ -36,7 +36,7 @@ edit, push, comment on GitHub or merge.
      isn't approval. You can't render the PR: the implementer supplies bounded, sanitized
      before/after observations on the exact head. Meaningful flow change: add (not instead of) a task-only audit record on the exact head, from an owner-run `/qa` or `npm run audit:agent`; if neither can run (`/qa` runs only when the owner invokes it), name the blocker.
      Missing: `changes-needed` naming the evidence, or the precise external blocker (`retest unrun:
-     budget` is accepted only for a /qa usability run's fix retests, never as a reason to skip a retest or check on an ordinary PR).
+     budget` is accepted only for /qa fix retests, never to skip a retest or check on an ordinary PR).
    - Architecture or public-resource growth (new route, asset, dependency, storage key, network
      call or untrusted input): who owns the responsibility, any simpler existing option, async and
      resource lifetime, bounded untrusted data, compatibility, extension by increments. Don't ask

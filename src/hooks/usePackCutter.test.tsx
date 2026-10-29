@@ -1115,7 +1115,8 @@ describe('usePackCutter ends the idle cue before the tear', () => {
 
   it('ends it when a flick with only a press and a release tears the pack', () => {
     const order = idlePack();
-    swipe(at(0.3), at(0.65));
+    down(at(0.3));
+    up(at(0.6));
     expect(order).toEqual(['cue ended', 'cut']);
   });
 
