@@ -78,8 +78,10 @@ const publishedTime = (iso: string) =>
 /** Today ranks the current UTC day's pulls; All-time ranks the best ever. */
 type RankingsTab = 'today' | 'all';
 
-/** The Rankings page (#/rankings). */
-/** `section` is the part of this page a link asked for (App's openPage): "How Rankings work" opens when asked for. */
+/**
+ * The Rankings page (#/rankings). `section` is the part of this page a link asked for (App's openPage):
+ * "How Rankings work" opens when asked for.
+ */
 const HallOfFamePage = ({ section }: { section?: PageSection }) => {
   const helpRequest = section?.id === RANKINGS_HELP_ID ? section.n : undefined;
   const [helpOpen, setHelpOpen] = useState(helpRequest !== undefined);

@@ -194,7 +194,8 @@ for (const textZoom of [200]) {
     await expect(page.getByRole('button', { name: 'Next pack' })).toBeInViewport({ ratio: 1 });
     expect(after.lastCard.bottom).toBeLessThanOrEqual(after.actions.top);
 
-    // Focus order is the page's: the heading, the Card guide, every card, then the actions.
+    // Focus order is the page's: the heading, "How Rankings work" in the note (this pull doesn't qualify), the Card
+    // guide, every card, then the actions.
     // Each stop is on screen and not under anything, the stuck actions included.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = 0; });
     await page.locator('.summary-title').focus();
@@ -271,13 +272,31 @@ test('"How Rankings work" in the note opens that section of Rankings, and Close 
   test.setTimeout(60000);
   const { errors } = await openSummary(page, baseURL!);
   const help = page.locator('.summary-hof').getByRole('button', { name: 'How Rankings work' });
-  // The words are small, but the button's hit area is 44px tall around them.
-  const reach = await help.evaluate((el) => {
-    const box = el.getBoundingClientRect();
-    const [x, y] = [box.left + box.width / 2, box.top + box.height / 2];
-    return [y - 20, y + 20].map((at) => document.elementFromPoint(x, at)?.closest('button') === el);
+  // The words are small, but the button's hit area is a 44px target around them, and it stops short of the Card
+  // guide below the note: no two controls' hit areas overlap. The area is the button's ::after box.
+  const areas = await help.evaluate((el) => {
+    const [box, after] = [el.getBoundingClientRect(), getComputedStyle(el, '::after')];
+    const area = {
+      left: box.left + parseFloat(after.left), top: box.top + parseFloat(after.top),
+      width: parseFloat(after.width), height: parseFloat(after.height),
+    };
+    const guide = document.querySelector('.summary-guide-line .card-guide-link')!.getBoundingClientRect();
+    const x = area.left + area.width / 2;
+    // Hit-testing agrees: the area's first and last rows belong to the button, the Card guide's top row to the guide.
+    const owner = (at: number, from: number) => document.elementFromPoint(at, from)?.closest('button');
+    return {
+      area, guide: { left: guide.left, right: guide.right, top: guide.top, bottom: guide.bottom },
+      topRow: owner(x, area.top + 1) === el, bottomRow: owner(x, area.top + area.height - 1) === el,
+      guideRow: owner(Math.min(Math.max(x, guide.left + 1), guide.right - 1), guide.top + 1)?.textContent?.includes('Card guide') === true,
+    };
   });
-  expect(reach).toEqual([true, true]);
+  const { area, guide } = areas;
+  // 44px less the sub-pixel rounding of the line box.
+  expect(area.height, 'the hit area is a 44px target').toBeGreaterThanOrEqual(43.5);
+  expect([areas.topRow, areas.bottomRow, areas.guideRow]).toEqual([true, true, true]);
+  const overlap = area.left < guide.right && area.left + area.width > guide.left
+    && area.top < guide.bottom && area.top + area.height > guide.top;
+  expect(overlap, `the note's hit area ${JSON.stringify(area)} overlaps the Card guide's ${JSON.stringify(guide)}`).toBe(false);
   await help.focus();
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/#\/rankings$/);
@@ -288,6 +307,22 @@ test('"How Rankings work" in the note opens that section of Rankings, and Close 
   await expect(how).toBeInViewport();
   await rankings.getByRole('button', { name: 'Close Rankings' }).click();
   await expect(page.locator('.summary-cards')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+// The same note in the share sheet: its button closes the sheet and opens Rankings at that section, focused.
+test('"How Rankings work" in the share sheet closes the sheet and opens that section of Rankings', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const { errors } = await openSummary(page, baseURL!);
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const sheet = page.getByRole('dialog', { name: 'Share your pull' });
+  await expect(sheet).toBeVisible();
+  await sheet.getByRole('button', { name: 'How Rankings work' }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page).toHaveURL(/#\/rankings$/);
+  const how = page.getByRole('main', { name: 'Rankings', exact: true }).locator('details.hof-how');
+  await expect(how).toHaveJSProperty('open', true);
+  await expect(how.locator('summary')).toBeFocused();
   expect(errors).toEqual([]);
 });
 

@@ -47,6 +47,9 @@
   min-height: 0;
   font-size: var(--text-xs);
   line-height: var(--leading-tight);
+  /* "How Rankings work" is a link with a 44px hit area (.link-btn--inline): it reaches this far below the
+     words, so it stops where the headline's gap ends and never overlaps the Card guide under it. */
+  margin-bottom: max(0px, calc((var(--touch-target) - 1lh) / 2 - var(--space-3)));
   text-align: center;
   text-wrap: balance;
 }
