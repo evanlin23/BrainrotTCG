@@ -227,9 +227,14 @@ describe('ProfileViewerPage', () => {
       expect(document.querySelector('.profile-verify .progress')).toBeNull();
       expect(document.querySelector('.profile-verify .spin')).toBeNull();
       expect(status().textContent).toContain('Only the best packs are re-opened. The rest are not checked');
-      expect(footnote()).toBe('* from the 1 best pack only; the rest of the packs are not checked');
+      expect(footnote()).toBe("* the pack count is the link's own; cards, holo and best score are from the 1 best pack only, and the rest of the packs are not checked");
       expect(footnote()).not.toContain('so far');
       expect(how()).toContain('re-opened the 1 best pack itself');
+      // The packs stat is the link's ticket count (2), not the one best pack re-opened.
+      expect(document.querySelector('.profile-stats dd')?.textContent).toBe('2');
+      expect(document.querySelector('.profile-stats dt')?.textContent).toBe('packs*');
+      expect(how()).toContain('they come out in the order the link lists');
+      expect(how()).not.toContain('match the link');
       expect(how()).toContain('The rest of the packs are not checked until you ask');
       expect(how()).not.toContain('re-opening those packs now');
       expect(how()).not.toContain('so far');
