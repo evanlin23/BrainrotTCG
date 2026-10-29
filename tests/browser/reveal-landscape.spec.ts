@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { monitor, scaleText } from './support';
+import { monitor, scaleText, tapSpace } from './support';
 
 /**
  * The reveal on a phone on its side (#898, DESIGN.md "First-pack flow decision", Reveal): under 500px
@@ -26,7 +26,7 @@ for (const size of SIZES) {
       await page.keyboard.press('Space');
       const card = page.locator('.reveal-card:focus');
       await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
-      await page.keyboard.press('Space');
+      await tapSpace(page);
       await expect(page.locator('.reveal-rarity .rarity-pill')).toBeVisible();
 
       const cardBox = await box(card);
@@ -60,7 +60,7 @@ for (const size of SIZES) {
       await page.keyboard.press('Space');
       const card = page.locator('.reveal-card:focus');
       await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
-      await page.keyboard.press('Space');
+      await tapSpace(page);
       await expect(page.locator('.reveal-rarity .rarity-pill')).toBeVisible();
 
       // The side column is capped to its share of the stage and scrolls; the card fills the stage's column.
@@ -122,9 +122,9 @@ test.describe('the first-card cue', () => {
     expect(await page.evaluate(() => localStorage.getItem('brainrot-first-card-cue-plays-v1'))).toBe('1');
 
     // The flip ends it, and the next card never plays it.
-    await page.keyboard.press('Space');
+    await tapSpace(page);
     await expect(page.locator('.lift-cue')).toHaveCount(0);
-    await page.keyboard.press('Space');
+    await tapSpace(page);
     await expect(card).toHaveAttribute('aria-label', 'Flip card 2 of 5', { timeout: 10000 });
     await expect(page.locator('.lift-cue')).toHaveCount(0);
     expect(errors).toEqual([]);
