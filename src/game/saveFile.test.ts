@@ -155,19 +155,20 @@ describe('Save & backup preflight', () => {
     expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
   });
 
-  it('exports bad stored collection counts repaired, so the file imports, with the stored bytes kept aside (#1109)', () => {
+  it('exports bad stored collection counts repaired, so the file imports, with the stored bytes in the file (#1109)', () => {
     const card = ALL_CARDS[0];
     const raw = JSON.stringify({
       [card.key]: { card: { id: card.id, key: card.key }, normalCount: -3, holoCount: 2, misprints: -2, finishes: { GOLD: -1 } },
     });
     store.set(STORAGE_KEYS.COLLECTION, raw);
+    const before = new Map(store);
     const saved = exportSaveFile();
+    // Export only reads: the file's kept-aside data is built in memory.
+    expect(write).not.toHaveBeenCalled();
+    expect(store).toEqual(before);
     const file = JSON.parse(saved);
     expect(JSON.parse(file.collection)[card.key]).toMatchObject({ normalCount: 0, holoCount: 2, misprints: 0, finishes: { GOLD: 0 } });
-    // The raw counts stay in this browser's kept-aside data, and the file carries them there too.
-    expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(raw);
-    expect(JSON.parse(file.collectionRecovery).raw).toBe(raw);
-    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
+    expect(JSON.parse(file.collectionRecovery)).toEqual({ raw, player: store.get('brainrot-player-v1') });
 
     store.set(STORAGE_KEYS.COLLECTION, '{}');
     expect(importSaveFile(saved)).toBeNull();
@@ -175,11 +176,37 @@ describe('Save & backup preflight', () => {
     expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(raw);
   });
 
+  it('exports null counts (an older migration wrote them) as 0, so the file imports', () => {
+    const card = ALL_CARDS[0];
+    const raw = JSON.stringify({ [card.key]: { card, normalCount: null, holoCount: 1 } });
+    store.set(STORAGE_KEYS.COLLECTION, raw);
+    const saved = exportSaveFile();
+    expect(JSON.parse(JSON.parse(saved).collection)[card.key]).toMatchObject({ normalCount: 0, holoCount: 1 });
+    // The same copies either way, so nothing needs keeping aside.
+    expect(JSON.parse(saved).collectionRecovery).toBeNull();
+    store.set(STORAGE_KEYS.COLLECTION, '{}');
+    expect(importSaveFile(saved)).toBeNull();
+    expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!)[card.key]).toMatchObject({ normalCount: 0, holoCount: 1 });
+  });
+
+  it('leaves a finish this build does not know out of the file, and keeps the stored bytes in its kept-aside data', () => {
+    const card = ALL_CARDS[0];
+    const raw = JSON.stringify({ [card.key]: { card, normalCount: 1, holoCount: 0, finishes: { GOLD: 1, FUTURE: 2 } } });
+    store.set(STORAGE_KEYS.COLLECTION, raw);
+    const saved = exportSaveFile();
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
+    expect(JSON.parse(JSON.parse(saved).collection)[card.key].finishes).toEqual({ GOLD: 1 });
+    expect(JSON.parse(JSON.parse(saved).collectionRecovery).raw).toBe(raw);
+    store.set(STORAGE_KEYS.COLLECTION, '{}');
+    expect(importSaveFile(saved)).toBeNull();
+  });
+
   it('exports a valid stored collection exactly as stored, keeping nothing aside', () => {
     const raw = fixture().collection;
     store.set(STORAGE_KEYS.COLLECTION, raw);
-    expect(JSON.parse(exportSaveFile()).collection).toBe(raw);
-    expect(store.has(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(false);
+    const file = JSON.parse(exportSaveFile());
+    expect(file.collection).toBe(raw);
+    expect(file.collectionRecovery).toBeNull();
   });
 
   it('keeps the show-every-page flag through an export and import', () => {

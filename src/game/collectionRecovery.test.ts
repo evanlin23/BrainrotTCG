@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
+import type { CollectionItem } from '../types';
 import { hydrateCollection } from '../utils/migrations';
+import { recordPack } from './packProgress';
 import {
   ARCHIVE_BUDGET, COLLECTION_RECOVERY_NOTES, collectionRecoveryDismissed, collectionRecoveryFile, collectionRecoveryNote,
   collectionRecoveryPrint, collectionRecoveryState, discardCollectionRecovery, dismissCollectionRecovery, downloadCollectionRecovery, hasCollectionRecovery,
@@ -74,17 +76,22 @@ describe('collection recovery before a subsequent pack write', () => {
   });
 
   it.each([
-    ['storage is full', 0, (key: string) => key === ARCHIVE],
+    ['storage is nearly full', 0, (key: string) => key === ARCHIVE],
     ['the original is over the archive budget', ARCHIVE_BUDGET, () => false],
-  ])('keeps a collection with repaired counts stored while %s, so its bytes are never only in this tab', (_, pad, fail) => {
-    const raw = JSON.stringify({ [card.key]: { card, normalCount: -3, holoCount: 2 }, pad: { card, normalCount: 1, holoCount: 0, note: 'x'.repeat(pad) } });
+  ])('still saves a new pack while %s, keeping the original with repaired counts for this visit', (_, pad, fail) => {
+    const raw = JSON.stringify({
+      [card.key]: { card, normalCount: 1, holoCount: 0, misprints: -1 },
+      pad: { card, normalCount: 1, holoCount: 0, note: 'x'.repeat(pad) },
+    });
     const data = seed(raw, fail);
-    const loaded = hydrateCollection(JSON.parse(raw));
-    expect(persistCollection(loaded)).toBe('blocked');
-    expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
+    const loaded = hydrateCollection(JSON.parse(raw)) as Record<string, CollectionItem>;
+    const pulled = { ...card, uniqueId: 1, isRevealed: true, isHolo: false, misprint: true };
+    const pack = { cards: [pulled], setId: card.setId, setVersion: 1, nonce: 1, publicKeyHex: 'ab'.repeat(32) };
+    const next = recordPack({ stats: { packsOpened: 0, holoCards: {} }, collection: loaded, hallOfFame: {} }, pack, {}).progress.collection;
+    expect(persistCollection(next)).toBe('recovered');
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)[card.key]).toMatchObject({ normalCount: 2, misprints: 1 });
     expect(data.has(ARCHIVE)).toBe(false);
-    // Downloadable this visit meanwhile; the next load reads the stored counts repaired again.
-    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(collectionRecoveryNote()).toBe(COLLECTION_RECOVERY_NOTES.unsaved);
     expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw, player: null });
   });
 

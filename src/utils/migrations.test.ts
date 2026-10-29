@@ -248,13 +248,20 @@ describe('repairing bad copy counts when the save loads (#1109)', () => {
       [current.key]: { card: ref, normalCount: 1, holoCount: 0, misprints: -2, finishes: { GOLD: -1, BOGUS: 3 }, modifierPoints: -5 },
       text: { card: ref, normalCount: 1, holoCount: 0, finishes: 'GOLD', misprints: 1.5 },
     }) as Record<string, CollectionItem>;
-    expect(loaded[current.key]).toEqual({ card: current, normalCount: 1, holoCount: 0, misprints: 0, finishes: { GOLD: 0 }, modifierPoints: 0 });
+    // A finish this build doesn't know keeps its count: readers skip it, and a newer build may read it.
+    expect(loaded[current.key]).toEqual({ card: current, normalCount: 1, holoCount: 0, misprints: 0, finishes: { GOLD: 0, BOGUS: 3 }, modifierPoints: 0 });
     expect(loaded.text).toEqual({ card: current, normalCount: 1, holoCount: 0, misprints: 1 });
 
     const pulled = { ...current, uniqueId: 1, isRevealed: true, isHolo: false, finish: 'GOLD' as const, misprint: true };
     const pack = { cards: [pulled], setId: current.setId, setVersion: 1, nonce: 1, publicKeyHex: 'ab'.repeat(32) };
     const { progress } = recordPack({ stats: { packsOpened: 0, holoCards: {} }, collection: loaded, hallOfFame: {} }, pack, {});
     expect(progress.collection[current.key]).toMatchObject({ normalCount: 2, misprints: 1, finishes: { GOLD: 1 } });
+  });
+
+  it('reads a finish this build does not know, with a valid count, as stored, so a write keeps it', () => {
+    const stored = { [current.key]: { card: current, normalCount: 1, holoCount: 0, finishes: { GOLD: 1, FUTURE: 2 } } };
+    expect(JSON.stringify(hydrateCollection(stored))).toBe(JSON.stringify(stored));
+    expect(collectionNeedsRepair(stored)).toBe(false);
   });
 
   it('falls back to a valid legacy count beside a bad normal count, so a pull adds to it', () => {

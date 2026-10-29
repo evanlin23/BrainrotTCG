@@ -1,5 +1,5 @@
 import { STORAGE_KEYS } from '../constants';
-import { collectionNeedsRecovery, collectionNeedsRepair, repairCollectionCounts } from '../utils/migrations';
+import { collectionForSaveFile, collectionNeedsRecovery, collectionNeedsRepair, saveFileChangesCollection } from '../utils/migrations';
 import { setStoredData } from '../utils/storage';
 
 /** player.ts keeps its key private; the archive only snapshots the raw value. */
@@ -177,52 +177,40 @@ const parsedCollection = (raw: string): { value: unknown } | null => {
   }
 };
 
-/** A count hydration repaired (utils/migrations.ts): the next write would replace the stored one. */
-const collectionRepaired = (raw: string): boolean => {
-  const parsed = parsedCollection(raw);
-  return parsed !== null && collectionNeedsRepair(parsed.value);
-};
-
-/** Unparseable bytes are unreadable too, and so is a repaired count. */
+/** Unparseable bytes are unreadable too, and so is a count hydration repaired (utils/migrations.ts): the write would replace it. */
 const collectionUnreadable = (raw: string): boolean => {
   const parsed = parsedCollection(raw);
   return parsed === null || collectionNeedsRecovery(parsed.value) || collectionNeedsRepair(parsed.value);
 };
 
-/** Whether the stored collection holds a count hydration repaired; false when there is none or it can't be read. */
-const storedCollectionRepaired = (): boolean => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.COLLECTION);
-    return raw !== null && collectionRepaired(raw);
-  } catch {
-    return false;
-  }
-};
-
 /**
- * Hydration may hide unreadable entries. Never let the next write silently erase them: keep their
- * original bytes aside first, then write the collection. A stored collection whose counts hydration
- * repaired stays stored until its bytes are in the stored archive (as stats do, game/statsRecovery.ts):
- * the game reads it repaired either way, and a copy kept for this tab only would go when it closes.
+ * Hydration may hide unreadable entries or repair bad counts. Never let the next write silently erase
+ * the stored ones: keep their original bytes aside first, then write the collection.
  */
 export const persistCollection = (next: unknown): CollectionSaveResult => {
   const archive = keepUnreadableAside(STORAGE_KEYS.COLLECTION, collectionUnreadable);
-  if (archive === 'blocked') return 'blocked';
-  if (archive === 'archived' && !keptInStorage(STORAGE_KEYS.COLLECTION) && storedCollectionRepaired()) return 'blocked';
-  if (!setStoredData(STORAGE_KEYS.COLLECTION, next)) return 'blocked';
+  if (archive === 'blocked' || !setStoredData(STORAGE_KEYS.COLLECTION, next)) return 'blocked';
   return archive === 'archived' ? 'recovered' : 'saved';
 };
 
 /**
- * The stored collection as a backup file holds it: counts hydration repaired are written repaired, so
- * the file imports again (an import refuses bad counts). Their stored bytes are kept aside first, so the
- * file's kept-aside data carries them too, even while storage has no room for them. Everything else
- * goes as stored.
+ * The stored collection as a backup file holds it, so the file imports again (an import refuses bad
+ * counts, null counts and finishes it doesn't know): see collectionForSaveFile. Only reads storage.
  */
 export const exportedCollection = (raw: string | null): string | null => {
-  if (raw === null || !collectionRepaired(raw)) return raw;
-  keepUnreadableAside(STORAGE_KEYS.COLLECTION, collectionUnreadable);
-  return JSON.stringify(repairCollectionCounts(JSON.parse(raw)));
+  const parsed = raw === null ? null : parsedCollection(raw);
+  if (!parsed || !isRecord(parsed.value)) return raw;
+  const next = collectionForSaveFile(parsed.value);
+  return next ? JSON.stringify(next) : raw;
+};
+
+/** The stored collection's bytes, when the file's copy changes what they mean, for the file's kept-aside data. */
+const collectionForFileArchive = (): Entry[] => {
+  const raw = localStorage.getItem(STORAGE_KEYS.COLLECTION);
+  const parsed = raw === null ? null : parsedCollection(raw);
+  if (raw === null || !parsed || !saveFileChangesCollection(parsed.value)) return [];
+  const entry: Entry = { raw, player: localStorage.getItem(PLAYER_KEY) };
+  return discarded.some((gone) => sameEntry(gone, entry)) ? [] : [entry];
 };
 
 /**
@@ -401,7 +389,7 @@ export const dismissCollectionRecovery = (): boolean => {
  * The stored archive (wrapped if it can't be read) with this visit's unsaved payloads after it (those
  * `ours` accepts), and whether those added any.
  */
-const keptArchive = (ours: (entry: Entry) => boolean = () => true): { file: Archive; added: boolean } | null => {
+const keptArchive = (ours: (entry: Entry) => boolean = () => true, more: Entry[] = []): { file: Archive; added: boolean } | null => {
   const stored = getStoredArchive();
   if (stored.status === 'unavailable') {
     throw (stored.error instanceof Error ? stored.error : new DOMException('Storage read denied', 'SecurityError'));
@@ -409,9 +397,10 @@ const keptArchive = (ours: (entry: Entry) => boolean = () => true): { file: Arch
   const raw = stored.status === 'found' ? stored.raw : null;
   const archive = raw === null ? null : readArchive(raw);
   const kept = entriesOf(archive);
-  const extra = unsaved.filter((entry) => ours(entry) && !kept.some((k) => sameEntry(k, entry)));
+  const fromVisit = unsaved.filter((entry) => ours(entry) && !kept.some((k) => sameEntry(k, entry)));
+  const extra = [...fromVisit, ...more.filter((entry) => ![...kept, ...unsaved].some((k) => sameEntry(k, entry)))];
   // Payloads let go this visit count only beside one of the payloads they were kept with.
-  const droppedNow = extra.length > 0 || unsaved.every(ours) ? droppedThisVisit : 0;
+  const droppedNow = fromVisit.length > 0 || unsaved.every(ours) ? droppedThisVisit : 0;
   const dropped = (archive?.dropped ?? 0) + droppedNow;
   if (archive && extra.length === 0 && droppedNow === 0) return { file: archive, added: false };
   if (archive) return { file: withLater(archive, [...(archive.later ?? []), ...extra], dropped), added: true };
@@ -423,11 +412,13 @@ const keptArchive = (ours: (entry: Entry) => boolean = () => true): { file: Arch
  * The kept-aside data a backup carries: the stored text as is, or with this visit's unsaved payloads when
  * storage had no room for them. Only payloads kept for the player stored now go in (by secret key, as the
  * record's other fields change with every pack), so a save another tab imported never carries this tab's.
+ * When the file's collection changes what the stored one means (exportedCollection), the stored bytes go
+ * in too, built here without writing storage.
  */
 export const exportedCollectionRecovery = (stored: string | null): string | null => {
   const now = localStorage.getItem(PLAYER_KEY);
   const key = keyOf(now);
-  const kept = keptArchive((entry) => (key === undefined ? entry.player === now : keyOf(entry.player) === key));
+  const kept = keptArchive((entry) => (key === undefined ? entry.player === now : keyOf(entry.player) === key), collectionForFileArchive());
   return kept?.added ? JSON.stringify(kept.file) : stored;
 };
 

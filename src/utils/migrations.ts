@@ -73,12 +73,13 @@ const repairCount = (value: unknown): number =>
   (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), Number.MAX_SAFE_INTEGER) : 0);
 
 const isFinish = (finish: string): boolean => Object.prototype.hasOwnProperty.call(FINISH_MULTIPLIER, finish);
-const isFinishCounts = (value: unknown): boolean => isRecord(value)
-  && Object.entries(value).every(([finish, count]) => isFinish(finish) && isCount(count));
+/** A count for each finish. Finishes this build doesn't know stay stored (a newer build's, or one rolled back): readers skip them. */
+const isFinishCounts = (value: unknown): boolean => isRecord(value) && Object.values(value).every(isCount);
 
 /**
- * The entry fields a save file may hold (game/saveFile.ts collectionEntry), each with its repair. A null
- * normal or holo count (migrateV2's unreadable count) reads as none, as an import takes it.
+ * The count fields of an entry (as game/saveFile.ts collectionEntry checks them), each with its repair.
+ * A null normal or holo count (what migrateV2 stored for a count it couldn't read) reads as 0 everywhere
+ * and stays stored; only a save file, which refuses null, holds it as 0 (collectionForSaveFile).
  */
 const COUNT_FIELDS: readonly [field: string, valid: (value: unknown) => boolean, repair: (value: unknown) => unknown][] = [
   ['normalCount', (v) => v === null || isCount(v), repairCount],
@@ -86,9 +87,8 @@ const COUNT_FIELDS: readonly [field: string, valid: (value: unknown) => boolean,
   ['count', isCount, repairCount],
   ['misprints', isCount, repairCount],
   ['modifierPoints', (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0, () => 0],
-  // Only the finishes there are, each with a count: anything else is no finish count a reader can use.
   ['finishes', isFinishCounts, (v) => (isRecord(v)
-    ? Object.fromEntries(Object.entries(v).filter(([finish]) => isFinish(finish)).map(([finish, count]) => [finish, repairCount(count)]))
+    ? Object.fromEntries(Object.entries(v).map(([finish, count]) => [finish, isCount(count) ? count : repairCount(count)]))
     : undefined)],
 ];
 
@@ -108,10 +108,39 @@ const withRepairedCounts = <T extends Record<string, unknown>>(item: T): T => {
   return repaired as T;
 };
 
-/** The stored collection with each readable entry's bad counts repaired and everything else as stored, for a save file. */
-export const repairCollectionCounts = (value: Record<string, unknown>): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(value).map(([key, item]) =>
-    [key, isRecord(item) && isReadableCard(item.card) ? withRepairedCounts(item) : item]));
+const hasUnknownFinish = (item: Record<string, unknown>): boolean =>
+  isRecord(item.finishes) && Object.keys(item.finishes).some((finish) => !isFinish(finish));
+
+/** The entry as a save file may hold it (an import refuses null counts and finishes it doesn't know); the same object when it may as is. */
+const forSaveFile = (item: Record<string, unknown>): Record<string, unknown> => {
+  const repaired = withRepairedCounts(item);
+  const nulls = ['normalCount', 'holoCount'].filter((field) => repaired[field] === null);
+  if (nulls.length === 0 && !hasUnknownFinish(repaired)) return repaired;
+  const entry: Record<string, unknown> = { ...repaired };
+  for (const field of nulls) entry[field] = 0;
+  if (hasUnknownFinish(entry)) {
+    entry.finishes = Object.fromEntries(Object.entries(entry.finishes as Record<string, unknown>).filter(([finish]) => isFinish(finish)));
+  }
+  return entry;
+};
+
+/**
+ * The stored collection as a save file holds it: each readable entry's counts repaired, null counts as 0
+ * and unknown finishes left out; everything else as stored. Null when the file may hold it as is.
+ */
+export const collectionForSaveFile = (value: Record<string, unknown>): Record<string, unknown> | null => {
+  let changed = false;
+  const next = Object.fromEntries(Object.entries(value).map(([key, item]) => {
+    const entry = isRecord(item) && isReadableCard(item.card) ? forSaveFile(item) : item;
+    if (entry !== item) changed = true;
+    return [key, entry];
+  }));
+  return changed ? next : null;
+};
+
+/** True when the save file's collection changes what an entry means (a repaired count, an unknown finish left out), not only a null count. */
+export const saveFileChangesCollection = (value: unknown): boolean => isRecord(value) && Object.values(value)
+  .some((item) => isRecord(item) && isReadableCard(item.card) && (hasBadCount(item) || hasUnknownFinish(item)));
 
 /**
  * Refresh readable collection cards without rewriting the original saved payload. A readable entry
