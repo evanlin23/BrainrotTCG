@@ -50,6 +50,18 @@ describe('good-pull reveal', () => {
     expect(render(false, { ...card, finish: 'GOLD' })).not.toContain('showcase-halo');
     expect(render(false, { ...card, isRevealed: false })).not.toContain('showcase-halo');
   });
+
+  it('celebrates a base Brainrot rarity card', () => {
+    const brainrotCard: CardWithMeta = {
+      ...ALL_CARDS[0],
+      rarity: 'BRAINROT',
+      uniqueId: 2,
+      isRevealed: true,
+      isHolo: false,
+      finish: null,
+    };
+    expect(render(false, brainrotCard)).toContain('showcase-halo');
+  });
 });
 
 describe('the reveal\'s controls', () => {

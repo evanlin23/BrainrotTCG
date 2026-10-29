@@ -15,8 +15,9 @@ Either way, nothing on the free plans can charge you: there's no payment method 
 - **Hashed, safe to keep forever:** everything in `assets/` (code, styles, fonts, card art, sounds).
   Vite names each file by a hash of its content (`name-XXXXXXXX.ext`), so a changed file is a new URL.
 - **Revalidated, same name every deploy:** `index.html`, the files from `public/` beside it (icons,
-  `og-image.jpg`, `hall-of-fame.json`), `robots.txt` and `sitemap.xml`, and the preview pages and
-  pictures in `p/` and `s/`.
+  `og-image.jpg`, `hall-of-fame.json`), `robots.txt` and `sitemap.xml`, the preview pages and
+  pictures in `p/` and `s/`, and the static fan-tool API endpoints in `api/` (`api/sets.json`,
+  `api/cards.json`, `api/hall-of-fame.json`, see `docs/API.md`).
 - **Crawler files:** the build writes `robots.txt` (allow all) and `sitemap.xml` (the app's address
   only; shares, profiles and sets are `#/` routes or `noindex` preview pages) for `SITE_URL`, or for
   production, `https://brainrottcg.pages.dev/`, when it isn't set, which is also what `index.html`'s
@@ -291,9 +292,9 @@ an approval gate:
   workflow lint runs its test, which reads these promises from the workflow files. Its strictness is
   deliberate: it fails closed, so any drift between the workflow and the contract fails CI until
   both are changed together.
-  [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) skip
-  pushes to `main` (`branches-ignore`), so on a bypassed revision workflow lint (actionlint) and
-  browser tests may not have run.
+  [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) run
+  only on pull requests and manual dispatches, never on a push to `main`, so on a bypassed revision
+  workflow lint (actionlint) and browser tests may not have run.
 - Reviewer/operator, decision and known-good rollback target, plus any observed blockers: save loss
   or corruption, broken historical verification, persistent blank screens or missing assets, or
   inaccessible opening controls. Unresolved ones stay listed.

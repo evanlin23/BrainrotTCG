@@ -281,6 +281,26 @@ describe('winners an older save never scored', () => {
     expect(retryButton()).toBeUndefined();
   });
 
+  it('keys unavailable to the profile key: a switched player with unscored winners is not lost while their rebuild is pending', async () => {
+    const other = 'cd'.repeat(32);
+    const refs = [{ s: SET.id, v: SET.version, n: 0, i: 0, t: 1000 }, { s: SET.id, v: SET.version, n: 0, i: 1, t: 1000 }];
+    // Both players have winners awaiting a rebuild, so only the key can tell the switched player is not lost.
+    localStorage.setItem(STORAGE_KEYS.BEST_CARDS, JSON.stringify({ [KEY]: { w: 1, b: refs }, [other]: { w: 1, b: refs } }));
+    used.value = 1;
+    rebuild.mockRejectedValueOnce(new Error('no Argon2'));
+    await act(async () => render());
+    expect(text(status()!)).toContain("couldn't be loaded just now");
+
+    // The other player's rebuild never settles, so nothing but the key can clear the first player's note.
+    rebuild.mockImplementationOnce(() => new Promise(() => {}));
+    who.key = other;
+    await act(async () => root.render(<BestCardsSection refreshKey="switched" cacheReady />));
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    expect(rebuild).toHaveBeenLastCalledWith(other, 1);
+    expect(status()).toBeNull();
+    expect(retryButton()).toBeUndefined();
+  });
+
   it('moves focus to the first row after a Try again that settles it, since the button it was on is gone', async () => {
     unscored();
     derive.failing.add(0);

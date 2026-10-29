@@ -12,8 +12,8 @@ const action = vi.fn();
 
 const primary = vi.fn();
 
-const Probe = ({ ms }: { ms?: number }) => {
-  const { blockClicks, settling } = useStageClickGuard(ms);
+const Probe = ({ ms, active }: { ms?: number; active?: boolean }) => {
+  const { blockClicks, settling } = useStageClickGuard(ms, active);
   return (
     <div data-settling={settling || undefined} onClickCapture={blockClicks}>
       <button type="button" onClick={action}>Act</button>
@@ -66,6 +66,27 @@ describe('useStageClickGuard', () => {
     act(() => vi.advanceTimersByTime(10));
     act(() => button().click());
     expect(action.mock.lastCall![0]).toMatchObject({ type: 'click' });
+  });
+
+  it('with active, holds nothing until the stage is up, then runs the window from that render', () => {
+    act(() => root.render(<Probe ms={50} active={false} />));
+    act(() => vi.advanceTimersByTime(500));
+    expect(stage().hasAttribute('data-settling')).toBe(false);
+    act(() => button().click());
+    expect(action).toHaveBeenCalledTimes(1);
+
+    act(() => root.render(<Probe ms={50} active />));
+    expect(stage().hasAttribute('data-settling')).toBe(true);
+    act(() => button().click());
+    expect(action).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(49));
+    expect(stage().hasAttribute('data-settling')).toBe(true);
+    act(() => vi.advanceTimersByTime(1));
+    expect(stage().hasAttribute('data-settling')).toBe(false);
+
+    act(() => root.render(<Probe ms={50} active={false} />));
+    act(() => root.render(<Probe ms={50} active />));
+    expect(stage().hasAttribute('data-settling')).toBe(true);
   });
 
   it('starts a new window for each stage that mounts', () => {

@@ -40,6 +40,8 @@ export const STORAGE_KEYS = {
    * written just before each collection write (see game/progressGuard.ts).
    */
   STORED_PACKS: 'brainrot-stored-packs-v1',
+  /** ID of the latest in-app news or changelog announcement dismissed on this device. */
+  DISMISSED_NEWS: 'brainrot-dismissed-news-v1',
 } as const;
 
 // Achievement milestone thresholds

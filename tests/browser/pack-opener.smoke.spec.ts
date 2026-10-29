@@ -17,7 +17,27 @@ test('opens one real pack and preserves its exact cards, counts, modifiers and t
   await openButton.focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
-  await page.locator('button.reveal-skip').click({ timeout: 15000 });
+  const container = page.locator('.active-card-container');
+  const card = page.locator('.reveal-card:not([inert])');
+  for (let i = 1; i <= 5; i++) {
+    await expect(card).toHaveAttribute('aria-label', `Flip card ${i} of 5`, { timeout: 10000 });
+    const containerBox = (await container.boundingBox())!;
+    const cardBox = (await card.boundingBox())!;
+    const containerMidX = containerBox.x + containerBox.width / 2;
+    const cardMidX = cardBox.x + cardBox.width / 2;
+    expect(Math.abs(containerMidX - cardMidX), `card ${i} face down should be centered horizontally`).toBeLessThanOrEqual(1);
+
+    // One intentional tap or click flips the card once
+    await card.click();
+    await expect(card).toHaveAttribute('aria-label', i < 5 ? new RegExp(`^Next card\\. Card ${i} of 5: `) : new RegExp(`^See the pack summary\\. Card 5 of 5: `), { timeout: 10000 });
+
+    const flippedCardBox = (await card.boundingBox())!;
+    const flippedCardMidX = flippedCardBox.x + flippedCardBox.width / 2;
+    expect(Math.abs(containerMidX - flippedCardMidX), `card ${i} flipped should be centered horizontally`).toBeLessThanOrEqual(1);
+
+    // Next tap or click advances to next card or summary
+    await card.click();
+  }
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('.summary-title')).not.toBeEmpty();
   await expectDecoded(page.locator('.summary-cards img'), 5);
