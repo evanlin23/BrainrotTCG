@@ -188,7 +188,8 @@ it('is a page for a first-time visitor with no save, and reading it asks for no 
   await app.mount();
   await app.until('the page opens', () => expect(pageTitle()).toBe("What's new"));
   expect(document.title).toBe("What's new - Brainrot TCG");
-  expect(document.querySelectorAll('.news-entry')).toHaveLength(2);
+  // The page's title shows while its chunk is still loading, so wait for the entries themselves.
+  await app.until('the entries load', () => expect(document.querySelectorAll('.news-entry')).toHaveLength(2));
   expect($('.app-nav')).toBeNull();
 });
 
