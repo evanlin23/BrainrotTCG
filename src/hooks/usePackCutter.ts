@@ -161,11 +161,11 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   const pendingSparkRef = useRef<CutPoint | null>(null);
   const emitSparkRef = useRef(emitSpark);
   /** Whether the pack takes a cut now, as of the last render, for a frame to check before it draws. */
-  const closedRef = useRef(disabled || isOpening || isPackCut);
+  const closedRef = useRef(disabled || blocked || isOpening || isPackCut);
   useLayoutEffect(() => {
     emitSparkRef.current = emitSpark;
-    closedRef.current = disabled || isOpening || isPackCut;
-  }, [emitSpark, disabled, isOpening, isPackCut]);
+    closedRef.current = disabled || blocked || isOpening || isPackCut;
+  }, [emitSpark, disabled, blocked, isOpening, isPackCut]);
 
   /** Drop a frame that hasn't drawn yet, and what it would have drawn. */
   const cancelFrame = useCallback(() => {

@@ -660,6 +660,51 @@ describe('usePackCutter frame batching (#266)', () => {
     expect(sparkCalls.emits).toHaveLength(0);
   });
 
+  describe('with the save blocked (#1277)', () => {
+    let played: string[];
+    beforeEach(() => {
+      played = [];
+      vi.stubGlobal('Audio', class {
+        volume = 1;
+        currentTime = 0;
+        onended: (() => void) | null = null;
+        constructor(public src: string) {}
+        pause() {}
+        play() { played.push(this.src); return Promise.resolve(); }
+      });
+    });
+
+    it('lights no seam, draws no line and plays no sound across a whole swipe, frame included', () => {
+      render(false, 0.5, true);
+      down(at(0.3));
+      expect(cutter.isPressing).toBe(false);
+      move(at(0.45));
+      move(at(0.6));
+      move(at(0.8));
+      // Nothing was queued to draw, and a frame that did run would leave nothing behind.
+      runFrame();
+      expect(cutter.isPressing).toBe(false);
+      expect(cutter.isCutting).toBe(false);
+      expect(cutter.cutPoints).toEqual([]);
+      expect(played).toEqual([]);
+      up(at(0.8));
+      expect(onBlockedSwipe).toHaveBeenCalledTimes(1);
+      expect(played).not.toContain(FAIRY_DUST_SRC);
+      expect(played).not.toContain(WOOSH_SRC);
+    });
+
+    it('draws nothing when the save becomes blocked mid-stroke, with a frame already queued', () => {
+      render(false, 0.5, false);
+      down(at(0.3));
+      move(at(0.45));
+      expect(frames.size).toBe(1);
+      render(false, 0.5, true);
+      runFrame();
+      expect(cutter.isCutting).toBe(false);
+      expect(cutter.cutPoints).toEqual([]);
+    });
+  });
+
   it('draws nothing for a press on the seam that goes clearly down', () => {
     renderCounting(true);
     down(at(0.3));
