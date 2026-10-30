@@ -707,6 +707,19 @@ describe('Settings: Help', () => {
     expect(document.activeElement).toBe(guide);
   });
 
+  it("opens What's new from Help, and leaves the button out when the page has nowhere to open it", () => {
+    const opened: string[] = [];
+    act(() => root.render(
+      <SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} onOpenNews={() => opened.push('news')} />,
+    ));
+    const help = document.querySelector('[aria-labelledby="settings-help"]')!;
+    expect([...help.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(["What's new", 'Report a problem']);
+    act(() => button("What's new").click());
+    expect(opened).toEqual(['news']);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} />));
+    expect(button("What's new")).toBeUndefined();
+  });
+
   it('leaves the card guide out when no pack is given', () => {
     expect(button('Card guide')).toBeUndefined();
     expect(button('Report a problem')).toBeDefined();

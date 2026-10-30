@@ -112,6 +112,6 @@ it('includes valid JSON-LD structured data and crawlable semantic copy in index.
   expect(html).toContain('<noscript>');
   expect(html).toContain('Brainrot TCG');
   expect(jsonLd.alternateName).toEqual(['Brainrot Trading Card Game']);
-  expect(html).toContain('<h1>Brainrot TCG (Brainrot Trading Card Game)</h1>');
+  expect(html).toContain('<p><strong>Brainrot TCG (Brainrot Trading Card Game)</strong></p>');
   expect(html).not.toMatch(/Brain Rot/);
 });

@@ -15,6 +15,9 @@ All endpoints are static files served over HTTPS with open CORS.
 Base address: `https://brainrottcg.pages.dev/` (the old GitHub Pages address redirects there; see
 [HOSTING.md](HOSTING.md)), so for example `https://brainrottcg.pages.dev/api/sets.json`.
 
+`/api/sets.json` and `/api/cards.json` went live on 2026-10-27. The in-game What's new page describes
+only what players see, so these details live here.
+
 Draft sets (opt-in previews in the app, whose cards may still change) are left out of every
 endpoint until they are released, so `draft` is always `false`.
 
