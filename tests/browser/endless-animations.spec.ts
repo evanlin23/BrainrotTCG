@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectSummaryTakesClicks, monitor } from './support';
+import { expectSummaryTakesClicks, fingerFor, monitor } from './support';
 
 /**
  * The screens that untilIdle (support.ts) is called on never stop animating: a sealed pack's foil and
@@ -53,7 +53,7 @@ test('the packs screen runs its endless animations on the compositor, whichever 
   }
 });
 
-test('in-app Reduced motion stills endless animations and the ceremony with the device allowing motion', async ({ page, baseURL }) => {
+test('in-app Reduced motion stills endless animations and the ceremony with the device allowing motion', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   const origin = new URL(baseURL!).origin;
@@ -61,20 +61,60 @@ test('in-app Reduced motion stills endless animations and the ceremony with the 
     if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
     localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 22, createdAt: 1 }));
     localStorage.setItem('brainrot-settings-v1', JSON.stringify({ motion: 'reduced', effectsVolume: 0 }));
+    localStorage.setItem('brainrot-stats-v1', JSON.stringify({ packsOpened: 22, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
   }, origin);
   await monitor(page, baseURL!);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  await expect(page.locator('.pack-shell')).toBeVisible();
+  const packShell = page.locator('.pack-shell');
+  await expect(packShell).toBeVisible();
+  await expect(packShell).toHaveClass(/\bis-idle\b/);
 
-  // With a prism foil applied, still no endless animation runs under in-app reduced motion.
-  for (const foil of ['standard', 'shimmer', 'gold', 'prism']) {
+  const animName = (selector: string, pseudo?: string) =>
+    page.evaluate(({ selector, pseudo }) => {
+      const el = document.querySelector(selector);
+      if (!el) throw new Error(`Element not found: ${selector}`);
+      return window.getComputedStyle(el, pseudo).animationName;
+    }, { selector, pseudo });
+
+  // 1. Pack idle lift:
+  expect(await animName('.pack-shell.is-idle .pack-half-top')).toBe('none');
+  // Positive control:
+  await page.evaluate(() => { document.documentElement.removeAttribute('data-motion'); });
+  expect(await animName('.pack-shell.is-idle .pack-half-top')).toBe('pack-idle-lift');
+  await page.evaluate(() => { document.documentElement.setAttribute('data-motion', 'reduced'); });
+  expect(await animName('.pack-shell.is-idle .pack-half-top')).toBe('none');
+
+  // 2. Pack foil: standard, shimmer, gold, prism
+  for (const foil of ['standard', 'shimmer', 'gold', 'prism'] as const) {
     await page.evaluate((name) => { document.documentElement.dataset.packFoil = name; }, foil);
-    const running = await endlessAnimations(page);
-    expect(running, `${foil} pack foil under in-app reduced motion`).toEqual([]);
+    expect(await animName('.pack-foil', '::before'), `${foil} pack foil under in-app reduced motion`).toBe('none');
+    // Positive control:
+    await page.evaluate(() => { document.documentElement.removeAttribute('data-motion'); });
+    const expected = foil === 'standard' ? 'none' : 'pack-foil';
+    expect(await animName('.pack-foil', '::before'), `${foil} pack foil without reduced motion`).toBe(expected);
+    await page.evaluate(() => { document.documentElement.setAttribute('data-motion', 'reduced'); });
+    expect(await animName('.pack-foil', '::before')).toBe('none');
   }
 
-  // Open the pack to the big pull celebration (nonce 22).
+  // 3. Cut line: drag across tear line so .cut-line is drawn
+  const box = (await packShell.boundingBox())!;
+  const y = box.y + box.height * 0.19;
+  const finger = await fingerFor(page, hasTouch);
+  await finger.press(box.x + box.width * 0.4, y);
+  for (let step = 1; step <= 6; step++) {
+    await finger.move(box.x + box.width * (0.4 + (0.1 * step) / 6), y);
+  }
+  await expect(page.locator('.cut-line')).toBeAttached();
+  expect(await animName('.cut-line')).toBe('none');
+  // Positive control:
+  await page.evaluate(() => { document.documentElement.removeAttribute('data-motion'); });
+  expect(await animName('.cut-line')).toBe('seam-shimmer');
+  await page.evaluate(() => { document.documentElement.setAttribute('data-motion', 'reduced'); });
+  expect(await animName('.cut-line')).toBe('none');
+  await finger.release();
+
+  // 4. Open the pack to the big pull celebration (nonce 22).
   await page.getByRole('button', { name: /^Open pack/ }).focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
@@ -84,16 +124,16 @@ test('in-app Reduced motion stills endless animations and the ceremony with the 
   const halo = page.locator('.showcase-halo');
   await expect(halo).toBeVisible({ timeout: 15000 });
 
-  // Verify the ceremony (showcase-halo and showcase-rays) is stilled under reduced motion.
-  const haloAnimations = await page.evaluate(() => {
-    const el = document.querySelector('.showcase-halo');
-    if (!el) return [];
-    return document.getAnimations().filter((a) => {
-      const target = (a.effect as KeyframeEffect)?.target;
-      return target === el || (target as Element)?.parentElement === el;
-    }).map((a) => (a as CSSAnimation).animationName);
-  });
-  expect(haloAnimations).toEqual([]);
+  // Showcase halo and rays:
+  expect(await animName('.showcase-halo')).toBe('none');
+  expect(await animName('.showcase-halo', '::before')).toBe('none');
+  // Positive control:
+  await page.evaluate(() => { document.documentElement.removeAttribute('data-motion'); });
+  expect(await animName('.showcase-halo')).toBe('showcase-halo');
+  expect(await animName('.showcase-halo', '::before')).toBe('showcase-rays');
+  await page.evaluate(() => { document.documentElement.setAttribute('data-motion', 'reduced'); });
+  expect(await animName('.showcase-halo')).toBe('none');
+  expect(await animName('.showcase-halo', '::before')).toBe('none');
 });
 
 test('the reveal, the summary and a card opened over it run their endless animations on the compositor', async ({ page, baseURL }) => {
