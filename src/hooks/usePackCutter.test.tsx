@@ -48,25 +48,27 @@ let cutter: Cutter;
 let onCutComplete: ReturnType<typeof vi.fn<() => void>>;
 let onMiss: ReturnType<typeof vi.fn<() => void>>;
 let onShortSwipe: ReturnType<typeof vi.fn<() => void>>;
+let onBlockedSwipe: ReturnType<typeof vi.fn<() => void>>;
 
 interface ProbeProps {
   hold: (cutter: Cutter) => void;
   disabled?: boolean;
+  blocked?: boolean;
   isOpening?: boolean;
   isPackCut?: boolean;
   particles?: boolean;
   volume?: number;
 }
 
-const Probe = ({ hold, disabled = false, isOpening = false, isPackCut = false, particles = false, volume = 0 }: ProbeProps) => {
-  const latest = usePackCutter({ onCutComplete, onMiss, onShortSwipe, isOpening, isPackCut, volume, particlesEnabled: particles, disabled });
+const Probe = ({ hold, disabled = false, blocked = false, isOpening = false, isPackCut = false, particles = false, volume = 0 }: ProbeProps) => {
+  const latest = usePackCutter({ onCutComplete, onMiss, onShortSwipe, onBlockedSwipe, isOpening, isPackCut, volume, particlesEnabled: particles, disabled, blocked });
   const { packRef } = latest;
   useEffect(() => hold(latest));
   return <div ref={packRef} />;
 };
 
 /** Renders the probe, or re-renders it with a sheet open over the pack (`disabled`). */
-const render = (disabled = false, volume = 0) => act(() => root.render(<Probe hold={(latest) => { cutter = latest; }} disabled={disabled} volume={volume} />));
+const render = (disabled = false, volume = 0, blocked = false) => act(() => root.render(<Probe hold={(latest) => { cutter = latest; }} disabled={disabled} volume={volume} blocked={blocked} />));
 
 /** Gives the pack the on-screen box `rect`, or `rect` resized to `width` x `height` px from the same top left corner. */
 const sizePack = (width = rect.width, height = rect.height) => {
@@ -104,6 +106,7 @@ beforeEach(() => {
   onCutComplete = vi.fn<() => void>();
   onMiss = vi.fn<() => void>();
   onShortSwipe = vi.fn<() => void>();
+  onBlockedSwipe = vi.fn<() => void>();
   mount();
 });
 
@@ -371,6 +374,48 @@ describe('usePackCutter short swipes (#312)', () => {
     move(at(0.55));
     act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.55))));
     expect(onCutComplete).not.toHaveBeenCalled();
+  });
+});
+
+describe('usePackCutter with the save blocked (#1277)', () => {
+  it('says so on release after a swipe that would have opened, and cuts nothing', () => {
+    render(false, 0, true);
+    swipe(at(0.35), at(0.5), at(0.65));
+    expect(onBlockedSwipe).toHaveBeenCalledTimes(1);
+    expect(onCutComplete).not.toHaveBeenCalled();
+    expect(onShortSwipe).not.toHaveBeenCalled();
+    expect(cutter.cutPoints).toHaveLength(0);
+  });
+
+  it('says so once, on release, not mid-drag, even past the 30% a drag opens at', () => {
+    render(false, 0, true);
+    down(at(0.2));
+    move(at(0.6));
+    move(at(0.9));
+    expect(onBlockedSwipe).not.toHaveBeenCalled();
+    up(at(0.9));
+    expect(onBlockedSwipe).toHaveBeenCalledTimes(1);
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('says nothing for a tap, a scroll down the art, or a press below the start band', () => {
+    render(false, 0, true);
+    swipe(at(0.5), at(0.5));
+    swipe(at(0.5, 40), at(0.5, 90));
+    swipe(at(0.2, 200), at(0.8, 200));
+    expect(onBlockedSwipe).not.toHaveBeenCalled();
+    expect(onCutComplete).not.toHaveBeenCalled();
+    expect(onMiss).not.toHaveBeenCalled();
+  });
+
+  it('stays silent under a sheet, and cuts again once the save is free', () => {
+    render(true, 0, true);
+    swipe(at(0.3), at(0.6));
+    expect(onBlockedSwipe).not.toHaveBeenCalled();
+    render();
+    swipe(at(0.3), at(0.6));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+    expect(onBlockedSwipe).not.toHaveBeenCalled();
   });
 });
 

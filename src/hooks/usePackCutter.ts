@@ -109,13 +109,17 @@ interface UsePackCutterOptions {
   particlesEnabled?: boolean;
   /** A sheet is open over the pack: drags belong to it, even after it closes mid-drag. */
   disabled?: boolean;
+  /** The save is held elsewhere: a swipe cuts, draws and sounds nothing, and reports itself on release (#1277). */
+  blocked?: boolean;
   /** A press on the pack below the start band (a tap, or a swipe across the art): time for a nudge. */
   onMiss?: () => void;
   /** A swipe went across but was let go too short (or too steep) to open: time to spring back and say so (#803). */
   onShortSwipe?: () => void;
+  /** A swipe went across while `blocked`: the pack stays sealed, and should say why, as a tap does (#1277). */
+  onBlockedSwipe?: () => void;
 }
 
-export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss, onShortSwipe }: UsePackCutterOptions) => {
+export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, blocked = false, onMiss, onShortSwipe, onBlockedSwipe }: UsePackCutterOptions) => {
   const [isCutting, setIsCutting] = useState(false);
   /** A press landed on the seam and hasn't been released or ruled out: the seam lights up under it. */
   const [isPressing, setIsPressing] = useState(false);
@@ -309,7 +313,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       if (spanX >= GESTURE_SLOP_PX && spanY <= MAX_DRIFT_RATIO * spanX) {
         stroke.across = true;
         // Play fairy dust sound when cutting starts
-        if (draw && volume > 0) {
+        if (draw && volume > 0 && !blocked) {
           if (fairyDustRef.current) {
             fairyDustRef.current.pause();
             fairyDustRef.current.currentTime = 0;
@@ -327,7 +331,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     stroke.maxX = Math.max(stroke.maxX, clampedX);
     stroke.minY = Math.min(stroke.minY, point.y);
     stroke.maxY = Math.max(stroke.maxY, point.y);
-    if (!draw) return;
+    // A blocked pack draws nothing and cuts nothing mid-drag: it answers once, on release.
+    if (!draw || blocked) return;
 
     if (strokeCuts(stroke, point.width, DRAG_CUT_RATIO)) {
       completeCut();
@@ -339,7 +344,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     if (pending.length > MAX_CUT_POINTS) pending.shift();
     pendingSparkRef.current = spark;
     if (stroke.across && frameRef.current === null) frameRef.current = requestAnimationFrame(drawFrame);
-  }, [isOpening, isPackCut, getLocalPoint, cancelFrame, completeCut, drawFrame, volume]);
+  }, [isOpening, isPackCut, blocked, getLocalPoint, cancelFrame, completeCut, drawFrame, volume]);
 
   const endCutAttempt = useCallback(() => {
     cancelFrame();
@@ -404,7 +409,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     // there) gets a nudge, even if it's dragged up into the band later (#267, #626).
     if (point.y > point.startBandBottom) {
       blockedRef.current = true;
-      onMiss?.();
+      if (!blocked) onMiss?.();
       return;
     }
     if (cutCompletedRef.current) return;
@@ -418,8 +423,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     };
     pendingCutsRef.current = [point.cut];
     pendingSparkRef.current = null;
-    setIsPressing(true);
-  }, [endCutAttempt, disabled, getLocalPoint, isOpening, isPackCut, onMiss]);
+    if (!blocked) setIsPressing(true);
+  }, [endCutAttempt, disabled, blocked, getLocalPoint, isOpening, isPackCut, onMiss]);
 
   const handlePointerMove = useCallback((event: PointerEvent) => {
     if (blockedRef.current || disabled || cutCompletedRef.current || isOpening || isPackCut) return;
@@ -442,13 +447,16 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       for (const { clientX, clientY } of [...pointsOf(event), event]) trackPoint(clientX, clientY, false);
       const width = measurePack()?.rect.width;
       const stroke = strokeRef.current;
-      if (width !== undefined && stroke && strokeCuts(stroke, width, RELEASE_CUT_RATIO)) completeCut();
+      if (blocked) {
+        // Anything that went across would have opened or sprung back: say the pack is held instead (#1277).
+        if (stroke?.across) onBlockedSwipe?.();
+      } else if (width !== undefined && stroke && strokeCuts(stroke, width, RELEASE_CUT_RATIO)) completeCut();
       // A swipe that went across but let go short of opening never fails silently (#803). A tap in the
       // band (it never went across) cuts nothing here; the pack's own click opens it.
       else if (stroke?.across) onShortSwipe?.();
     }
     endCutAttempt();
-  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt, onShortSwipe]);
+  }, [disabled, blocked, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt, onShortSwipe, onBlockedSwipe]);
 
   const cleanup = useCallback(() => {
     if (fairyDustRef.current) {
