@@ -79,7 +79,8 @@ export const newBestPack = (history: readonly HistoryEntry[], pack: RecordPack, 
  * - `set-best`: it didn't, but strictly beat their best in its own set (any version), which needs an
  *   earlier pack in that set (an outlined medal);
  * - `top`: it is their #2 or #3 pack so far, counting this one (an earlier pack with an equal score
- *   ranks above it: ties keep the earlier record).
+ *   ranks above it: ties keep the earlier record). Strava's rule again: it needs at least 2 earlier
+ *   packs, and it must beat at least one of them, so a player's worst pack is never "#2".
  * Null otherwise, and on the first comparable pack.
  */
 export type PackRecord =
@@ -96,6 +97,7 @@ export const packRecord = (history: readonly HistoryEntry[], pack: RecordPack, s
   const inSet = bestScore(before.filter((e) => e.setId === pack.setId));
   if (inSet !== null && score > inSet) return { kind: 'set-best', setId: pack.setId, score, previous: inSet };
   const rank = 1 + before.filter((e) => e.score >= score).length;
+  if (before.length < 2 || rank > before.length) return null;
   return rank === 2 || rank === 3 ? { kind: 'top', rank } : null;
 };
 
@@ -151,7 +153,7 @@ export interface SetStanding extends Standing {
 
 /** The record book (Spec 2 on #757): the player's personal records, derived from their history on each read. */
 export interface RecordBook {
-  /** Best Brainrot Score in each set the player has a comparable pack in, in the order they first opened one. */
+  /** Best Brainrot Score in each set the player has a comparable pack in, in ticket order of each set's first one. */
   bestPackBySet: SetStanding[];
   /** Most holo cards in one pack, over packs whose cards this device can read. */
   mostHolos: Standing | null;
@@ -170,8 +172,9 @@ const dayOf = (t: number): string | null => {
 
 /**
  * The player's record book, from their own key's packs only, one record per ticket (admittedPacks).
- * - Best pack per set and most holos count packs with a known hand and score (stand-ins are skipped),
- *   in ticket order; most holos skips a pack whose cards this device can't read.
+ * - Best pack per set counts packs with a known hand and score (stand-ins are skipped), in ticket order.
+ * - Most holos reads cards as the drought counter does (droughtCounters' readablePack), in ticket order:
+ *   a stand-in counts once its cards are on this device, and a pack whose cards can't be read is skipped.
  * - Most packs in a day counts those packs by the day they opened (openedAt), in this device's time zone.
  * - Longest drought broken reads packs as the profile's drought counter does (droughtCounters: its
  *   order, and a pack counts once its cards are on this device). A drought counts only when every pack
@@ -190,7 +193,7 @@ export const recordBook = (history: readonly HistoryEntry[], publicKeyHex: strin
   }));
 
   const mostHolos = standing(
-    packs.flatMap((e) => {
+    admitted.flatMap((e) => {
       const pack = readablePack(e);
       return pack ? [{ value: pack.cards.filter((c) => c.holo).length, at: e.openedAt }] : [];
     }),

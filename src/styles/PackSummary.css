@@ -10,6 +10,9 @@
 }
 
 .pack-summary .pack-headline-heading {
+  /* Never wider than the summary: a centred column flex item otherwise grows to its widest unbreakable
+     line (a set best's one-line "Best in [set]"), so the set name could never be cut short. */
+  max-width: 100%;
   margin: 0;
   line-height: 1.15;
   font-size: var(--text-3xl);

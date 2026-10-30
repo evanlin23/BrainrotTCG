@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, scaleText } from './support';
+import { monitor, scaleText, PLAYER_KEY_PREFIX } from './support';
+import { STORAGE_KEYS } from '../../src/constants/config';
 
 // Enlarged text on the narrowest phone (#681, #682, #765): the Cards page's unstarted-era rows, the empty
 // Profile's first-pack button and Settings' Motion row wrap inside the page instead of running off its right edge.
@@ -194,3 +195,30 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }
     });
   }
 }
+
+// A pack that set a best when it opened keeps its medal on its Profile history row (#1287): ticket 1
+// beat ticket 0. At 200% text the row, medal and all, stays inside a 360 px phone.
+test('Profile: a history row keeps its medal inside a 360x740 phone at 200% text (#1287)', { tag: '@mobile-only' }, async ({ page, baseURL }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const errors = await monitor(page, baseURL!, 2, { returning: true });
+  await page.addInitScript(({ keys, prefix }) => {
+    if (sessionStorage.getItem('records-seeded')) return;
+    sessionStorage.setItem('records-seeded', '1');
+    const c = 'bukangi,niu-laiG,bukangi,la-peace,verity';
+    localStorage.setItem(keys.HISTORY, JSON.stringify([
+      { s: 'right-now', v: 2, n: 1, k: prefix, c, h: 'Pair', x: 1_020, t: 2_000 },
+      { s: 'right-now', v: 2, n: 0, k: prefix, c, h: 'Pair', x: 500, t: 1_000 },
+    ]));
+  }, { keys: STORAGE_KEYS, prefix: PLAYER_KEY_PREFIX });
+  await page.goto('./#/profile');
+  const history = pageNamed(page, 'Profile').locator('.pulls-history');
+  const medalled = history.locator('.pull-row').filter({ has: page.locator('.pull-row-medal') });
+  await expect(medalled).toHaveCount(1);
+  await expect(medalled).toContainText('1,020');
+  await expect(medalled).toContainText(', a new best when opened');
+  await scaleText(page, 200);
+  await medalled.scrollIntoViewIfNeeded();
+  await expect(medalled.locator('.pull-row-medal')).toBeVisible();
+  await insidePage(page, medalled, 360);
+  expect(errors).toEqual([]);
+});

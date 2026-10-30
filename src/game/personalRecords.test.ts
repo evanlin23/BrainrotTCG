@@ -127,12 +127,22 @@ describe('packRecord (#1287, Spec 2 on #757)', () => {
   it('is a set best when it beats only the earlier packs of its own set', () => {
     const history = [entry(0, 1_000), entry(1, 200, { setId: 'other-set' })];
     expect(packRecord(history, pack(2, 'other-set'), 500)).toEqual({ kind: 'set-best', setId: 'other-set', score: 500, previous: 200 });
-    // A tie with the set's best is no record: the earlier pack keeps it, and the pack ranks under it.
-    expect(packRecord(history, pack(2, 'other-set'), 200)).toEqual({ kind: 'top', rank: 3 });
+    // A tie with the set's best is no record (the earlier pack keeps it), and beating no earlier pack ranks nothing.
+    expect(packRecord(history, pack(2, 'other-set'), 200)).toBeNull();
   });
 
   it("needs an earlier pack in the set for a set best: a set's first pack can only rank", () => {
-    expect(packRecord([entry(0, 1_000)], pack(1, 'other-set'), 500)).toEqual({ kind: 'top', rank: 2 });
+    expect(packRecord([entry(0, 1_000), entry(1, 100)], pack(2, 'other-set'), 500)).toEqual({ kind: 'top', rank: 2 });
+  });
+
+  it('ranks only with at least 2 earlier packs, and only a pack that beats one of them (Strava)', () => {
+    // One earlier pack: a lower pack is the worse of two, not "#2".
+    expect(packRecord([entry(0, 1_000)], pack(1), 10)).toBeNull();
+    expect(packRecord([entry(0, 1_000)], pack(1, 'other-set'), 500)).toBeNull();
+    // Two earlier packs: the worst of three is no #3, but beating one of them is.
+    expect(packRecord([entry(0, 1_000), entry(1, 500)], pack(2), 10)).toBeNull();
+    expect(packRecord([entry(0, 1_000), entry(1, 500)], pack(2), 500)).toBeNull();
+    expect(packRecord([entry(0, 1_000), entry(1, 500)], pack(2), 501)).toEqual({ kind: 'top', rank: 2 });
   });
 
   it('ranks #2 and #3 with ties keeping the earlier pack above, and nothing below #3', () => {
@@ -236,15 +246,16 @@ describe('recordBook (#1287)', () => {
     const history = [
       opened(0, { holos: 1, openedAt: 10 }),
       opened(1, { holos: 1, openedAt: 11 }),
-      // Its cards aren't on this device, a set version this build doesn't know, a stand-in, another key.
+      // Its cards aren't on this device, a set version this build doesn't know, another key.
       opened(2, { cards: null }),
       opened(3, { holos: 5, setVersion: 999 }),
-      opened(4, { holos: 5, hand: '' }),
+      // A stand-in whose cards are saved here counts, as the drought counter counts it.
+      opened(4, { holos: 2, hand: '', openedAt: 14 }),
       opened(5, { holos: 5, key: OTHER.slice(0, 16) }),
       opened(6, { holos: 2, openedAt: 16 }),
       opened(7, { holos: 2, openedAt: 17 }),
     ];
-    for (const h of orders(history)) expect(recordBook(h, KEY).mostHolos).toEqual({ value: 2, previous: 1, at: 16 });
+    for (const h of orders(history)) expect(recordBook(h, KEY).mostHolos).toEqual({ value: 2, previous: 1, at: 14 });
     expect(recordBook([opened(0, { holos: 3, openedAt: 10 }), opened(1, { openedAt: 11 })], KEY).mostHolos).toEqual({ value: 3, previous: null, at: 10 });
   });
 
