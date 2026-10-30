@@ -197,8 +197,11 @@ test('an early backup without a player key restores into a new player through Im
   expect(errors).toEqual([]);
 });
 
-test('export -> wipe -> import round trip: the restored profile matches the exported one (packs, collection, level) (#764)', async ({ page, baseURL }) => {
-  test.setTimeout(120000);
+test('a backup restores into the same browser after its storage is wiped and reloaded, with no replacement question, and the next pack follows on (#764)', async ({ page, baseURL }) => {
+  // What the other cases don't cover: the same browser wiped completely (localStorage.clear(), not a
+  // second profile), reloaded to a profile with no progress, then restored from a version 2 file that
+  // carries a player key. That profile has nothing to replace, so Import must not ask, and the restored
+  // ticket counter must hand out ticket 1 next.
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   const packShell = page.locator('.pack-shell');
@@ -210,58 +213,52 @@ test('export -> wipe -> import round trip: the restored profile matches the expo
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
   await expectDecoded(page.locator('.summary-cards img'), 5);
   const opened = await expectRecordedPack(page);
-  const originalPlayer = await page.evaluate((key) => localStorage.getItem(key), PLAYER_KEY);
+  const exportedPlayer = await page.evaluate((key) => localStorage.getItem(key), PLAYER_KEY);
 
-  // Export through Settings: the download is saved in memory
   await page.goto('./#/settings');
   const settings = settingsOf(page);
   await expect(settings.main).toBeVisible();
   const downloading = page.waitForEvent('download');
   await settings.backUp.getByRole('button', { name: 'Export', exact: true }).click();
   const download = await downloading;
-  const backupBytes = await readFile((await download.path())!);
+  const backup = await readFile((await download.path())!);
   await download.delete();
 
-  // Check Profile before wiping: name, level, packs opened
+  // The level the profile shows with the pack opened: the restored profile must show it again.
   await page.goto('./#/profile');
   const profile = page.getByRole('main', { name: 'Profile', exact: true });
-  await expect(profile.getByRole('heading', { name: 'Browser smoke fixture', exact: true })).toBeVisible();
-  await expect(profile).toContainText('All packs · 1');
-  const levelText = await profile.locator('.profile-level').innerText();
-  expect(levelText).toContain('Level 2');
+  const level = profile.locator('.profile-level');
+  await expect(level).toBeVisible();
+  const levelBefore = await level.innerText();
 
-  // WIPE: clear localStorage completely
+  // Wipe everything and load again: a profile with no progress and a ticket counter back at 0.
   await page.evaluate(() => localStorage.clear());
-
-  // Reload as a fresh browser
   await holdTickets(page);
+  // './' drops the hash, so this is a real load; going straight to '#/profile' would keep the live page.
   await page.goto('./');
-  await expect(page.locator('.app-logo')).toBeVisible();
-
-  // Verify fresh state
+  await expect(packShell).toBeVisible();
   await page.goto('./#/profile');
   await expect(profile).toContainText('No packs yet');
-  expect(await page.evaluate((key) => localStorage.getItem(key), PLAYER_KEY)).not.toBe(originalPlayer);
+  const fresh = await storageOf(page);
+  expect(JSON.parse(fresh[PLAYER_KEY] ?? '{}')).toMatchObject({ nextNonce: 0 });
+  expect(fresh[PLAYER_KEY] === exportedPlayer).toBe(false);
 
-  // Restore the exported backup: fresh profile has no progress to replace, so Import restores directly
+  // Restore: no question, the page reloads with the file's player.
   await page.goto('./#/settings');
   await expect(settings.main).toBeVisible();
   const reloaded = page.waitForEvent('load');
-  await pickWithImport(page, { name: 'backup.txt', buffer: backupBytes });
+  await pickWithImport(page, { name: 'backup.txt', buffer: backup });
   await reloaded;
   await expect(settings.main).toBeVisible();
   await expect(settings.restoreNote).toHaveText('Load a backup file');
-
-  // Assert restored state: player, snapshot, profile, level
-  expect(await page.evaluate((key) => localStorage.getItem(key), PLAYER_KEY)).toBe(originalPlayer);
+  const restored = await storageOf(page);
+  expect(restored[PLAYER_KEY] === exportedPlayer).toBe(true);
   expect(await snapshot(page)).toEqual(opened);
-
   await page.goto('./#/profile');
-  await expect(profile.getByRole('heading', { name: 'Browser smoke fixture', exact: true })).toBeVisible();
-  await expect(profile).toContainText('All packs · 1');
-  expect(await profile.locator('.profile-level').innerText()).toBe(levelText);
+  await expect(level).toBeVisible();
+  expect(await level.innerText()).toBe(levelBefore);
 
-  // Opening the next pack takes ticket 1: none lost, none repeated
+  // The next pack takes ticket 1: none lost, none repeated.
   await page.goto('./');
   await expect(packShell).toBeVisible();
   await releaseTickets(page);
@@ -269,8 +266,8 @@ test('export -> wipe -> import round trip: the restored profile matches the expo
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
-  const afterSecondPack = await snapshot(page);
-  expect(afterSecondPack.stats.packsOpened).toBe(2);
-  expect(afterSecondPack.history.map((record) => record.n).sort()).toEqual([0, 1]);
+  const next = await snapshot(page);
+  expect(next.stats.packsOpened).toBe(2);
+  expect(next.history.map((record) => record.n).sort()).toEqual([0, 1]);
   expect(errors).toEqual([]);
 });
