@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as engine from '../engine';
-import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder } from './reveal';
+import { isBigPull, isSpecialReveal, isTakeoverReveal, markNew, nextSpecialRevealIndex, revealOrder, takeoverReason } from './reveal';
 
 describe('reveal order', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -73,5 +73,97 @@ describe('reveal order', () => {
     expect(nextSpecialRevealIndex(afterPlatinum)).toBe(4);
     expect(nextSpecialRevealIndex(afterPlatinum.map((card, index) => ({ ...card, isRevealed: card.isRevealed || index === 4 })))).toBe(-1);
     expect(nextSpecialRevealIndex(cards.slice(0, 2))).toBe(-1);
+  });
+
+  describe('cinematic takeover reveal trigger (Spec 1, #1293)', () => {
+    it('triggers for a set-completing Common and rejects negative set boundaries', () => {
+      const card = { rarity: 'COMMON' as const, isNew: true };
+
+      // Positive boundary: exactly 1 card left to complete the set
+      expect(isTakeoverReveal(card, { set: { ownedBefore: 11, size: 12 } })).toBe(true);
+      expect(takeoverReason(card, { set: { ownedBefore: 11, size: 12 } })).toBe('SET');
+
+      // Negative boundaries:
+      // More than 1 card away from completion
+      expect(isTakeoverReveal(card, { set: { ownedBefore: 10, size: 12 } })).toBe(false);
+      expect(takeoverReason(card, { set: { ownedBefore: 10, size: 12 } })).toBeNull();
+
+      // Set was already complete before this reveal (not completing it)
+      expect(isTakeoverReveal(card, { set: { ownedBefore: 12, size: 12 } })).toBe(false);
+      expect(takeoverReason(card, { set: { ownedBefore: 12, size: 12 } })).toBeNull();
+
+      // Empty set / size 0
+      expect(isTakeoverReveal(card, { set: { ownedBefore: 0, size: 0 } })).toBe(false);
+      expect(takeoverReason(card, { set: { ownedBefore: 0, size: 0 } })).toBeNull();
+
+      // Non-new card (duplicate) cannot complete a set
+      expect(isTakeoverReveal({ rarity: 'COMMON' as const, isNew: false }, { set: { ownedBefore: 11, size: 12 } })).toBe(false);
+      expect(isTakeoverReveal({ rarity: 'COMMON' as const }, { set: { ownedBefore: 11, size: 12 } })).toBe(false);
+    });
+
+    it('never triggers for a 10,000-point duplicate (points alone never trigger, showcase stays)', () => {
+      // Diamond Common has 10,000 points
+      const diamondDupe = { rarity: 'COMMON' as const, isNew: false, isHolo: false, finish: 'DIAMOND' as const };
+      expect(engine.cardPoints(diamondDupe.rarity, diamondDupe.isHolo, diamondDupe.finish)).toBe(10_000);
+
+      // Value triggers the existing special reveal showcase
+      expect(isSpecialReveal(diamondDupe)).toBe(true);
+
+      // But points alone NEVER trigger a takeover
+      expect(isTakeoverReveal(diamondDupe)).toBe(false);
+      expect(takeoverReason(diamondDupe)).toBeNull();
+
+      // Fails even in an already-complete set or collection because it is not new
+      expect(isTakeoverReveal(diamondDupe, { set: { ownedBefore: 11, size: 12 } })).toBe(false);
+      expect(isTakeoverReveal(diamondDupe, { collection: { ownedBefore: 99, size: 100 } })).toBe(false);
+    });
+
+    it('triggers for any Brainrot rarity card, even without context or when a duplicate', () => {
+      expect(isTakeoverReveal({ rarity: 'BRAINROT', isNew: false })).toBe(true);
+      expect(takeoverReason({ rarity: 'BRAINROT', isNew: false })).toBe('BRAINROT');
+
+      expect(isTakeoverReveal({ rarity: 'BRAINROT', isNew: true })).toBe(true);
+      expect(isTakeoverReveal({ rarity: 'BRAINROT' })).toBe(true);
+      expect(isTakeoverReveal({ rarity: 'BRAINROT', isNew: false }, { set: { ownedBefore: 1, size: 12 } })).toBe(true);
+    });
+
+    it('triggers for a collection-completing card and respects reason precedence', () => {
+      const card = { rarity: 'COMMON' as const, isNew: true };
+      const context = { collection: { ownedBefore: 99, size: 100 }, set: { ownedBefore: 5, size: 12 } };
+      expect(isTakeoverReveal(card, context)).toBe(true);
+      expect(takeoverReason(card, context)).toBe('COLLECTION');
+
+      // Negative collection boundaries:
+      expect(isTakeoverReveal(card, { collection: { ownedBefore: 98, size: 100 } })).toBe(false);
+      expect(takeoverReason(card, { collection: { ownedBefore: 98, size: 100 } })).toBeNull();
+
+      expect(isTakeoverReveal(card, { collection: { ownedBefore: 100, size: 100 } })).toBe(false);
+      expect(takeoverReason(card, { collection: { ownedBefore: 100, size: 100 } })).toBeNull();
+
+      expect(isTakeoverReveal(card, { collection: { ownedBefore: 0, size: 0 } })).toBe(false);
+      expect(takeoverReason(card, { collection: { ownedBefore: 0, size: 0 } })).toBeNull();
+
+      expect(isTakeoverReveal({ rarity: 'COMMON' as const, isNew: false }, { collection: { ownedBefore: 99, size: 100 } })).toBe(false);
+
+      // Precedence: COLLECTION > SET
+      const bothContext = { collection: { ownedBefore: 99, size: 100 }, set: { ownedBefore: 11, size: 12 } };
+      expect(takeoverReason(card, bothContext)).toBe('COLLECTION');
+
+      // Precedence: SET > BRAINROT
+      const brainrotSetContext = { set: { ownedBefore: 11, size: 12 } };
+      expect(takeoverReason({ rarity: 'BRAINROT', isNew: true }, brainrotSetContext)).toBe('SET');
+
+      // Precedence: COLLECTION > BRAINROT
+      expect(takeoverReason({ rarity: 'BRAINROT', isNew: true }, bothContext)).toBe('COLLECTION');
+    });
+
+    it('does not trigger for a new Common that does not complete its set or collection', () => {
+      const card = { rarity: 'COMMON' as const, isNew: true };
+      const context = { set: { ownedBefore: 10, size: 12 }, collection: { ownedBefore: 98, size: 100 } };
+      expect(isTakeoverReveal(card, context)).toBe(false);
+      expect(takeoverReason(card, context)).toBeNull();
+      expect(isTakeoverReveal(card)).toBe(false);
+      expect(takeoverReason(card)).toBeNull();
+    });
   });
 });
