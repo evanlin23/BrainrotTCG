@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useIsPresent, type PanInfo, type Variants } from 'framer-motion';
-import { Award, ChevronsUp, Layers, X } from 'lucide-react';
+import { Award, ChevronsUp, Layers, Newspaper, X } from 'lucide-react';
 import type { Achievement } from '../../data/achievements';
 import { GROUPED_TOAST_MS, TOAST_MS, TOAST_SEEN_MS } from '../../constants/toast';
 import '../../styles/Toasts.css';
@@ -13,13 +13,13 @@ export type ToastItem = Pick<Achievement, 'id' | 'name' | 'description'> & {
   opens?: ToastTarget;
 };
 
-export type ToastTarget = 'achievements' | 'profile' | 'collection';
+export type ToastTarget = 'achievements' | 'profile' | 'collection' | 'news';
 
 interface AchievementToastsProps {
   queue: ToastItem[];
   /** Remove these ids from the queue. */
   onDismiss: (ids: string[]) => void;
-  /** Tapping a toast's body opens the achievements list, the profile for a level-up, or Cards for a kept pack. Its X only dismisses. */
+  /** Tapping a toast's body opens the achievements list, the profile for a level-up, Cards for a kept pack, or What's new. Its X only dismisses. */
   onOpen: (target: ToastTarget) => void;
   /**
    * Hold the toasts, in order, until this clears: while a sheet, page or pack is open, so they never
@@ -242,7 +242,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
               <ToastMount id={key} onMount={setVisibleKey} onUnmount={clearVisible} />
               <button type="button" className="toast-open" onClick={() => leave(true)}>
                 <span className="toast-icon" aria-hidden="true">
-                  {grouped || !shown[0].kicker ? <Award strokeWidth={2.4} /> : shown[0].opens === 'collection' ? <Layers strokeWidth={2.4} /> : <ChevronsUp strokeWidth={2.4} />}
+                  {grouped || !shown[0].kicker ? <Award strokeWidth={2.4} /> : shown[0].opens === 'collection' ? <Layers strokeWidth={2.4} /> : shown[0].opens === 'news' ? <Newspaper strokeWidth={2.4} /> : <ChevronsUp strokeWidth={2.4} />}
                 </span>
                 <span className="toast-text">
                   <span className="toast-kicker">{grouped ? `${shown.length} achievements unlocked` : (shown[0].kicker ?? 'Achievement unlocked')}</span>

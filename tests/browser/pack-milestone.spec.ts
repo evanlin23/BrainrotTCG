@@ -4,7 +4,7 @@ import { getNextMilestone, type NextMilestoneGoal } from '../../src/game/nextMil
 import { expectStill, monitor, scaleText } from './support';
 
 /**
- * The next goal (#212) shares the Card guide's row under the pack, after the announcement it yields to, so it
+ * The next goal (#212) shares the Card guide's row under the pack, so it
  * adds no height of its own: it can't change the pack's size or position or the nav's, or cover the pack, its
  * tear line or the toast, and opening the pack stays the biggest thing on screen. It steps aside where the
  * row is too narrow for it and on a phone on its side, and nothing in it moves.
@@ -15,17 +15,6 @@ async function open(page: Page, baseURL: string, size: { width: number; height: 
   const errors = await monitor(page, baseURL, 1, { returning: true });
   await page.goto('./');
   return errors;
-}
-
-/** An announcement, when one is unread, has the row first; the goal waits for it to be dismissed. */
-async function clearNews(page: Page) {
-  await expect(page.locator('.card-guide-link')).toBeVisible();
-  const dismiss = page.getByRole('button', { name: 'Dismiss announcement' });
-  if (await dismiss.isVisible()) await dismiss.click();
-  // Where the row is too narrow or short for the announcement it is hidden, not dismissed: take it out, so
-  // what the goal does there is its own rule and not the announcement's.
-  else await page.evaluate(() => document.querySelector('.news-banner')?.remove());
-  await expect(page.locator('.news-banner')).toHaveCount(0);
 }
 
 const layout = (page: Page) => page.evaluate(() => {
@@ -113,11 +102,7 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
     const errors = await open(page, baseURL!, { width, height });
     if (percent !== 100) await scaleText(page, percent);
     await settled(page);
-    const withNews = await layout(page);
-    await clearNews(page);
-    await settled(page);
-    // Dismissing the news (or none being unread) moved nothing, with the goal in its place or not.
-    expect(await layout(page)).toEqual(withNews);
+    const before = await layout(page);
 
     const goal = page.locator('.card-guide-entry .pack-milestone');
     if (width === 320) {
@@ -128,7 +113,7 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
       // it is and the progress bar, in the row's height. The picture and the cue line are not drawn here, but the cue stays in
       // the accessible name and the tooltip, so a cosmetic still says it changes no odds.
       await expect(goal).toBeVisible();
-      const [box, guide, row, pack] = [(await goal.boundingBox())!, (await page.locator('.card-guide-link').boundingBox())!, withNews.row, withNews.pack];
+      const [box, guide, row, pack] = [(await goal.boundingBox())!, (await page.locator('.card-guide-link').boundingBox())!, before.row, before.pack];
       expect(box.height).toBe(44);
       expect(box.height).toBeLessThanOrEqual(row.height + 0.5);
       expect(box.x).toBeGreaterThanOrEqual(guide.x + guide.width - 0.5);
@@ -161,7 +146,7 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
       }
     } else {
       await expect(goal).toBeVisible();
-      const [box, guide, row, pack] = [(await goal.boundingBox())!, (await page.locator('.card-guide-link').boundingBox())!, withNews.row, withNews.pack];
+      const [box, guide, row, pack] = [(await goal.boundingBox())!, (await page.locator('.card-guide-link').boundingBox())!, before.row, before.pack];
       expect(box.height).toBeGreaterThanOrEqual(44);
       expect(box.height).toBeLessThanOrEqual(row.height + 0.5);
       // Inside the row, level with the guide link, clear of it, of the pack and of the screen's edges.
@@ -200,7 +185,6 @@ for (const [width, height] of [[600, 900], [580, 900]] as const) {
   test(`keeps a card back's proportions on a ${width} x ${height} phone once the Profile styles have loaded`, async ({ page, baseURL }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
     const errors = await open(page, baseURL!, { width, height });
-    await clearNews(page);
     // Profile.css gives every card-back swatch a width of its own: visit the Profile (as the goal's link does), then come back.
     await page.locator('.app-nav-item:visible').filter({ hasText: /^Profile$/ }).first().click();
     await expect(page).toHaveURL(/profile/);
@@ -232,18 +216,14 @@ for (const [width, height, percent] of [[768, 1024, 125], [768, 1024, 150], [768
     const errors = await open(page, baseURL!, { width, height });
     await scaleText(page, percent);
     await settled(page);
-    const withNews = await layout(page);
-    await clearNews(page);
-    await settled(page);
-    // The row, the pack and the nav are where they were with the announcement in the row.
-    expect(await layout(page)).toEqual(withNews);
+    const before = await layout(page);
     const goal = page.locator('.card-guide-entry .pack-milestone');
     await expect(goal).toBeVisible();
     for (const reward of COSMETIC_GOALS) {
       await show(page, reward);
       const held = await holdsText(page);
       expect(held, `${reward.targetName} (${reward.targetKind}) at ${percent}% text`).toMatchObject({
-        clipped: false, clear: true, height: 44, row: withNews.row.height,
+        clipped: false, clear: true, height: 44, row: before.row.height,
         // At 200% on a 768px screen the column beside the centred guide is about 245px: the longest names (clipped with an
         // ellipsis, still in the accessible name and the tooltip) no longer fit whole there. Everywhere else the name is whole.
         name: width === 768 && percent === 200 ? expect.any(Boolean) : true,
@@ -259,17 +239,44 @@ test('steps aside on a phone on its side, where the pack has no room to spare', 
   test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
   const errors = await open(page, baseURL!, { width: 740, height: 360 });
   await expect(page.locator('.app-logo')).toBeVisible();
-  await clearNews(page);
+  // The row has loaded (the guide link is in it) before the goal is asked to be out of it.
+  await expect(page.locator('.card-guide-link')).toBeVisible();
   await expect(page.locator('.card-guide-entry .pack-milestone')).toBeHidden();
   expect(errors).toEqual([]);
 });
+
+// Unread news used to hide the goal behind a chip (a yield rule in PackMilestone.css, until #1280): the news is a
+// toast now, so a returning player with an unread entry still sees the goal, level with the guide link, and can use it.
+for (const [project, size] of [['mobile-chromium', { width: 390, height: 844 }], ['desktop-chromium', { width: 1280, height: 800 }]] as const) {
+  test(`keeps the goal visible and usable while the latest news is unread, on a ${size.width} x ${size.height} screen`, async ({ page, baseURL }, testInfo) => {
+    test.skip(testInfo.project.name !== project, 'One layout per project.');
+    await page.setViewportSize(size);
+    const errors = await monitor(page, baseURL!, 1, { returning: true, unreadNews: true });
+    await page.goto('./');
+    await settled(page);
+    const goal = page.locator('.card-guide-entry .pack-milestone');
+    await expect(page.locator('.card-guide-link')).toBeVisible();
+    await expect(goal).toBeVisible();
+    await expect(page.locator('.news-banner')).toHaveCount(0);
+    // Level with the guide link, at a tappable size, and not under anything: a click lands on it.
+    const [box, guide] = [(await goal.boundingBox())!, (await page.locator('.card-guide-link').boundingBox())!];
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x).toBeGreaterThanOrEqual(guide.x + guide.width - 0.5);
+    expect(await goal.evaluate((el) => {
+      const { x, y, width, height } = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+    })).toBe(true);
+    await goal.click();
+    await expect(page).toHaveURL(/profile/);
+    expect(errors).toEqual([]);
+  });
+}
 
 test('on a desktop window it names the goal and goes to the rewards, and the pack stays where it was', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A desktop layout check.');
   const errors = await open(page, baseURL!, { width: 1280, height: 800 });
   await settled(page);
   const before = await layout(page);
-  await clearNews(page);
   const goal = page.locator('.card-guide-entry .pack-milestone');
   await expect(goal).toBeVisible();
   expect(await layout(page)).toEqual(before);

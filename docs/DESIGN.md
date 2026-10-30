@@ -28,16 +28,14 @@ from a 390 px wide screen.
    is ignored. If the player leaves early while that ticket is still pending, the pack appears sealed
    again, and a press, swipe, Space or Enter shows "Taking a moment…" (announcing "Opening the pack…")
    while hiding the swipe hint until the ticket lands (#1277). Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
-   from the tear until the pack is put away) opens the selected set's card guide. The latest unread
-   news shows as a one-line chip beside it in that row, adding no height: it hides on narrow rows,
-   landscape phones and at 200% text on a phone, gives way to a save warning, and is never marked
-   read by being hidden, only by its dismiss button. Once it is read, the next goal (#212) takes
+   from the tear until the pack is put away) opens the selected set's card guide. The row carries no
+   news: the latest unread entry arrives as a toast (see What's new, below). The next goal (#212) takes
    its place in the same row, to the right of the Card guide link, which stays centred under the pack
    with the goal or without it (the row is three columns, the guide alone in the middle): one two-line, 44px chip (a small card-back picture when the reward is a
    card back, the name, a percentage or count, and "Cosmetic, odds unchanged" or the cards still to
    go), a link to Profile rewards or the binder. It comes from the same verified-pack level and set
-   counts the profile shows, adds no height, never moves and has no animation, and hides in the
-   same landscape rows as the news and in a row of 20rem or less (a 320px phone, enlarged text), rather
+   counts the profile shows, adds no height, never moves and has no animation, and hides on a phone on its
+   side and in a row of 20rem or less (a 320px phone, enlarged text), rather
    than shift or squeeze the guide. In a row up to 34rem (every phone) the column beside the centred
    guide is small, so the chip shrinks to one line, the name (an ellipsis if long), the percentage and
    the progress bar; the picture and the cue line are not drawn there, but the cue stays in its accessible
@@ -367,8 +365,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   settings and the save file) shows the tabs and the pack picker at once, so no page or feature is
   gated behind a first pack. Once a pack or a card is saved the pages show on their own and Settings
   leaves the switch out (the stored choice is kept). The header's gear
-  ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
-  problem). On a phone (899 px or less) the wordmark sits flush at the left gutter and the gear at the
+  ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, What's new,
+  Report a problem). On a phone (899 px or less) the wordmark sits flush at the left gutter and the gear at the
   right edge, with the space between them (#803). The achievement toast lies over the header's left, so the
   gear must stay at the right edge, wherever the text size wraps it; before, the gear sat just after a
   wordmark set in from the left. A wide screen's header is unchanged. `visual-baselines` first-pack-narrow.png shows it.
@@ -381,10 +379,17 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   verified, and Verified covers that pack only: the level and totals stay this device's progress, as
   the footnote under them says. Best pack shares through its pull proof, Best card opens the card
   viewer; level and stats (your own profile drops the best-score stat and Best pulls, which would
-  repeat them; a shared profile keeps both); the collection score and sets; Achievements (`#achievements`, the
+  repeat them; a shared profile keeps both); the collection score and sets; Personal records
+  (`profile/RecordBook.tsx`, #1287: Most holos in a pack, Most packs in a day, Longest Brainrot drought
+  broken, then Best pack by set under an `h3`; each shows its value with "previous [n] · [date]", or "Not
+  set yet" with the value to beat while only a first value stands, from `recordBook` in
+  `src/game/personalRecords.ts`: own key, one record per ticket, a strict beat sets a record and a tie keeps
+  the earlier one, days are the device's calendar days; the card-read records say "Counting…" while saved
+  packs load); Achievements (`#achievements`, the
   three newest with "Show all achievements" folded below; achievement toasts link here and open it);
   "Card back and foil" (`#rewards`, a closed `<details>` whose summary counts what is unlocked;
-  level-up toasts open it); All packs; then a one-line "Saved in this browser · Back up" footnote.
+  level-up toasts open it); All packs (a pack that set an all-time best when it opened keeps a solid
+  medal on its row, a best in its set an outlined one, `packMedals`); then a one-line "Saved in this browser · Back up" footnote.
   Sections share one left edge and `--space-6` between them. Its shareable image is the "Profile
   card"; "Player ID" stays the name of the key's fingerprint, as on proofs. Leaving Profile saves a
   changed name, unless saving that same name just failed.
@@ -429,9 +434,13 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   While filtering, the opening budget above applies to the matching pockets (the recent era, then
   newest first while 24 fit; a header you toggle keeps its choice until Clear filters), eras with no
   match hide, and one polite status line says "Showing N cards" (accurately counting matching pockets
-  inside open eras) or "No cards match the active filters." with a Clear filters button that returns focus
-  to the search box. When filters cannot match (e.g. Holo only with Not found yet), the empty state
-  explains why and offers Clear filters. Not-started eras stay one-line rows, listed when they match.
+  inside open eras) or, when nothing matches, "No cards match the active filters." plus a hint to try
+  fewer filters. One Clear filters button sits in the control row while anything is filtered and returns
+  focus to the search box. When the filters alone decide the result, that status line carries the reason
+  instead, so the live region announces it once: "You haven't found any cards yet." (Show Owned with
+  nothing owned), "You've found every card." (Show Not found yet with every card found), or "No cards
+  match the active filters." followed by why (e.g. Not found yet with Holo only: "Cards not found yet
+  cannot be holo."). Not-started eras stay one-line rows, listed when they match.
 - **Toasts** (`achievements/AchievementToasts.tsx`): auto-dismiss after 5 s (6 s for a grouped toast); hovering
   a toast, or focusing it from the keyboard (`:focus-visible`; a tap leaves focus on it, which must not hold it
   for good), holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or
@@ -439,7 +448,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   swipe that stops short springs back); Escape on the focused toast does the same without opening it. With
   reduced motion it only fades, wherever it is sent. A visible X at its right edge (a 44 px square, named
   "Dismiss") only sends it away, so a player who does not want to open what it names has a plain way to be
-  rid of it; the rest of the toast, the body, opens what it is about and dismisses it. The toast's code and styles are fetched when the first
+  rid of it; the rest of the toast, the body, opens what it is about (achievements, Profile rewards, Cards or
+  What's new) and dismisses it. The toast's code and styles are fetched when the first
   toast is due (a new player sees none before a first pack is saved), so the first screen carries neither; its
   live region is on the page from the start. A toast never takes room: the page is laid out the same
   with a toast up, after one and with none, so the pack's size and place never depend on one (#803). On a
@@ -456,6 +466,22 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   `tests/browser/toast-touch.spec.ts` checks the tap, the X, the swipe, the seen toast, the pack hold, the reduced
   motion fade, and the 44 px target, a tap and what the toast covers on the home screen and the summary at
   five phone sizes, in touch emulation.
+- **What's new** (`pages/NewsPage.tsx`, `#/news`, `src/content/news.json`): a public, deferred page that
+  lists every entry newest first, each with its date, a tag, its title, the whole summary and an optional
+  link (opened in a new tab and named as such). It works for a first-time visitor with no save and is
+  reached from the news toast, from Settings, Help ("What's new") or by its address. The page says what a
+  player sees, never an API path (those live in `docs/API.md`). It fits 320px and 200% text, its close and
+  link are 44 px targets, and nothing in it moves. The latest unread entry also arrives once as a toast in
+  the same queue as achievements and level-ups (kicker "What's new", the Newspaper icon). Only a pack being
+  put away in this visit asks for it: not on a page load, not on a route change, never before a first pack
+  is saved, never while a pack is torn, revealed or on its summary. It is queued behind the pack's own
+  toasts so only one is up at a time, and a toast that has not been shown when the next pack starts leaves
+  the queue and comes back after that pack is put away. Tapping it opens the page; its X, a timeout and
+  opening the page all read the entry. Read state is the one `DISMISSED_NEWS` key, as the old chip kept it
+  (opening `#/news` writes it too, even for a first-time visitor with no save); when storage refuses the
+  write, the entry stays read for the rest of the visit. `tests/browser/news-toast.spec.ts`
+  checks the toast over phone sizes and 200% text, the wide screen, the page, the quota failure and the
+  ordering.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
@@ -561,7 +587,7 @@ it explains the formula, not pull excitement. The one exception is a shared pull
 names a real combo, so `PackCardViewer` drops the headline there (`titled`), and only when the multiplier is
 above 1; a No Matches pull keeps its line.
 
-(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. Then the Rankings line: Submit when the pull
+(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. A pack that strictly beats the player's best before it (all sets, their own key, one record per ticket; a first pack or a tie is no record, #1287) leads the heading with a small **NEW BEST** line (a solid medal: all-time) and adds **previous best [score] · +[n]%** under the combo (the **· +[n]%** only when it rounds to 1% or more), both static and known at the first paint (`src/game/personalRecords.ts`). A pack that doesn't beat that but strictly beats the player's earlier packs in its own set leads instead with **Best in [set]** (an outlined medal, one line: a long set name is cut short on screen) and **previous set best [score] · +[n]%**; a pack that is the player's #2 or #3 so far (an earlier equal score ranks above; it needs at least 2 earlier packs and must beat one of them) gets one quiet line, **your #2 pack ever**, under the combo and nothing in the heading. A pack whose ticket the profile admits another set's record of is no record. Then the Rankings line: Submit when the pull
 qualifies, or the one-sentence reason there is none when it doesn't (#1004). The Card guide (one tap, no fold) has
 points per rarity, the holo, finish and misprint bonuses, the combo multipliers (with a note that a combo counts copies of the same card, and worked
 examples), and Score = card points added up × combo multiplier. There is no per-pack breakdown.
@@ -569,7 +595,9 @@ examples), and Score = card points added up × combo multiplier. There is no per
 ### One-screen summary rule (#339)
 
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
-no horizontal scroll): the headline (score and combo with its odds on one line each, then the
+no horizontal scroll): the headline (score and combo with its odds on one line each; for a new
+personal best, the **NEW BEST** line above the score and the previous-best line under the combo, or the same
+two lines for a set best, or one rank line for a #2 or #3 pack; then the
 Rankings line: a Submit, or one muted sentence saying why there is none, which can wrap to three
 lines at 360 and 390), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
 compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
