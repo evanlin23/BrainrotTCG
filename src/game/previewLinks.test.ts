@@ -3,6 +3,7 @@ import { FINISHES_RAREST_FIRST, MODIFIERS_V1, POKER_HANDS, type HandKey } from '
 import { ALL_SET_VERSIONS } from '../content/sets';
 import {
   cardPreviewPath,
+  compareCardIds,
   hasModifierPages,
   headline,
   MODIFIER_TOKENS,
@@ -102,5 +103,33 @@ describe('modifier headline', () => {
     expect(hasModifierPages('genesis', ALL_SET_VERSIONS)).toBe(false);
     expect(hasModifierPages('web-ancients', ALL_SET_VERSIONS)).toBe(true); // v1 has none, v2 does
     expect(hasModifierPages('no-such-set', ALL_SET_VERSIONS)).toBe(false);
+  });
+
+  it('ensures Two Pair previewOf ordering matches handsOf for every set (#1315)', () => {
+    for (const set of ALL_SET_VERSIONS) {
+      const cardIds = [...new Set(set.cards.map((c) => c.id))];
+      const ids = [...cardIds].sort(compareCardIds);
+      // Code-unit Array#sort matches compareCardIds
+      expect([...cardIds].sort()).toEqual(ids);
+
+      // Verify for every pair in the set that Two Pair matches handsOf order [a, b]
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          const a = ids[i];
+          const b = ids[j];
+          const c = ids.find((id) => id !== a && id !== b)!;
+          const packCards = [
+            { key: `${set.id}/${b}` },
+            { key: `${set.id}/${b}` },
+            { key: `${set.id}/${a}` },
+            { key: `${set.id}/${a}` },
+            { key: `${set.id}/${c}` },
+          ];
+          const preview = previewOf(packCards);
+          expect(preview?.hand).toBe('TWO_PAIR');
+          expect(preview?.cardIds).toEqual([a, b]);
+        }
+      }
+    }
   });
 });

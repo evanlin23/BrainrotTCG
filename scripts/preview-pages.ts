@@ -33,7 +33,7 @@ import sharp from 'sharp';
 import { ALL_SET_VERSIONS, SETS } from '../src/content/sets/index.ts';
 import { POKER_HANDS, RARITIES_RAREST_FIRST, type HandKey, type SetDefinition } from '../src/engine/index.ts';
 import { modifierText } from '../src/game/modifierLabels.ts';
-import { cardPreviewPath, hasModifierPages, MODIFIER_TOKENS, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, setPagePath, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
+import { cardPreviewPath, compareCardIds, hasModifierPages, MODIFIER_TOKENS, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, setPagePath, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
 import { setLinkHash } from '../src/game/route.ts';
 import { siteFromEnv } from './crawler-files.ts';
 import { isMainModule } from './main-module.ts';
@@ -252,7 +252,7 @@ export const generatePreviews = async ({ outDir, pagesOnly, base, site, versions
 
   const images: (() => Promise<void>)[] = [];
   for (const [setId, set] of sets) {
-    const ids = [...set.cards.keys()].sort();
+    const ids = [...set.cards.keys()].sort(compareCardIds);
     for (const preview of handsOf(setId, ids)) {
       const cards = preview.cardIds.map((id) => set.cards.get(id)!);
       const description =

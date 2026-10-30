@@ -681,6 +681,7 @@ class Handoff(unittest.TestCase):
         self.dist = self.release / 'dist'
         (self.dist / 'assets').mkdir(parents=True)
         (self.dist / 'index.html').write_text('<!doctype html>')
+        (self.dist / '404.html').write_text('<!doctype html>')
         (self.dist / 'assets/app.js').write_text('console.log(1)')
         (self.dist / '.nojekyll').write_text('')
 
@@ -699,8 +700,18 @@ class Handoff(unittest.TestCase):
         self.assertEqual(stamp, {'repository': ENV['GITHUB_REPOSITORY'], 'run_id': ENV['GITHUB_RUN_ID'],
                                  'sha': ENV['GITHUB_SHA'], 'url': ENV['SITE_URL']})
         files = json.loads((self.release / 'manifest.json').read_text())['files']
-        self.assertEqual(sorted(files), ['.nojekyll', 'assets/app.js', 'deployment-id.json', 'index.html'])
+        self.assertEqual(sorted(files), ['.nojekyll', '404.html', 'assets/app.js', 'deployment-id.json', 'index.html'])
         self.assertEqual(files['index.html'], hashlib.sha256(b'<!doctype html>').hexdigest())
+
+    def test_missing_index(self):
+        (self.dist / 'index.html').unlink()
+        with self.assertRaisesRegex(dc.Rejected, 'dist/index.html is missing'):
+            self.sealed()
+
+    def test_missing_404(self):
+        (self.dist / '404.html').unlink()
+        with self.assertRaisesRegex(dc.Rejected, 'dist/404.html is missing'):
+            self.sealed()
 
     def test_changed_file(self):
         digest = self.sealed()
@@ -854,6 +865,7 @@ class Deployed(unittest.TestCase):
         self.release = self.tmp / 'release'
         (self.release / 'dist').mkdir(parents=True)
         (self.release / 'dist/index.html').write_text('<!doctype html>')
+        (self.release / 'dist/404.html').write_text('<!doctype html>')
         dc.seal(self.release, ENV)
         self.marker = (self.release / 'dist/deployment-id.json').read_bytes()
         self.serving = self.marker
@@ -1016,6 +1028,7 @@ class Served(unittest.TestCase):
         (self.dist / 's/genesis').mkdir(parents=True)
         (self.dist / 'p').mkdir()
         (self.dist / 'index.html').write_text('<!doctype html><body>app</body>\n')
+        (self.dist / '404.html').write_text('<!doctype html><body>not found</body>\n')
         (self.dist / 'assets/app js.js').write_text('console.log(1)')
         (self.dist / 's/genesis/index.html').write_text('<body>set page</body>')
         (self.dist / 'p/abc.html').write_text('<body>pull page\n  </body>\n</html>\n')
@@ -1025,14 +1038,15 @@ class Served(unittest.TestCase):
         # What Cloudflare Pages serves, by URL: pretty paths for pages, nothing for _headers.
         base = 'https://staging.brainrottcg.pages.dev/'
         self.site = {base + dc.served_path(p.relative_to(self.dist).as_posix()): p.read_bytes()
-                     for p in self.dist.rglob('*') if p.is_file() and p.name != '_headers'}
+                     for p in self.dist.rglob('*') if p.is_file() and p.name not in ('_headers', '404.html')}
         self.base = base
+        self.body_404 = (self.dist / '404.html').read_bytes()
         self.asked = []
 
     def get(self, url):
         self.asked.append(url)
-        if url not in self.site:
-            return self.site[self.base]  # an unknown path gets index.html, as on Pages
+        if url == self.base + 'nonexistent-deploy-contract-404' or url not in self.site:
+            raise dc.HTTPError(url, 404, 'Not Found', {}, io.BytesIO(self.body_404))
         return self.site[url]
 
     def served(self, url=None, **kwargs):
@@ -1050,10 +1064,10 @@ class Served(unittest.TestCase):
 
     def test_every_file_as_sealed(self):
         summary = self.served()
-        self.assertEqual(sorted(set(self.asked)), sorted(self.site))
+        self.assertEqual(sorted(set(self.asked)), sorted([*self.site, self.base + 'nonexistent-deploy-contract-404']))
         self.assertIn('| Commit | `' + 'a' * 40 + '` |', summary)
         self.assertIn(f'| Manifest sha256 | `{self.digest}` |', summary)
-        self.assertIn('| Files | 6, each served with its sealed hash |', summary)
+        self.assertIn('| Files | 7, each served with its sealed hash |', summary)
         self.assertIn('| hall-of-fame.json sha256 | `' + hashlib.sha256(b'[]').hexdigest() + '` |', summary)
         self.assertIn('https://staging.brainrottcg.pages.dev/', summary)
         self.served(self.base.rstrip('/'))
@@ -1065,9 +1079,11 @@ class Served(unittest.TestCase):
                 url = self.base + 'p/abc'
                 if change == 'changed':
                     self.site[url] = b'<script>analytics()</script>pull page'
+                    expected = r"doesn't serve 1 of the 7 sealed files as sealed.*Web Analytics(.|\n)*/p/abc: different content"
                 else:
-                    del self.site[url]  # served as index.html instead
-                with self.assertRaisesRegex(dc.Rejected, r"doesn't serve 1 of the 6 sealed files as sealed.*Web Analytics(.|\n)*/p/abc: different content"):
+                    del self.site[url]
+                    expected = r"doesn't serve 1 of the 7 sealed files as sealed.*Web Analytics(.|\n)*/p/abc: HTTP 404"
+                with self.assertRaisesRegex(dc.Rejected, expected):
                     self.served(tries=2)
                 self.assertEqual(self.asked.count(url), 2)
 
@@ -1093,10 +1109,6 @@ class Served(unittest.TestCase):
 
     def test_404_page(self):
         """404.html is verified by fetching an unknown path, expecting HTTP 404 with the sealed body."""
-        (self.dist / '404.html').write_text('<!doctype html><body>not found</body>\n')
-        (self.release / 'manifest.json').unlink()
-        (self.dist / 'deployment-id.json').unlink()
-        self.digest = dc.seal(self.release, ENV)
         body_404 = (self.dist / '404.html').read_bytes()
 
         # Passes when unknown path returns HTTP 404 with sealed body:
@@ -1127,6 +1139,49 @@ class Served(unittest.TestCase):
         with self.assertRaisesRegex(dc.Rejected, r"/404: different content"):
             dc.served(self.release, ENV, self.digest, self.base, get=get_wrong_body, pause=0, tries=1)
 
+        # Fails when unknown path returns a 5xx (#1315):
+        def get_500(u):
+            if 'nonexistent' in u:
+                raise dc.HTTPError(u, 500, 'Internal Server Error', {}, io.BytesIO(b'server error'))
+            return self.get(u)
+
+        with self.assertRaisesRegex(dc.Rejected, r"/404: HTTP 500"):
+            dc.served(self.release, ENV, self.digest, self.base, get=get_500, pause=0, tries=1)
+
+        # Fails when unknown path redirects to an Access login page (#1315):
+        login_url = 'https://brainrottcg-pages.cloudflareaccess.com/cdn-cgi/access/login/staging.brainrottcg.pages.dev'
+        def get_access_redirect(u):
+            if 'nonexistent' in u:
+                raise dc.HTTPError(login_url, 302, f'redirects to another origin: {login_url}', {}, io.BytesIO(b''))
+            return self.get(u)
+
+        with self.assertRaisesRegex(dc.Rejected, r"/404: HTTP 302"):
+            dc.served(self.release, ENV, self.digest, self.base, get=get_access_redirect, pause=0, tries=1)
+
+        # Fails closed naming the Access token when token is set (#1315):
+        token_env = {**ENV, 'CF_ACCESS_CLIENT_ID': 'id.access', 'CF_ACCESS_CLIENT_SECRET': 'secret'}
+        with self.assertRaises(dc.AccessRefused):
+            dc.served(self.release, token_env, self.digest, self.base, get=get_access_redirect, pause=0, tries=1)
+
+        # Fails when unknown path returns an Access login page as HTTP 200 (#1315):
+        def get_access_200(u):
+            if 'nonexistent' in u:
+                return b'<!doctype html><title>Cloudflare Access Login</title><body>login</body>\n'
+            return self.get(u)
+
+        with self.assertRaisesRegex(dc.Rejected, r"/404: HTTP 200, expected HTTP 404"):
+            dc.served(self.release, ENV, self.digest, self.base, get=get_access_200, pause=0, tries=1)
+
+        # Fails when unknown path returns a different beacon page or beacon error page in place of 404 (#1315):
+        def get_beacon_wrong_body(u):
+            if 'nonexistent' in u:
+                wrong_beacon = b'<!doctype html><body>Cloudflare Analytics Interstitial</body>\n'
+                raise dc.HTTPError(u, 404, 'Not Found', {}, io.BytesIO(wrong_beacon))
+            return self.get(u)
+
+        with self.assertRaisesRegex(dc.Rejected, r"/404: different content"):
+            dc.served(self.release, ENV, self.digest, self.base, get=get_beacon_wrong_body, pause=0, tries=1)
+
     def test_address_shape(self):
         for url in ('http://staging.brainrottcg.pages.dev/', 'https://staging.brainrottcg.pages.dev/x/', 'https://a.dev/?q', ''):
             with self.subTest(url):
@@ -1145,7 +1200,7 @@ class Served(unittest.TestCase):
             return self.get(url)
         with mock.patch.object(dc, 'fetch', fetch):
             dc.served(self.release, {**ENV, **token}, self.digest, self.base, pause=0)
-        self.assertEqual(sent, [{'CF-Access-Client-Id': 'id.access', 'CF-Access-Client-Secret': 'not-for-logs'}] * 6)
+        self.assertEqual(sent, [{'CF-Access-Client-Id': 'id.access', 'CF-Access-Client-Secret': 'not-for-logs'}] * 7)
 
         def login(url, headers=None):
             raise dc.HTTPError('https://brainrottcg-pages.cloudflareaccess.com/cdn-cgi/access/login/x', 302, 'Found', {}, None)
@@ -1226,7 +1281,7 @@ class Served(unittest.TestCase):
         finally:
             self.assertNotIn(self.TOKEN, self.printed)
 
-    def rejected(self, pattern=r'1 of the 6 sealed files as sealed(.|\n)*/p/abc: different content'):
+    def rejected(self, pattern=r'1 of the 7 sealed files as sealed(.|\n)*/p/abc: different content'):
         with self.assertRaisesRegex(dc.Rejected, pattern) as caught:
             self.served_quietly(tries=1)
         self.assertNotIn(self.TOKEN, str(caught.exception))
@@ -1246,14 +1301,15 @@ class Served(unittest.TestCase):
     def test_one_tag_on_each_page(self):
         for url in self.pages():
             self.tagged(url)
+        self.body_404 = self.body_404.replace(b'</body>', self.tag() + b'</body>', 1)
         summary, line = self.served_quietly()
-        self.assertEqual(line, 'Cloudflare Web Analytics: tag seen on 3 of 3 pages and taken out before comparing.\n')
-        self.assertIn('| Cloudflare Web Analytics | tag seen on 3 of 3 pages and taken out before comparing |', summary)
-        self.assertIn('| Files | 6, each served with its sealed hash |', summary)
+        self.assertEqual(line, 'Cloudflare Web Analytics: tag seen on 4 of 4 pages and taken out before comparing.\n')
+        self.assertIn('| Cloudflare Web Analytics | tag seen on 4 of 4 pages and taken out before comparing |', summary)
+        self.assertIn('| Files | 7, each served with its sealed hash |', summary)
 
     def test_one_tag_on_some_pages(self):
         self.tagged(self.base + 'p/abc')
-        self.assertIn('tag seen on 1 of 3 pages', self.served_quietly()[1])
+        self.assertIn('tag seen on 1 of 4 pages', self.served_quietly()[1])
 
     def test_two_tags(self):
         for twice in (self.tag() + self.tag(), self.tag() + b'\n' + self.tag()):
@@ -1318,7 +1374,7 @@ class Served(unittest.TestCase):
                 self.site[url] = (self.dist / name).read_bytes()
                 self.served_quietly()
                 self.tagged(url)
-                self.rejected(f'1 of the 6 sealed files as sealed(.|\\n)*/{re.escape(url[len(self.base):])}: different content')
+                self.rejected(f'1 of the 7 sealed files as sealed(.|\\n)*/{re.escape(url[len(self.base):])}: different content')
 
     def test_tag_and_another_change(self):
         self.tagged(self.base + 'p/abc')
