@@ -75,8 +75,37 @@ const fits = (page: Page) => page.locator('.pack-milestone').evaluate((chip) => 
     progress: within(progress, chip) && progress.getBoundingClientRect().left >= text.getBoundingClientRect().right - 0.5,
     height: chip.getBoundingClientRect().height,
     row: chip.parentElement!.getBoundingClientRect().height,
+    // The pictures injected by show() included: the Prismatic back loops elsewhere (#1164 is held), never here.
+    animations: chip.getAnimations({ subtree: true }).length,
+    // A card-back picture keeps the card's proportions whatever stylesheets have loaded since.
+    picture: (() => {
+      const swatch = chip.querySelector('.back-swatch');
+      if (!swatch) return null;
+      const { width, height } = swatch.getBoundingClientRect();
+      return { height, ratio: Math.round((width / height) * 1000) / 1000 };
+    })(),
   };
 });
+
+/** Whether the chip holds its text at an enlarged text size: nothing clipped, nothing under the progress bar, the row kept. */
+const holdsText = (page: Page) => page.locator('.pack-milestone').evaluate((chip) => {
+  const bottom = chip.getBoundingClientRect().bottom;
+  const texts = Array.from(chip.querySelectorAll('.pack-milestone-text, .pack-milestone-progress, .pack-milestone-detail'))
+    .filter((el) => getComputedStyle(el).display !== 'none');
+  const text = chip.querySelector('.pack-milestone-text')!;
+  return {
+    clipped: chip.scrollHeight > chip.clientHeight,
+    // The bar is 3px along the bottom edge: every line ends above it.
+    clear: Math.min(...texts.map((el) => bottom - el.getBoundingClientRect().bottom)) >= 3,
+    name: chip.querySelector('.pack-milestone-target')!.getBoundingClientRect().right <= text.getBoundingClientRect().right + 0.5,
+    height: chip.getBoundingClientRect().height,
+    row: chip.parentElement!.getBoundingClientRect().height,
+    lines: texts.length,
+  };
+});
+
+/** What the chip says on screen about its own goal, by the kind of goal it is. */
+const expectedCue = /^(Cosmetic, odds unchanged · Lv \d+|\d+\/\d+ (cards|as holos), \d+ to go|Every reward is unlocked)$/;
 
 for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 568, 100], [320, 568, 200]] as const) {
   test(`sits in the guide's row without moving anything on a ${width} x ${height} phone at ${percent}% text`, async ({ page, baseURL }, testInfo) => {
@@ -105,19 +134,82 @@ for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 
       expect(box.y).toBeGreaterThanOrEqual(pack.y + pack.height - 0.5);
       // No second row, and no animation of its own to run.
       expect(await goal.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0);
-      // Beyond the aria-label, the chip says on screen that a cosmetic changes no odds (it does not wait for a wide row).
+      // Beyond the aria-label, the chip says on screen what the goal is (it does not wait for a wide row): a
+      // cosmetic that it changes no odds, a set goal how many cards are to go.
       const shown = await page.locator('.pack-milestone-detail').innerText();
+      expect(shown).toMatch(expectedCue);
       if (shown.startsWith('Cosmetic')) expect(shown).toContain('odds unchanged');
       // Every reward there is, at its worst case, shows its whole name and the whole cue in the row's height.
       expect(COSMETIC_GOALS.length).toBeGreaterThan(10);
       for (const reward of COSMETIC_GOALS) {
         await show(page, reward);
-        expect(await fits(page), `${reward.targetName} (${reward.targetKind}) at ${width}px`).toEqual({
-          name: true, cue: true, progress: true, height: 44, row: row.height,
+        const { picture, ...rest } = await fits(page);
+        expect(rest, `${reward.targetName} (${reward.targetKind}) at ${width}px`).toEqual({
+          name: true, cue: true, progress: true, height: 44, row: row.height, animations: 0,
         });
+        expect(picture === null, `${reward.targetName} has a picture only if it is a card back`).toBe(!reward.preview);
+        if (picture) expect(picture, `${reward.targetName} picture`).toEqual({ height: 28, ratio: 0.671 });
       }
+      // The Prismatic back loops its colours wherever it is shown (that loop is held, #1164): never inside the chip.
+      // No goal ever names it (a title shares its level), so it is put in by hand, as the pictures above are.
+      await show(page, { ...COSMETIC_GOALS.find((reward) => reward.preview)!, targetName: 'Prismatic', preview: { kind: 'card-back', id: 'prism' } });
+      expect((await fits(page)).animations, 'the Prismatic back is still in the chip').toBe(0);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const [width, height] of [[390, 844], [360, 640]] as const) {
+  test(`keeps a card back's proportions on a ${width} x ${height} phone once the Profile styles have loaded`, async ({ page, baseURL }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
+    const errors = await open(page, baseURL!, { width, height });
+    await clearNews(page);
+    // Profile.css gives every card-back swatch a width of its own: visit the Profile (as the goal's link does), then come back.
+    await page.locator('.app-nav-item:visible').filter({ hasText: /^Profile$/ }).first().click();
+    await expect(page).toHaveURL(/profile/);
+    await expect(page.locator('.back-swatch').first()).toBeAttached();
+    await page.locator('.app-nav-item:visible').filter({ hasText: /^Open$/ }).first().click();
+    await settled(page);
+    const goal = page.locator('.card-guide-entry .pack-milestone');
+    await expect(goal).toBeVisible();
+    const row = (await layout(page)).row;
+    const backs = COSMETIC_GOALS.filter((reward) => reward.preview);
+    expect(backs.length).toBeGreaterThan(3);
+    for (const reward of backs) {
+      await show(page, reward);
+      const { picture, ...rest } = await fits(page);
+      expect(picture, `${reward.targetName}: the picture is 28px high at the card's proportions`).toEqual({ height: 28, ratio: 0.671 });
+      expect(rest, `${reward.targetName} at ${width}px after the Profile styles`).toEqual({
+        name: true, cue: true, progress: true, height: 44, row: row.height, animations: 0,
+      });
+    }
+    expect(errors).toEqual([]);
+  });
+}
+
+// The chip is a fixed 44px but its text is not: at enlarged text on a roomy screen (the row is still wide enough to show it)
+// the second line gives way, and nothing is clipped or left under the progress bar.
+for (const [width, height, percent] of [[768, 1024, 125], [768, 1024, 150], [768, 1024, 200], [1280, 800, 150], [1280, 800, 200]] as const) {
+  test(`holds its text in 44px on a ${width} x ${height} screen at ${percent}% text`, async ({ page, baseURL }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-chromium', 'A desktop layout check; the window is set here.');
+    const errors = await open(page, baseURL!, { width, height });
+    await scaleText(page, percent);
+    await settled(page);
+    const withNews = await layout(page);
+    await clearNews(page);
+    await settled(page);
+    // The row, the pack and the nav are where they were with the announcement in the row.
+    expect(await layout(page)).toEqual(withNews);
+    const goal = page.locator('.card-guide-entry .pack-milestone');
+    await expect(goal).toBeVisible();
+    for (const reward of COSMETIC_GOALS) {
+      await show(page, reward);
+      const held = await holdsText(page);
+      expect(held, `${reward.targetName} (${reward.targetKind}) at ${percent}% text`).toMatchObject({ clipped: false, clear: true, name: true, height: 44, row: withNews.row.height });
+      // One line, or two while they fit: past a point the cue is dropped, never cut.
+      expect([1, 2].includes(held.lines - 1)).toBe(true);
+    }
     expect(errors).toEqual([]);
   });
 }
