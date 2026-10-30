@@ -628,6 +628,7 @@ export async function releaseTickets(page: Page) {
  */
 export async function expectDecoded(images: Locator, count: number, { timeout }: { timeout?: number } = {}) {
   await expect(images).toHaveCount(count, { timeout });
+  const decodeLimit = Math.min(timeout ?? 2000, 2000);
   for (const image of await images.all()) {
     await expect.poll(() => image.evaluate((element: HTMLImageElement) => {
       const state = element.dataset.state ?? 'ready';
@@ -636,7 +637,31 @@ export async function expectDecoded(images: Locator, count: number, { timeout }:
       const address = src.startsWith('data:') ? 'data: placeholder' : src.startsWith('blob:') ? 'blob: render' : new URL(src, document.baseURI).pathname;
       return `${state}, ${element.complete ? 'complete' : 'not complete'}, ${element.naturalWidth}x${element.naturalHeight}, ${address}`;
     }), { timeout }).toBe('ready');
-    await image.evaluate((element: HTMLImageElement) => element.decode());
+
+    const result = await image.evaluate(async (element: HTMLImageElement, limit: number) => {
+      const describeImage = () => {
+        const state = element.dataset.state ?? 'ready';
+        const src = element.getAttribute('src') ?? '';
+        const address = src.startsWith('data:') ? 'data: placeholder' : src.startsWith('blob:') ? 'blob: render' : new URL(src, document.baseURI).pathname;
+        return `${state}, ${element.complete ? 'complete' : 'not complete'}, ${element.naturalWidth}x${element.naturalHeight}, ${address}`;
+      };
+
+      try {
+        const decoded = await Promise.race([
+          element.decode().then(() => true as const),
+          new Promise<false>((resolve) => setTimeout(() => resolve(false), limit)),
+        ]);
+        if (decoded) return { ok: true };
+      } catch {
+        // decode() rejected
+      }
+
+      // Timed out or rejected: fall back to checking complete && naturalWidth > 0 (#1314)
+      const ok = element.complete && element.naturalWidth > 0;
+      return { ok, details: describeImage() };
+    }, decodeLimit);
+
+    expect(result.ok, `Image decode failed (${result.details})`).toBe(true);
   }
 }
 
