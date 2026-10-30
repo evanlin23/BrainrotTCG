@@ -418,14 +418,14 @@ dimensions/input/motion/cache/network/CPU, tools/isolation limits, outcomes, cap
 boundary in docs/ARCHITECTURE.md) launches only Claude, one fresh reviewer per task, sequentially. Tasks are
 `opening`, `sharing`, `results` and `recovery`, each limited to 30 to 180 seconds, 3 to 40 turns
 (model responses) and 40 browser calls. It needs Unix, Node 22, Playwright's Chromium and Claude
-Code 2.1.302 signed in (`claude auth status`). Another version, a signed-out CLI or any
+Code 2.1.314 signed in (`claude auth status`). Another version, a signed-out CLI or any
 instruction file a reviewer could load stops it before any agent runs, since memory would coach the
 reviewer: a managed or user `CLAUDE.md` or `~/.claude/rules`, or a `CLAUDE.md`, `CLAUDE.local.md`,
 `AGENTS.md` or `.claude/` memory or rules in the temporary directory or above it. A task
 that hits a limit, is cancelled, or starts with missing or extra tools is recorded as unrun with
 the reason, never as passed. It is not part of `npm run check` or CI; unit tests use a fake CLI.
 
-Each reviewer is started with these flags, all listed by `claude --help` in 2.1.302 (`claudeArgs`
+Each reviewer is started with these flags, all listed by `claude --help` in 2.1.314 (`claudeArgs`
 in `scripts/agent-audit/claude.ts`): `-p --restricted --tools "" --strict-mcp-config --mcp-config
 <audit server> --allowed-tools <mcp__audit__ snapshot, click, press, wait> --permission-mode dontAsk
 --disable-slash-commands --no-chrome --no-session-persistence --output-format stream-json --verbose
@@ -434,7 +434,7 @@ Write, web or other built-in tools, no user, project or local settings files or 
 (managed settings still apply), no skills, slash commands or other MCP servers, and an empty
 temporary working directory. The task sentence from `contracts.ts` is the only user prompt: no
 source, docs, history or hints, since coaching would test the coach, not the page. The coordinator
-prompt in `contracts.ts` is separate and goes only into the report. 2.1.302 has no turn flag, so the
+prompt in `contracts.ts` is separate and goes only into the report. Claude Code 2.1.314 has no turn flag, so the
 runner counts responses and stops the process group when the cap is passed; it also stops if the
 session reports any tool outside the allowlist. To move the pin, re-check every flag in
 `claude --help` first, then update `claudeVersion`.

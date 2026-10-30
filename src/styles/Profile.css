@@ -633,3 +633,48 @@
   color: var(--text-muted);
   font-size: inherit;
 }
+
+/* Personal records (#1287): label, then the value, then what it beat (or the value to beat). Cells wrap
+   to one column on a phone or at 200% text; every state has a value line and a detail line. */
+.record-book-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-2);
+}
+
+.record-book-item dt {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.record-book-item dd {
+  display: grid;
+  margin: 0;
+}
+
+.record-book-value {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  overflow-wrap: anywhere;
+}
+
+.record-book-detail {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.record-book-subtitle {
+  margin-top: var(--space-4);
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 700;
+}
+
+.record-book-note {
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}

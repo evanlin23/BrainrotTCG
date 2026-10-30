@@ -2,6 +2,7 @@
 import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { STORAGE_KEYS } from '../../constants/config';
 import { cardFinishThumbUrl } from '../../content/art';
 import { getSet } from '../../content/sets';
 import { getSetCards, scoreCards } from '../../data/cards';
@@ -267,5 +268,59 @@ describe('finished card tiles (#620)', () => {
     await vi.waitFor(() => expect(document.querySelector(`[role="dialog"] img[src="rendered:GOLD:${finished[1].image}"]`)).not.toBeNull());
     // The tile behind the viewer keeps its thumbnail.
     expect(tileImage(1).getAttribute('src')).toBe(cardFinishThumbUrl(finished[1].image, 'GOLD'));
+  });
+});
+
+describe('record lines (#1287)', () => {
+  const key = '0123456789abcdef0000111122223333';
+  const score = scoreCards(cards).score;
+  const pack = { setId: set.id, setVersion: set.version, nonce: 2, publicKeyHex: key };
+  /** This player's packs on tickets 0 and 1 (stored newest first), and the one just opened on ticket 2. */
+  const seed = (...earlier: number[]) => localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([
+    { s: set.id, v: set.version, n: 2, k: key.slice(0, 16), h: 'Pair', x: score, t: 3_000 },
+    ...earlier.map((x, i) => ({ s: set.id, v: set.version, n: earlier.length - 1 - i, k: key.slice(0, 16), h: 'Pair', x, t: 2_000 - i })),
+  ]));
+  const show = () => act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={pack} />));
+  const heading = () => container.querySelector('h2')!.textContent;
+
+  beforeEach(() => {
+    // The Hall of Fame line under the headline has nothing to load here.
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+  });
+  afterEach(() => localStorage.clear());
+
+  it('heads the summary with NEW BEST when the pack beats the best before it', () => {
+    seed(score - 1, 1);
+    show();
+    expect(heading()).toBe(`NEW BEST:${score.toLocaleString()} Brainrot Score`);
+    expect(container.querySelector('.pack-headline-previous')!.textContent).toContain(`previous best ${(score - 1).toLocaleString()}`);
+  });
+
+  it('shows none on the first pack, on a tie, or for another player', () => {
+    seed();
+    show();
+    expect(text()).not.toContain('NEW BEST');
+    seed(score, 1);
+    act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={{ ...pack }} />));
+    expect(text()).not.toContain('NEW BEST');
+    seed(1);
+    act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={{ ...pack, publicKeyHex: 'fedcba98765432100000111122223333' }} />));
+    expect(text()).not.toContain('NEW BEST');
+    expect(text()).not.toContain('previous best');
+  });
+
+  it("says a set best when the pack beats only its set's earlier packs, and ranks a tie with the best #2", () => {
+    localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([
+      { s: set.id, v: set.version, n: 2, k: key.slice(0, 16), h: 'Pair', x: score, t: 3_000 },
+      { s: 'other-set', v: 1, n: 1, k: key.slice(0, 16), h: 'Pair', x: score + 1, t: 2_000 },
+      { s: set.id, v: set.version, n: 0, k: key.slice(0, 16), h: 'Pair', x: score - 1, t: 1_000 },
+    ]));
+    show();
+    expect(heading()).toBe(`Best in ${set.name}:${score.toLocaleString()} Brainrot Score`);
+    expect(container.querySelector('.pack-headline-previous')!.textContent).toContain(`previous set best ${(score - 1).toLocaleString()}`);
+    seed(score, 1);
+    act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={{ ...pack }} />));
+    expect(container.querySelector('.pack-headline-record')).toBeNull();
+    expect(container.querySelector('.pack-headline-rank')!.textContent).toBe('your #2 pack ever');
   });
 });
