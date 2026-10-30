@@ -216,7 +216,8 @@ export const check404Page = (html: string | undefined, base: string): AssetValid
   if (html === undefined) return [{ path: file, error: 'Missing' }];
   const errors: AssetValidationError[] = [];
   const meta = metaTags(html);
-  if (meta.get('robots') !== 'noindex') {
+  const robots = meta.get('robots');
+  if (!robots || !/\bnoindex\b/i.test(robots)) {
     errors.push({ path: file, error: 'Has no <meta name="robots" content="noindex">' });
   }
   const links = [...html.matchAll(/\bhref="([^"]*)"/g)].map((m) => unescape(m[1]));

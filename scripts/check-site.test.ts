@@ -157,8 +157,9 @@ describe('checkCrawlerFiles', () => {
 describe('check404Page', () => {
   const base = '/BrainrotTCG/';
 
-  it('passes the 404 page the build writes', () => {
+  it('passes the 404 page the build writes, including with nofollow', () => {
     expect(check404Page(notFoundHtml(base), base)).toEqual([]);
+    expect(check404Page(notFoundHtml(base).replace('content="noindex"', 'content="noindex, nofollow"'), base)).toEqual([]);
   });
 
   it('fails a missing 404.html', () => {
@@ -318,6 +319,13 @@ describe('checkSite', () => {
       ]),
     );
     expect(errors).toHaveLength(2);
+  });
+
+  it('fails a build missing 404.html', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    unlinkSync(`${outDir}404.html`);
+    const { errors } = await checkSite(options);
+    expect(errors).toEqual([{ path: '404.html', error: 'Missing' }]);
   });
 
   it.each([GITHUB, CLOUDFLARE])("fails a build for $name whose index.html loads more than the first-load budget up front (#776)", async (host) => {

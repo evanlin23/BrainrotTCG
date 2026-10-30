@@ -1091,6 +1091,42 @@ class Served(unittest.TestCase):
             self.served()
         self.assertEqual(self.asked, [])
 
+    def test_404_page(self):
+        """404.html is verified by fetching an unknown path, expecting HTTP 404 with the sealed body."""
+        (self.dist / '404.html').write_text('<!doctype html><body>not found</body>\n')
+        (self.release / 'manifest.json').unlink()
+        (self.dist / 'deployment-id.json').unlink()
+        self.digest = dc.seal(self.release, ENV)
+        body_404 = (self.dist / '404.html').read_bytes()
+
+        # Passes when unknown path returns HTTP 404 with sealed body:
+        def get_ok(u):
+            if 'nonexistent' in u:
+                raise dc.HTTPError(u, 404, 'Not Found', {}, io.BytesIO(body_404))
+            return self.get(u)
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            summary = dc.served(self.release, ENV, self.digest, self.base, get=get_ok, pause=0)
+        self.assertIn('| Files | 7, each served with its sealed hash |', summary)
+
+        # Fails when unknown path returns HTTP 200 (the soft-404 bug):
+        def get_200(u):
+            if 'nonexistent' in u:
+                return b'<!doctype html><body>app</body>\n'
+            return self.get(u)
+
+        with self.assertRaisesRegex(dc.Rejected, r"/404: HTTP 200, expected HTTP 404"):
+            dc.served(self.release, ENV, self.digest, self.base, get=get_200, pause=0, tries=1)
+
+        # Fails when unknown path returns HTTP 404 with different body:
+        def get_wrong_body(u):
+            if 'nonexistent' in u:
+                raise dc.HTTPError(u, 404, 'Not Found', {}, io.BytesIO(b'wrong content'))
+            return self.get(u)
+
+        with self.assertRaisesRegex(dc.Rejected, r"/404: different content"):
+            dc.served(self.release, ENV, self.digest, self.base, get=get_wrong_body, pause=0, tries=1)
+
     def test_address_shape(self):
         for url in ('http://staging.brainrottcg.pages.dev/', 'https://staging.brainrottcg.pages.dev/x/', 'https://a.dev/?q', ''):
             with self.subTest(url):
