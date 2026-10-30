@@ -159,11 +159,12 @@ results line (`PackSummaryUI.tsx`) that goes.
    see the pack summary"), since the same press does.
 5. **Result.** One composition, a graded slab: the five cards in reveal order (best last) under one
    label, **[score] Brainrot Score** then **[combo] x[multiplier]**, plus a Rankings line: Submit
-   when the pull qualifies, or, when it doesn't, one short muted sentence that says why there is no
-   Submit (#1004). Score and combo are one line each; the reason sentence is the only
-   text that can wrap, to three lines at 360 and 390. No 1-in-X, XP or fingerprint (that is on the
-   share). Next pack is the one primary action, Share secondary. Tiles keep their own New stickers:
-   they name different cards.
+   when the pull qualifies and would make the list, or the one-sentence reason there is none when it doesn't
+   qualify (#1004) or qualifies but wouldn't beat the lowest listed score (#1072). If the list is
+   unavailable, neutral wording ('Qualifies for Rankings') offers Submit without claiming a rank. Score
+   and combo are one line each; the reason sentence is the only text that can wrap, to three lines at
+   360 and 390. No 1-in-X, XP or fingerprint (that is on the share). Next pack is the one primary action,
+   Share secondary. Tiles keep their own New stickers: they name different cards.
 6. **Next pack and share.** Next pack returns to a sealed pack under the same cue rules (no replayed
    demonstration once a pack is saved). Share makes the best card's image and link, as today.
 7. **Desktop (900 px up).** The same flow in a centred column; the pack opens by click, Space, Enter
@@ -411,14 +412,16 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   A closed "How Rankings work" disclosure sits above the lists in every state (loading, failed,
   feed unavailable, empty, populated, both tabs): who qualifies, that nothing is filed
   automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
-  Where Submit is missing because a pull doesn't qualify, the results screen and the share sheet say
-  so in one sentence made from the same rule text (`ui/rankingsRule.ts`) and name "How Rankings
-  work", which is a button (`link-btn link-btn--inline`: the sentence's own size, with a 44 px hit
-  area around the words that never overlaps the control beside or below it) that opens Rankings with
-  that section open and in view (the app's section request, id `how-rankings-work`; focus lands on
-  its summary). The share sheet closes first; the results screen stays mounted under the page, as for
-  any page, and Close returns to it. Both surfaces say "Rankings", and "Hall of Fame" appears only
-  in the disclosure's "other screens call this the Hall of Fame".
+  Where Submit is missing because a pull doesn't qualify or qualifies but wouldn't beat the lowest
+  listed score (#1072), the results screen and the share sheet say so in one sentence made from the same
+  rule text (`ui/rankingsRule.ts`) and name "How Rankings work", which is a button (`link-btn
+  link-btn--inline`: the sentence's own size, with a 44 px hit area around the words that never overlaps
+  the control beside or below it) that opens Rankings with that section open and in view (the app's
+  section request, id `how-rankings-work`; focus lands on its summary). When the list is unavailable,
+  neutral wording ("Qualifies for Rankings") offers Submit without claiming a rank. The share sheet
+  closes first; the results screen stays mounted under the page, as for any page, and Close returns to
+  it. Both surfaces say "Rankings", and "Hall of Fame" appears only in the disclosure's "other screens call
+  this the Hall of Fame".
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest
@@ -587,8 +590,7 @@ it explains the formula, not pull excitement. The one exception is a shared pull
 names a real combo, so `PackCardViewer` drops the headline there (`titled`), and only when the multiplier is
 above 1; a No Matches pull keeps its line.
 
-(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. A pack that strictly beats the player's best before it (all sets, their own key, one record per ticket; a first pack or a tie is no record, #1287) leads the heading with a small **NEW BEST** line (a solid medal: all-time) and adds **previous best [score] · +[n]%** under the combo (the **· +[n]%** only when it rounds to 1% or more), both static and known at the first paint (`src/game/personalRecords.ts`). A pack that doesn't beat that but strictly beats the player's earlier packs in its own set leads instead with **Best in [set]** (an outlined medal, one line: a long set name is cut short on screen) and **previous set best [score] · +[n]%**; a pack that is the player's #2 or #3 so far (an earlier equal score ranks above; it needs at least 2 earlier packs and must beat one of them) gets one quiet line, **your #2 pack ever**, under the combo and nothing in the heading. A pack whose ticket the profile admits another set's record of is no record. Then the Rankings line: Submit when the pull
-qualifies, or the one-sentence reason there is none when it doesn't (#1004). The Card guide (one tap, no fold) has
+(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. A pack that strictly beats the player's best before it (all sets, their own key, one record per ticket; a first pack or a tie is no record, #1287) leads the heading with a small **NEW BEST** line (a solid medal: all-time) and adds **previous best [score] · +[n]%** under the combo (the **· +[n]%** only when it rounds to 1% or more), both static and known at the first paint (`src/game/personalRecords.ts`). A pack that doesn't beat that but strictly beats the player's earlier packs in its own set leads instead with **Best in [set]** (an outlined medal, one line: a long set name is cut short on screen) and **previous set best [score] · +[n]%**; a pack that is the player's #2 or #3 so far (an earlier equal score ranks above; it needs at least 2 earlier packs and must beat one of them) gets one quiet line, **your #2 pack ever**, under the combo and nothing in the heading. A pack whose ticket the profile admits another set's record of is no record. Then the Rankings line: Submit when the pull qualifies and would make the list, or the one-sentence reason there is none when it doesn't qualify (#1004) or qualifies but wouldn't beat the lowest listed score (#1072). If the list is unavailable, neutral wording ('Qualifies for Rankings') offers Submit without claiming a rank. The line keeps its reserved height so cards below never move. The Card guide (one tap, no fold) has
 points per rarity, the holo, finish and misprint bonuses, the combo multipliers (with a note that a combo counts copies of the same card, and worked
 examples), and Score = card points added up × combo multiplier. There is no per-pack breakdown.
 
@@ -598,8 +600,8 @@ After the last card everything that matters fits one phone screen (checked at 39
 no horizontal scroll): the headline (score and combo with its odds on one line each; for a new
 personal best, the **NEW BEST** line above the score and the previous-best line under the combo, or the same
 two lines for a set best, or one rank line for a #2 or #3 pack; then the
-Rankings line: a Submit, or one muted sentence saying why there is none, which can wrap to three
-lines at 360 and 390), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
+Rankings line: a Submit when it would make the list, neutral 'Qualifies for Rankings' when the list is unavailable, or one muted sentence saying why there is none (doesn't qualify or wouldn't beat the lowest listed score, #1072), which can wrap to three
+lines at 360 and 390; the line keeps its reserved height so cards below never move), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
 compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
 shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
 actions: **Next pack** primary (it returns to the packs screen, where the next sealed pack waits; opening it is a swipe or Open pack away), **Share** secondary, stuck to the bottom of the summary's
