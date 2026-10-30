@@ -35,8 +35,8 @@ describe('reveal order', () => {
     expect(isBigPull({ rarity: 'RARE', isHolo: false })).toBe(true);
   });
 
-  it('celebrates individual cards worth at least 5,000, including all modifiers', () => {
-    expect(isSpecialReveal({ rarity: 'BRAINROT', isHolo: false })).toBe(false);
+  it('celebrates Brainrot rarity and individual cards worth at least 5,000, including all modifiers', () => {
+    expect(isSpecialReveal({ rarity: 'BRAINROT', isHolo: false })).toBe(true);
     expect(isSpecialReveal({ rarity: 'COMMON', isHolo: false, finish: 'PLATINUM' })).toBe(false); // exactly 2,000
     expect(isSpecialReveal({ rarity: 'COMMON', isHolo: false, misprint: true })).toBe(false); // exactly 2,000
     expect(isSpecialReveal({ rarity: 'LEGENDARY', isHolo: true })).toBe(false); // 4,000

@@ -8,6 +8,13 @@ import { STORAGE_KEYS } from '../../constants';
 import CardRevealUI from './CardRevealUI';
 import type { CardWithMeta } from '../cards/Card';
 
+// A browser has AnimationEvent, so React listens for animationend. jsdom 27+ has no AnimationEvent but its
+// cssstyle (5) now has WebkitAnimation, which makes React listen for webkitAnimationEnd instead; jsdom 26
+// had neither. This runs before react-dom reads the window (the imports below are hoisted after it).
+vi.hoisted(() => {
+  Object.defineProperty(window, 'AnimationEvent', { value: class AnimationEvent extends Event {}, configurable: true });
+});
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let host: HTMLDivElement;

@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { monitor, tapSpace } from './support';
 
 // Forced colours (Windows High Contrast) drop box-shadows, so the shared focus ring would vanish.
 // Every control also carries a transparent outline, which forced colours paint in a system colour
@@ -107,7 +107,7 @@ test('shows a visible focus outline inside a sheet and on the reveal card in for
   await expectQuiet();
   await page.keyboard.press('ArrowRight');
   await expectRing();
-  await page.keyboard.press('Space');
+  await tapSpace(page);
   await expect(card).toHaveAttribute('aria-label', /^Next card\. Card 1 of 5: /, { timeout: 10000 });
   await expectQuiet();
   await page.keyboard.press('ArrowRight');
