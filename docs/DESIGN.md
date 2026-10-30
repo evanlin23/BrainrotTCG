@@ -410,6 +410,17 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   opens the era you open packs from (else the newest started one), then the other started eras newest
   first while they fit 24 pockets, and collapses the rest. A collapsed grid is unmounted, not hidden,
   so a big collection stays cheap to open (#344).
+  **Search and filters** (#756, first slice; sorting is a later one): above the eras, a search box by
+  card name, rarity and finish selects, and Holo only and Missing only toggle buttons (`aria-pressed`),
+  all 44px high and wrapping, so they fit 320px and 200% text. The rules are pure, in
+  `game/collectionFilter.ts`; ownership comes from the same map the tiles use. Filters only narrow
+  which pockets show: collector numbers, era counts and the score line stay the unfiltered ones, and
+  an archived or draft era still shows only owned cards, so Missing only never reveals its cards.
+  While filtering, the opening budget above applies to the matching pockets (the recent era, then
+  newest first while 24 fit; a header you toggle keeps its choice until Clear filters), eras with no
+  match hide, and one polite status line says "Showing N cards" or "No cards match the
+  active filters." with a Clear filters button that returns focus to the search box. Not-started eras
+  stay one-line rows, listed when they match.
 - **Toasts** (`achievements/AchievementToasts.tsx`): auto-dismiss after 5 s (6 s for a grouped toast); hovering
   a toast, or focusing it from the keyboard (`:focus-visible`; a tap leaves focus on it, which must not hold it
   for good), holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or
