@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { claudeArgs, reviewerTools, runClaude, stopGroup } from './claude';
+import { claudeArgs, claudeVersion, reviewerTools, runClaude, stopGroup } from './claude';
 import { tasks } from './contracts';
 
 // Flags checked against `claude --help` for the pinned release (see docs/DEVELOPMENT.md).
@@ -101,6 +101,18 @@ async function groupKills(run: () => Promise<unknown>) {
   const spy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => kill(pid, signal));
   try { await run(); return spy.mock.calls.filter(([pid]) => pid < 0).map(([pid, signal]) => [pid, signal]); } finally { spy.mockRestore(); }
 }
+
+describe('Claude reviewer version pin', () => {
+  it('is one exact release, and the docs and notes that name a release name only that one', () => {
+    expect(claudeVersion).toMatch(/^\d+\.\d+\.\d+ \(Claude Code\)$/);
+    const pinned = claudeVersion.split(' ')[0];
+    const release = new RegExp(`\\b${pinned.split('.')[0]}\\.\\d+\\.\\d+\\b`, 'g');
+    for (const file of ['docs/DEVELOPMENT.md', 'docs/ARCHITECTURE.md', '.claude/skills/qa/SKILL.md', 'scripts/agent-audit/claude.ts', 'scripts/agent-audit/contracts.ts']) {
+      const named = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8').match(release) ?? [];
+      expect({ file, named: [...new Set(named)] }).toEqual({ file, named: [pinned] });
+    }
+  });
+});
 
 describe('Claude reviewer group kill', () => {
   it('signals a child group at most once and never one without a pid', () => {

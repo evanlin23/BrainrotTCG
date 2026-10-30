@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline';
 
 // Every flag in claudeArgs was listed by `claude --help` in this release. Any other version
 // fails closed until someone re-checks the flags and updates this pin.
-export const claudeVersion = '2.1.302 (Claude Code)';
+export const claudeVersion = '2.1.314 (Claude Code)';
 export const reviewerTools = ['snapshot', 'click', 'press', 'wait'].map((name) => `mcp__audit__${name}`);
 // Added by --json-schema; it only returns the final report.
 const reportTool = 'StructuredOutput';
@@ -11,7 +11,7 @@ export const reviewerSystemPrompt = 'You are trying a web game in a browser. Use
 const reportSchema = { type: 'object', properties: { outcome: { type: 'string', enum: ['completed', 'blocked', 'ambiguous'] }, observations: { type: 'string' } }, required: ['outcome', 'observations'], additionalProperties: false };
 
 // Read-only reviewer: --tools '' removes every built-in tool (Bash, Edit, Write, WebFetch...),
-// --restricted ignores user, project and local settings files and their hooks (in 2.1.302 it also
+// --restricted ignores user, project and local settings files and their hooks (in 2.1.314 it also
 // skipped every CLAUDE.md, AGENTS.md and rules file; run.ts refuses while any exist anyway),
 // --strict-mcp-config loads only the audit browser server, and dontAsk denies anything outside the
 // allowlist. The task is the only user prompt.
