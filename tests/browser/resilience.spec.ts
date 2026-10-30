@@ -585,10 +585,10 @@ test.describe('offline mid-session', () => {
     ].sort());
   });
 
-  test('a fresh player can open ticket 0 offline, view collection offline, and art loads upon reconnect', async ({ page, baseURL }) => {
+  test('a fresh player opens ticket 0 offline into an empty save and can still browse Cards', async ({ page, baseURL }) => {
+    const errors = await monitor(page, baseURL!);
     let offline = false;
     const cut: string[] = [];
-    const errors = await monitor(page, baseURL!);
     await relaysAnswerEmpty(page, () => offline);
     await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
     await page.route('**/*', (route) => {
@@ -596,47 +596,42 @@ test.describe('offline mid-session', () => {
       cut.push(route.request().url());
       return route.abort('internetdisconnected');
     });
-    const setOffline = async (value: boolean) => {
-      offline = value;
-      await page.context().setOffline(value);
-    };
+    // No seeded save: this player has never opened a pack, so the ticket opened offline is ticket 0.
     await holdTickets(page);
+    const finishToastWarmup = await holdToastStyles(page);
     const confettiLoaded = page.waitForResponse((response) => /\/confettiEffects-[^/]+\.js$/.test(response.url()));
     await page.goto('./');
     await packsScreen(page);
     await confettiLoaded;
+    // The first pack unlocks achievements, which need the toast chunk and its stylesheet: they must be in before the connection drops.
+    await finishToastWarmup();
 
-    // Go offline before opening the very first pack
-    await setOffline(true);
+    offline = true;
+    await page.context().setOffline(true);
     await releaseTickets(page);
     await openOne(page);
-
-    // Ticket 0 opened and saved offline
     expect(await tickets(page)).toEqual([0]);
     expect(await nextNonce(page)).toBe(1);
     expect(cardCount((await snapshot(page)).collection)).toBe(5);
+    // Only pictures and the display font were cut: a fresh player's packs screen shows no Lilita One text, so
+    // the font's first request comes with the reveal. It falls back (font-display: swap); no code is missing.
     expect(cut.length).toBeGreaterThan(0);
-    expect(cut.filter((url) => !/\.(webp|png|svg|woff2)$/.test(new URL(url).pathname))).toEqual([]);
+    expect(cut.filter((url) => !/\.(webp|png|svg)$/.test(new URL(url).pathname) && !/\/LilitaOne-Regular-[^/]+\.woff2$/.test(url))).toEqual([]);
+    const art = page.locator('.summary-cards img');
+    await expect(art).toHaveCount(5);
+    for (const image of await art.all()) await expect(image).toHaveAttribute('data-state', 'failed');
 
-    const summaryArt = page.locator('.summary-cards img');
-    await expect(summaryArt).toHaveCount(5);
-    for (const image of await summaryArt.all()) await expect(image).toHaveAttribute('data-state', 'failed');
-
-    // Return to packs screen to access navigation
+    // The collection reads from storage, so Cards opens offline and holds the pack just opened.
     await page.getByRole('button', { name: 'Next pack', exact: true }).click();
     await packsScreen(page);
-
-    // Still offline: navigate to Cards and verify collection is readable
     await nav(page).getByRole('button', { name: 'Cards', exact: true }).click();
-    const cardsMain = page.getByRole('main', { name: 'Cards', exact: true });
-    await expect(cardsMain).toBeVisible();
-    await expect(cardsMain.getByRole('heading', { level: 1 })).toHaveText('Cards');
+    const cards = page.getByRole('main', { name: 'Cards', exact: true });
+    await expect(cards.getByRole('heading', { level: 1 })).toHaveText('Cards');
 
-    // Go back online: card art recovers without reload
-    await setOffline(false);
-    await nav(page).getByRole('button', { name: 'Open', exact: true }).click();
-    await packsScreen(page);
-
+    // Back online; by then every cut request has been reported.
+    offline = false;
+    await page.context().setOffline(false);
+    await expect.poll(() => errors.length).toBe(cut.length * 2 + errors.filter((error) => error.startsWith('Could not render card finish ')).length);
     const finishes = errors.filter((error) => error.startsWith('Could not render card finish '));
     for (const finish of finishes) expect(cut.some((url) => finish.includes(new URL(url).pathname)), finish).toBe(true);
     expect([...errors].sort()).toEqual([
