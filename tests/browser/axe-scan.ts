@@ -33,7 +33,7 @@ export const AXE_RULES = [
 export const AXE_STATE_SPECS = {
   'first-pack': 'axe-critical-states.spec.ts', summary: 'axe-critical-states.spec.ts', settings: 'axe-critical-states.spec.ts',
   'card-share': 'axe-critical-states.spec.ts', 'mid-reveal': 'axe-routes.spec.ts', cards: 'axe-routes.spec.ts',
-  rankings: 'axe-routes.spec.ts', profile: 'axe-routes.spec.ts', 'shared-pull': 'axe-routes.spec.ts',
+  rankings: 'axe-routes.spec.ts', profile: 'axe-routes.spec.ts', news: 'axe-routes.spec.ts', 'shared-pull': 'axe-routes.spec.ts',
 } as const;
 export type AxeState = keyof typeof AXE_STATE_SPECS;
 export const AXE_STATES = Object.keys(AXE_STATE_SPECS) as AxeState[];
