@@ -175,12 +175,22 @@ const exactSlot = (set: SetDefinition) => {
   for (let rarity = 0; rarity < ranges[0]; rarity++) {
     const first = rollSlot(set, [rarity, 0, 0, 0, 0]);
     const pool = first.asked[1];
-    expect(pool, `rarity draw ${rarity} picks from every ${first.rarity} card`).toBe(set.cards.filter((c) => c.rarity === first.rarity).length);
-    if (first.rarity !== previous) firsts.push(ranges.map((_, j) => (j === 0 ? rarity : 0)));
-    previous = first.rarity;
+    const expectedPool = set.cards.filter((c) => c.rarity === first.rarity).length;
+    if (first.rarity !== previous) {
+      expect(pool, `rarity draw ${rarity} picks from every ${first.rarity} card`).toBe(expectedPool);
+      firsts.push(ranges.map((_, j) => (j === 0 ? rarity : 0)));
+      previous = first.rarity;
+    } else if (pool !== expectedPool) {
+      expect(pool, `rarity draw ${rarity} picks from every ${first.rarity} card`).toBe(expectedPool);
+    }
+    const expectedAsked = withPool(ranges, pool);
     for (let pick = 0; pick < pool; pick++) {
       const { version, asked } = rollSlot(set, [rarity, pick, 0, 0, 0]);
-      expect(asked, `rarity draw ${rarity}, card draw ${pick}`).toEqual(withPool(ranges, pool));
+      if (rarity === 0 && pick === 0) {
+        expect(asked, `rarity draw ${rarity}, card draw ${pick}`).toEqual(expectedAsked);
+      } else if (asked.length !== expectedAsked.length || asked.some((v, idx) => v !== expectedAsked[idx])) {
+        expect(asked, `rarity draw ${rarity}, card draw ${pick}`).toEqual(expectedAsked);
+      }
       const chance = 1 / ranges[0] / pool;
       cards.set(version.cardId, (cards.get(version.cardId) ?? 0) + chance);
       const key = JSON.stringify(version);
@@ -246,23 +256,24 @@ describe('odds', () => {
     // Every ordered pack of cards (7^5), each slot from its own draws.
     const { cards } = exactSlot(TEST_SET);
     const counts: Record<string, number> = {};
-    const pack: string[] = [];
+    const cardList = [...cards.entries()];
     const tally = new Map<string, number>();
+    let depth = 0;
     const walk = (chance: number) => {
-      if (pack.length === TEST_SET.packSize) {
+      if (depth === TEST_SET.packSize) {
         const key = handFromCounts([...tally.values()]);
         counts[key] = (counts[key] ?? 0) + chance;
         return;
       }
-      for (const [id, p] of cards) {
-        pack.push(id);
+      depth++;
+      for (const [id, p] of cardList) {
         tally.set(id, (tally.get(id) ?? 0) + 1);
         walk(chance * p);
         const count = tally.get(id)!;
         if (count === 1) tally.delete(id);
         else tally.set(id, count - 1);
-        pack.pop();
       }
+      depth--;
     };
     walk(1);
     expect(Object.keys(counts).sort()).toEqual(Object.keys(exact).sort());

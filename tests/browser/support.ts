@@ -28,9 +28,19 @@ interface Stats {
 export const PLAYER_SECRET = '01'.repeat(32);
 export const PLAYER_KEY_PREFIX = '8a88e3dd7409f195';
 
+/** The id of the build's newest announcement (the app reads src/content/news.json newest first by date). */
+export const LATEST_NEWS_ID = (JSON.parse(readFileSync(new URL('../../src/content/news.json', import.meta.url), 'utf8')) as { id: string; date: string }[])
+  .reduce((latest, item) => (item.date > latest.date ? item : latest)).id;
+
 export interface MonitorOptions {
   routeHttp?: boolean;
   returning?: boolean;
+  /**
+   * Leave the build's latest announcement unread, so the What's new toast comes after a pack (news-toast.spec.ts).
+   * By default the fixture player has read it: every other spec counts the toasts a pack makes, and a news
+   * toast queued behind them would be one more than the pack did.
+   */
+  unreadNews?: boolean;
   allowedOrigins?: string[];
   allowedPaths?: string[];
   /**
@@ -215,6 +225,7 @@ export async function monitor(
   const {
     routeHttp = true,
     returning = false,
+    unreadNews = false,
     allowedOrigins: extraOrigins = [],
     allowedPaths: customPaths,
     localOrigins = {},
@@ -563,7 +574,7 @@ export async function monitor(
     });
   }
 
-  await page.addInitScript(({ historyRecords, returning, keys, origin, player }) => {
+  await page.addInitScript(({ historyRecords, returning, keys, origin, player, readNews }) => {
     if (window.location.origin !== origin) return;
     // Fresh smoke seeds identity/audio only; optional performance history below is synthetic.
     if (!localStorage.getItem('brainrot-player-v1')) {
@@ -571,6 +582,7 @@ export async function monitor(
         secretKey: player.secret, name: 'Browser smoke fixture', nextNonce: historyRecords, createdAt: 1,
       }));
       localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
+      if (readNews) localStorage.setItem(keys.DISMISSED_NEWS, readNews);
       if (returning) {
         localStorage.setItem(keys.STATS, JSON.stringify({ packsOpened: Math.max(historyRecords, 1), holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
       }
@@ -583,7 +595,7 @@ export async function monitor(
         localStorage.setItem('brainrot-data-version', '3');
       }
     }
-  }, { historyRecords, returning, keys: STORAGE_KEYS, origin, player: { secret: PLAYER_SECRET, keyPrefix: PLAYER_KEY_PREFIX } });
+  }, { historyRecords, returning, keys: STORAGE_KEYS, origin, player: { secret: PLAYER_SECRET, keyPrefix: PLAYER_KEY_PREFIX }, readNews: unreadNews ? '' : LATEST_NEWS_ID });
   return errors;
 }
 
@@ -936,14 +948,4 @@ export async function fingerFor(page: Page, touch: boolean, { settled = false } 
       await send('touchEnd', []);
     },
   };
-}
-
-/**
- * Marks the newest announcement the build ships (src/content/news.json) as read before the page loads, so a
- * screen is measured the way a player who has dismissed it sees it: the Card guide row is then free for the
- * next goal, which gives way to an unread announcement.
- */
-export async function dismissShippedNews(page: Page) {
-  const [latest] = JSON.parse(readFileSync(new URL('../../src/content/news.json', import.meta.url), 'utf8')) as { id: string }[];
-  await page.addInitScript(([key, id]) => localStorage.setItem(key, id), [STORAGE_KEYS.DISMISSED_NEWS, latest.id] as const);
 }

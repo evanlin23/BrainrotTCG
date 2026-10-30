@@ -374,6 +374,7 @@ test('worker outbound fetch is blocked and healthy worker still works', async ({
     const worker = new Worker('/worker-clean.js');
     return new Promise((resolve) => {
       worker.onmessage = (e) => resolve(e.data);
+      worker.onerror = (e) => resolve('error: ' + (e.message || 'clean worker failed'));
     });
   });
   expect(cleanResult).toBe('clean-worker-success');
@@ -383,9 +384,10 @@ test('worker outbound fetch is blocked and healthy worker still works', async ({
     const worker = new Worker('/worker-egress.js');
     return new Promise((resolve) => {
       worker.onmessage = (e) => resolve(e.data);
+      worker.onerror = (e) => resolve('error: ' + (e.message || 'egress worker failed'));
     });
   });
-  expect(egressResult).not.toBe('leaked');
+  expect(egressResult).toMatch(/^blocked: /);
   expect(externalHits).toBe(0);
   // The worker's own egress attempt is recorded, not just refused.
   await expect.poll(() => errors.blocked.some((b) => b.includes(externalOrigin))).toBe(true);
@@ -497,9 +499,13 @@ test('sanitization strips query parameters, hashes, bodies, and bounding to 40 e
 function openSocket(page: Page, url: string) {
   return page.evaluate((target) => new Promise<string>((resolve) => {
     const socket = new WebSocket(target);
-    socket.onopen = () => resolve('open');
-    socket.onerror = () => resolve('error');
-    socket.onclose = () => resolve('closed');
+    const finish = (result: string) => {
+      socket.close();
+      resolve(result);
+    };
+    socket.onopen = () => finish('open');
+    socket.onerror = () => finish('error');
+    socket.onclose = () => finish('closed');
   }), url);
 }
 

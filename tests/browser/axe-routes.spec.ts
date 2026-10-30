@@ -47,7 +47,7 @@ async function seedCollection(page: Page, baseURL: string) {
 const cardTiles = (main: Locator) => main.locator('.collection-grid button.collection-item');
 
 /** The scan each page gets. Adding a page to PAGE_TITLES fails the type check here and the coverage test below. */
-const PAGE_SCANS = { cards: 'cards', rankings: 'rankings', profile: 'profile', settings: 'settings' } as const satisfies Record<keyof typeof PAGE_TITLES, AxeState>;
+const PAGE_SCANS = { cards: 'cards', rankings: 'rankings', profile: 'profile', settings: 'settings', news: 'news' } as const satisfies Record<keyof typeof PAGE_TITLES, AxeState>;
 
 /** The product's own relays answer every read with "nothing stored", so Rankings sees a working feed and no network. */
 const relayOrigins = new Set(HOF_RELAYS.map((relay) => new URL(relay).origin));
@@ -254,6 +254,16 @@ test.describe('routes', () => {
     const errors = await monitor(page, baseURL!, 0, { returning: true });
     await page.goto('./#/settings');
     await expectRouteContract(page, 'Settings', (main) => main.getByRole('switch', { name: 'Particles', exact: true }));
+    expect(errors).toEqual([]);
+  });
+
+  test("What's new", async ({ page, baseURL }, testInfo) => {
+    // A first-time visitor with no save: the page needs none.
+    const errors = await monitor(page, baseURL!);
+    await page.goto('./#/news');
+    await expectRouteContract(page, "What's new", (main) => main.locator('.news-entry'));
+    await expect(page.getByRole('main', { name: "What's new", exact: true }).getByRole('heading', { level: 2 }).first()).toBeVisible();
+    await expectAxeClean(page, testInfo, 'news');
     expect(errors).toEqual([]);
   });
 

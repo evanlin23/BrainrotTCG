@@ -111,7 +111,7 @@ def verify(release, env, digest):
 # --- What an address serves ----------------------------------------------------------------------
 # Staging and then production are checked the same way: each file build sealed, fetched where
 # Cloudflare Pages serves it, has its sealed hash. Pages serves a.html at /a and dir/index.html at
-# /dir/, and answers an unknown path with index.html, so a missing file fails too.
+# /dir/, and answers an unknown path with 404.html and HTTP 404, so a missing file fails too.
 
 UNSERVED = {'_headers', '_redirects'}  # Pages reads these as settings and doesn't serve them
 
@@ -245,11 +245,16 @@ def served(release, env, digest, url, get=None, tries=3, pause=5.0):
 
     def problem(name):
         why = ''
+        path = 'nonexistent-deploy-contract-404' if name == '404.html' else served_path(name)
         for attempt in range(tries):
             if attempt:
                 time.sleep(pause)  # a new deployment can take a moment to reach every edge
             try:
-                body, beacon_token = without_beacon(name, get(base + served_path(name)))
+                raw_body = get(base + path)
+                if name == '404.html':
+                    why = 'HTTP 200, expected HTTP 404'
+                    continue
+                body, beacon_token = without_beacon(name, raw_body)
                 if hashlib.sha256(body).hexdigest() == files[name]:
                     if beacon_token:
                         tokens[name] = beacon_token
@@ -257,7 +262,16 @@ def served(release, env, digest, url, get=None, tries=3, pause=5.0):
                 why = 'different content'
             except HTTPError as error:
                 check_access(error, base, token)
-                why = f'HTTP {error.code}'
+                if name == '404.html' and error.code == 404:
+                    raw_body = error.read()
+                    body, beacon_token = without_beacon(name, raw_body)
+                    if hashlib.sha256(body).hexdigest() == files[name]:
+                        if beacon_token:
+                            tokens[name] = beacon_token
+                        return None
+                    why = 'different content'
+                else:
+                    why = f'HTTP {error.code}'
             except OSError as error:
                 why = str(error) or type(error).__name__
         return f'/{served_path(name)}: {why}'
