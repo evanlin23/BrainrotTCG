@@ -103,12 +103,14 @@ async function groupKills(run: () => Promise<unknown>) {
 }
 
 describe('Claude reviewer version pin', () => {
-  it('is one exact release, and the docs and notes that name a release name only that one', () => {
+  it('is one exact release, and every Claude Code release the docs and notes name is that one', () => {
     expect(claudeVersion).toMatch(/^\d+\.\d+\.\d+ \(Claude Code\)$/);
     const pinned = claudeVersion.split(' ')[0];
-    const release = new RegExp(`\\b${pinned.split('.')[0]}\\.\\d+\\.\\d+\\b`, 'g');
+    // Only versions in a Claude context count; other tools' versions in these files are ignored.
+    const release = /Claude\s+Code\s+\**(\d+\.\d+\.\d+)|`claude --help` in (\d+\.\d+\.\d+)|\b[Ii]n (\d+\.\d+\.\d+) --restricted|(\d+\.\d+\.\d+) \(Claude Code\)/g;
     for (const file of ['docs/DEVELOPMENT.md', 'docs/ARCHITECTURE.md', '.claude/skills/qa/SKILL.md', 'scripts/agent-audit/claude.ts', 'scripts/agent-audit/contracts.ts']) {
-      const named = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8').match(release) ?? [];
+      const text = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
+      const named = [...text.matchAll(release)].map((match) => match.slice(1).find(Boolean));
       expect({ file, named: [...new Set(named)] }).toEqual({ file, named: [pinned] });
     }
   });

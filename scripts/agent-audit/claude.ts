@@ -11,8 +11,9 @@ export const reviewerSystemPrompt = 'You are trying a web game in a browser. Use
 const reportSchema = { type: 'object', properties: { outcome: { type: 'string', enum: ['completed', 'blocked', 'ambiguous'] }, observations: { type: 'string' } }, required: ['outcome', 'observations'], additionalProperties: false };
 
 // Read-only reviewer: --tools '' removes every built-in tool (Bash, Edit, Write, WebFetch...),
-// --restricted ignores user, project and local settings files and their hooks (in 2.1.314 it also
-// skipped every CLAUDE.md, AGENTS.md and rules file; run.ts refuses while any exist anyway),
+// --restricted ignores user, project and local settings files and their hooks (marker files showed
+// Claude Code 2.1.314 also keeping a working-directory CLAUDE.md, CLAUDE.local.md and .claude/rules
+// out; run.ts refuses while any instruction file exists anyway),
 // --strict-mcp-config loads only the audit browser server, and dontAsk denies anything outside the
 // allowlist. The task is the only user prompt.
 export function claudeArgs(task: string, mcpConfig: string) {

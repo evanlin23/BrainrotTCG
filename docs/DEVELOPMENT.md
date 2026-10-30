@@ -433,7 +433,7 @@ Write, web or other built-in tools, no user, project or local settings files or 
 (managed settings still apply), no skills, slash commands or other MCP servers, and an empty
 temporary working directory. The task sentence from `contracts.ts` is the only user prompt: no
 source, docs, history or hints, since coaching would test the coach, not the page. The coordinator
-prompt in `contracts.ts` is separate and goes only into the report. 2.1.314 has no turn flag, so the
+prompt in `contracts.ts` is separate and goes only into the report. Claude Code 2.1.314 has no turn flag, so the
 runner counts responses and stops the process group when the cap is passed; it also stops if the
 session reports any tool outside the allowlist. To move the pin, re-check every flag in
 `claude --help` first, then update `claudeVersion`.
