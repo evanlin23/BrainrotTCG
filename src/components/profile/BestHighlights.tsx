@@ -68,8 +68,7 @@ const UNAVAILABLE: Record<UnavailableReason, string> = {
 };
 
 const Verified = () => (
-  <span className="profile-verified" title="Opened again from its ticket with your key: these exact cards and score">
-    <span className="sr-only">, </span>
+  <span className="profile-verified" title="Opened again from its ticket with your key: these exact cards and score" aria-hidden="true">
     <ShieldCheck aria-hidden="true" />
     Verified
   </span>
@@ -161,7 +160,8 @@ interface BestHighlightsProps {
   packBadge?: (ref: OwnedPullRef) => ReactNode;
   /**
    * This device has saved packs whose best card is still being weighed (BestCardsSection), so one is on
-   * its way: its place is held now, and a best card found later moves nothing below.
+   * its way: the Best card's place is held now, and a card found later moves nothing below. The Best pack
+   * is not held: it comes from the stats and the player alone (resolveBestPack), so 'none' is final.
    */
   expecting?: boolean;
 }
@@ -213,9 +213,11 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge, expecting =
   if (nothing(pack.state) && nothing(card.state) && !expecting) return null;
   const anyVerified = pack.state.status === 'available' || card.state.status === 'available';
   // While the rebuild runs, winners with no cards yet read as 'unranked': that holds the place too.
+  // The pack needs no wait of its own: its source is read from the stats, so 'none' is already its answer.
+  const packWaiting = pack.state.status === 'checking';
   const cardWaiting =
     card.state.status === 'checking' || (expecting && (nothing(card.state) || unavailableFor(card.state, 'unranked')));
-  const anyWaiting = cardWaiting || pack.state.status === 'checking';
+  const anyWaiting = cardWaiting || packWaiting;
 
   const shownCard = card.state.status === 'available' ? card.state : null;
   const cardSet = shownCard && getSet(shownCard.source.ref.setId, shownCard.source.ref.setVersion);
@@ -231,7 +233,7 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge, expecting =
         state={pack.state}
         what="your best pack"
         onRetry={() => retry(pack.retry, packTitle)}
-        waiting={pack.state.status === 'checking'}
+        waiting={packWaiting}
       >
         {pack.state.status === 'available' && (
           <ul className="pulls-list">
