@@ -168,7 +168,8 @@ it('is reachable from Settings', async () => {
 });
 
 it('waits for a pack to be put away: nothing is read or shown over the tear and reveal, then it comes after the pack notice, one toast at a time', async () => {
-  app = await mountedApp({ ...PLAYER, ...QUIET }, { news: NEWS });
+  const mounted = await mountedApp({ ...PLAYER, ...QUIET }, { news: NEWS });
+  app = mounted;
   await app.mount();
   const sealed = () => $('[data-pack-open]');
   await app.interact(() => { sealed()!.focus(); sealed()!.click(); });
@@ -181,7 +182,7 @@ it('waits for a pack to be put away: nothing is read or shown over the tear and 
     .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })));
   await app.until('the pack notice shows', () => expect(toastTexts().join()).toContain('Pack kept'));
   expect(newsToast()).toBeUndefined();
-  await app.until('the news was asked for once the pack was away', () => expect(app.newsLoads()).toBe(1));
+  await app.until('the news was asked for once the pack was away', () => expect(mounted.newsLoads()).toBe(1));
   await press(document.querySelector('.toast-dismiss'));
   await app.until('the news toast follows', () => expect(toastTexts().join(' | ')).toContain('Open Card API'), 60_000);
   expect(document.querySelectorAll('.toast')).toHaveLength(1);
