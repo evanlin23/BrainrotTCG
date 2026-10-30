@@ -171,6 +171,14 @@
   letter-spacing: 0.02em;
 }
 
+.collection-filter-status.is-reason {
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-weight: 400;
+  text-align: center;
+}
+
 .collection-empty-filter {
   display: flex;
   flex-direction: column;

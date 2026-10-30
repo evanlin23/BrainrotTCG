@@ -204,7 +204,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
 
   const patchFilters = useCallback((change: Partial<CollectionFilters>) => setFilters((current) => ({ ...current, ...change })), []);
 
-  // Both buttons that call these unmount with the change, so focus goes to the search box, not to the page.
+  // The buttons that call these unmount with the change, so focus goes to the search box, not to the page.
   const clearSearch = useCallback(() => {
     patchFilters({ query: '' });
     searchRef.current?.focus();
@@ -275,6 +275,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
   // open shows open. Collapsing unmounts the grid, so hidden cards cost nothing.
   const [open, setOpen] = useState<Record<string, boolean>>(() => initiallyOpen(started, recentSetId));
   const gridIds = useId();
+  const controlIds = useId();
   // While filtering, the same budget applies to the matching pockets (#344): the recent era, then
   // newest first while they fit, and the rest start collapsed. A header you toggled keeps its choice.
   const filteredDefault = useMemo(() => {
@@ -293,8 +294,15 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
     0,
   );
   const nothingMatches = filtering && visibleStarted.length === 0 && visibleNotStarted.length === 0;
-  const impossibleReason = nothingMatches ? impossibleFilterReason(filters) : null;
-  const status = !filtering ? '' : nothingMatches ? 'No cards match the active filters.'
+  // Why nothing shows, when the filters alone decide it: a combination that can never match, or a Show
+  // choice with nothing on that side of the binder. A search or rarity that merely finds nothing has no reason.
+  const impossible = nothingMatches ? impossibleFilterReason(filters) : null;
+  const emptyReason = !nothingMatches ? null
+    : impossible ? `No cards match the active filters. ${impossible}`
+    : filters.show === 'OWNED' && started.length === 0 ? "You haven't found any cards yet."
+    : filters.show === 'NOT_FOUND_YET' && !sections.some((s) => isOpenable(s.set) && s.have < s.cards.length) ? "You've found every card."
+    : null;
+  const status = !filtering ? '' : nothingMatches ? (emptyReason ?? 'No cards match the active filters.')
     : `Showing ${shownCards} ${shownCards === 1 ? 'card' : 'cards'}${visibleNotStarted.length > 0 ? `, and ${visibleNotStarted.length} ${visibleNotStarted.length === 1 ? 'era' : 'eras'} not started` : ''}`;
 
   const toggleEra = useCallback((setId: string) => {
@@ -338,15 +346,14 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
 
           <div className="collection-filter-row">
             <div className="collection-select-group">
-              <label className="collection-filter-label" htmlFor="collection-sort">
+              <label className="collection-filter-label" htmlFor={`${controlIds}-sort`}>
                 Sort
               </label>
               <select
-                id="collection-sort"
+                id={`${controlIds}-sort`}
                 className="collection-select"
                 value={sort}
                 onChange={(e) => setSort(e.target.value as CollectionSort)}
-                aria-label="Sort cards"
               >
                 <option value="set">Set order</option>
                 <option value="rarity">Rarity</option>
@@ -355,15 +362,14 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
               </select>
             </div>
             <div className="collection-select-group">
-              <label className="collection-filter-label" htmlFor="collection-show">
+              <label className="collection-filter-label" htmlFor={`${controlIds}-show`}>
                 Show
               </label>
               <select
-                id="collection-show"
+                id={`${controlIds}-show`}
                 className="collection-select"
                 value={filters.show}
                 onChange={(e) => patchFilters({ show: e.target.value as ShowFilter })}
-                aria-label="Show cards"
               >
                 <option value="ALL">All</option>
                 <option value="OWNED">Owned</option>
@@ -400,7 +406,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
           </div>
         </div>
         {/* Always mounted, so a change in it is announced. */}
-        <p className="collection-filter-status" role="status">{status}</p>
+        <p className={`collection-filter-status${emptyReason ? ' is-reason' : ''}`} role="status">{status}</p>
 
         {visibleStarted.map(({ set, cards, have, holo, done }) => (
           <EraSection
@@ -435,14 +441,9 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
           </section>
         )}
 
-        {nothingMatches && (
+        {nothingMatches && !emptyReason && (
           <div className="collection-empty-filter">
-            <p>{impossibleReason ?? 'Try fewer filters, or a shorter name.'}</p>
-            {impossibleReason && (
-              <button type="button" className="collection-reset-btn" onClick={resetFilters}>
-                Clear filters
-              </button>
-            )}
+            <p>Try fewer filters, or a shorter name.</p>
           </div>
         )}
 

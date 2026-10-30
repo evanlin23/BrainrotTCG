@@ -80,7 +80,7 @@ of evidence distinct: scripted fixture QA, fresh simulated players, and actual h
   network or target flags, change tasks, or coach a player to simulate unsupported conditions.
   `recovery` explores keyboard use/confusion, not save recovery, import/export or browser settings.
 - Both modes need a clean committed build revision (no untracked `src/` or `public/` inputs).
-  The CLI additionally requires Unix, Node 22, installed Chromium, signed-in Claude Code **2.1.302**
+  The CLI additionally requires Unix, Node 22, installed Chromium, signed-in Claude Code **2.1.314**
   and its instruction-isolation/tool checks. Don't bypass checks or relocate instruction files.
   Fresh players get only the selected task (`contracts.ts`, or a short owner-provided goal in native
   mode) plus browser protocol/limits/safety: no source, docs, issues, prior findings, parent history

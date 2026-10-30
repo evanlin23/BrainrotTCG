@@ -116,6 +116,25 @@
   color: var(--brand);
 }
 
+/* The record a pack set when it opened (#1287): outlined for a best in its set, solid for an all-time best,
+   filled as the pack summary's NEW BEST medal is (PackSummary.css says what that leans on in lucide). */
+.pull-row-medal {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin-left: var(--space-1);
+  vertical-align: -2px;
+  color: var(--brand);
+}
+
+.pull-row-medal--best circle {
+  fill: currentColor;
+}
+
+.pull-row-medal--best path:last-of-type {
+  stroke: var(--brand-ink);
+}
+
 /* Whether this device sent the pack to the Hall of Fame inbox: text always, the check only once sent. */
 .pull-row-sent {
   display: inline-flex;
