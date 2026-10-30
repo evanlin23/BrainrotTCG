@@ -219,7 +219,7 @@ it('styles select dropdowns in base.css and keeps other stylesheets from overrid
   expect(selectRule).toMatch(/-webkit-appearance:\s*none/);
   expect(selectRule).toMatch(/color-scheme:\s*dark/);
   expect(selectRule).toMatch(/--select-chevron:\s*16px/);
-  expect(selectRule).toMatch(/padding:\s*0\s+calc\(var\(--space-3\)\s*\+\s*var\(--select-chevron\)\s*\+\s*var\(--space-2\)\)\s*0\s*var\(--space-3\)/);
+  expect(selectRule).toMatch(/padding:\s*0\s+calc\(var\(--space-2\)\s*\+\s*var\(--select-chevron\)\s*\+\s*var\(--space-2\)\)\s*0\s*var\(--space-3\)/);
 
   // Chevron stroke matches --text-muted
   const strokeMatch = /stroke="(?:%23|#)([0-9a-fA-F]{6})"/.exec(selectRule);
@@ -245,17 +245,20 @@ it('styles select dropdowns in base.css and keeps other stylesheets from overrid
   expect(mediaBlock).toMatch(/select\s*\{[^}]*appearance:\s*auto/);
 
   // Scan every other stylesheet: any rule targeting select or .collection-select can only override border-radius or width
-  const forbidden = /^(padding|border|background|min-height|font|appearance)/i;
   const violations: string[] = [];
   for (const { path, css } of sheets) {
     if (path === 'styles/base.css') continue;
-    for (const [, selectorStr, body] of css.matchAll(/(?:^|\})\s*([^{}]+?)\s*\{([^{}]+)\}/g)) {
+    const cleanCss = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const [, selectorStr, body] of cleanCss.matchAll(/(?:^|[{}])\s*([^{}]+?)\s*\{([^{}]+)\}/g)) {
+      if (selectorStr.trim().startsWith('@')) continue;
       const selectors = selectorStr.split(',').map((s) => s.trim());
-      const targetsSelect = selectors.some((s) => /(?:^|\s)(?:[.#\w:-]*\bselect|\.collection-select)$/.test(s));
+      const targetsSelect = selectors.some((s) => {
+        const stripped = s.replace(/:[\w-]+(?:\([^)]*\))?/g, '').trim();
+        return /(?:^|[\s>+~])(?:select(?:\.[a-zA-Z0-9_-]+)*|\.collection-select)$/.test(stripped);
+      });
       if (!targetsSelect) continue;
       for (const [, prop] of body.matchAll(/(?:^|[;{\s])([\w-]+)\s*:/g)) {
-        if (prop === 'border-radius' || prop === 'width') continue;
-        if (forbidden.test(prop)) {
+        if (prop !== 'border-radius' && prop !== 'width') {
           violations.push(`${path}: ${selectorStr.trim()} sets ${prop}`);
         }
       }
