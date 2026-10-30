@@ -12,6 +12,7 @@ import { useHallOfFameSubmit } from './useHallOfFameSubmit';
 import { renderPoster } from '../../game/bragImage';
 import Sheet from '../ui/Sheet';
 import NotQualifyingNote from '../ui/NotQualifyingNote';
+import { NOT_BEATING_FLOOR_LEAD } from '../ui/rankingsRule';
 import PackCardViewer from '../ui/PackCardViewer';
 import { revealOrder } from '../../game/reveal';
 import SharePreviewSheet from './SharePreviewSheet';
@@ -42,15 +43,15 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
   const url = proof ? pullUrl(proof) : '';
   const link = proof ? pullUrl(proof, previewFor(target.cards)) : '';
   const id = useMemo(() => (proof ? pullId(decodeProof(proof)) : ''), [proof]);
-  // Submit only what would make the list (the top pulls or today's top in UTC); until it loads,
-  // anything that qualifies.
+  // Submit only what would make the list (the top pulls or today's top in UTC); until it loads
+  // or if unavailable, anything that qualifies with neutral wording (#1072).
   const qualifies = qualifiesForHallOfFame(target.score);
-  const [list, setList] = useState<HallOfFameEntry[] | null>(null);
+  const [list, setList] = useState<HallOfFameEntry[] | null | undefined>(undefined);
   useEffect(() => {
     if (qualifies) loadHallOfFame().then(setList);
   }, [qualifies]);
   const listed = !!list?.some((e) => e.id === id);
-  const joins = qualifies && (!list || wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list, utcDay(new Date().toISOString())));
+  const wouldJoin = list ? wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list, utcDay(new Date().toISOString())) : null;
 
   if (!shareable) {
     return (
@@ -92,9 +93,7 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
           <p className="share-note">
             <Crown aria-hidden="true" /> This pull is in Rankings.
           </p>
-        ) : qualifies ? (
-          joins && <HallOfFameSubmit proof={proof} id={id} score={target.score.score} />
-        ) : (
+        ) : !qualifies ? (
           <p className="share-note">
             <Info aria-hidden="true" />{' '}
             {/* One flex item, so the sentence stays whole around its link. */}
@@ -110,6 +109,29 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
               />
             </span>
           </p>
+        ) : wouldJoin === false ? (
+          <p className="share-note">
+            <Info aria-hidden="true" />{' '}
+            <span>
+              <NotQualifyingNote
+                lead={NOT_BEATING_FLOOR_LEAD}
+                onOpenHelp={
+                  onOpenRankingsHelp &&
+                  (() => {
+                    onClose();
+                    onOpenRankingsHelp();
+                  })
+                }
+              />
+            </span>
+          </p>
+        ) : (
+          <HallOfFameSubmit
+            proof={proof}
+            id={id}
+            score={target.score.score}
+            headline={list ? 'This makes Rankings' : 'Qualifies for Rankings'}
+          />
         )
       }
     >
@@ -136,7 +158,17 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
 };
 
 /** One tap, no account: the pull goes to public relays and a GitHub Action adds it within about 15 minutes. */
-const HallOfFameSubmit = ({ proof, id, score }: { proof: string; id: string; score: number }) => {
+const HallOfFameSubmit = ({
+  proof,
+  id,
+  score,
+  headline = 'This makes Rankings',
+}: {
+  proof: string;
+  id: string;
+  score: number;
+  headline?: string;
+}) => {
   const [state, submit] = useHallOfFameSubmit(proof, id, score);
 
   const note =
@@ -150,7 +182,7 @@ const HallOfFameSubmit = ({ proof, id, score }: { proof: string; id: string; sco
     <div className="share-hof">
       <Crown aria-hidden="true" />
       <span>
-        <strong>This makes Rankings</strong>
+        <strong>{headline}</strong>
         <span role="status">{note}</span>
         <span className="share-hof-public">Your display name and public key become public.</span>
       </span>

@@ -143,7 +143,61 @@ describe('Hall of Fame in the pack share sheet', () => {
   it('offers Submit, with no qualifying note, for a pull that qualifies', async () => {
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
     expect(document.querySelector('.share-hof button')).not.toBeNull();
+    expect(document.querySelector('.share-hof strong')?.textContent).toBe('This makes Rankings');
     expect([...document.querySelectorAll('.share-note')].some((el) => /qualif|How Rankings work/.test(el.textContent ?? ''))).toBe(false);
+  });
+
+  it("says why there is no Submit for a pull that qualifies but wouldn't make the list (#1072)", async () => {
+    vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
+    try {
+      await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+      expect(document.querySelector('.share-hof')).toBeNull();
+      const why = [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('lowest listed score'))!;
+      expect(why.textContent?.trim()).toBe(
+        "Qualifies for Rankings, but wouldn't beat the lowest listed score. See How Rankings work.",
+      );
+      expect(inOrder(['.share-actions-main', why, '.share-preview', '.share-pack-cards'])).toBe(true);
+    } finally {
+      vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
+    }
+  });
+
+  describe('"How Rankings work" when a qualifying pull would not make the list', () => {
+    const renderFloorNote = async (onClose: () => void, onOpenRankingsHelp?: () => void) => {
+      vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
+      try {
+        await act(async () => root.render(<ShareSheet target={target} onClose={onClose} onOpenRankingsHelp={onOpenRankingsHelp} />));
+        return [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('lowest listed score'))!;
+      } finally {
+        vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
+      }
+    };
+
+    it('is a button that closes the sheet and opens it, with the sentence unchanged', async () => {
+      const calls: string[] = [];
+      const note = await renderFloorNote(() => calls.push('close'), () => calls.push('open'));
+      const help = note.querySelector('button')!;
+      expect(help.textContent).toBe('How Rankings work');
+      expect(note.textContent?.trim()).toBe(
+        "Qualifies for Rankings, but wouldn't beat the lowest listed score. See How Rankings work.",
+      );
+      expect(calls).toEqual([]);
+      act(() => help.click());
+      expect(calls).toEqual(['close', 'open']);
+    });
+
+    it('stays plain text where there is nowhere to go', async () => {
+      const note = await renderFloorNote(() => {});
+      expect(note.querySelector('button')).toBeNull();
+    });
+  });
+
+  it("uses neutral headline when the list couldn't load (#1072)", async () => {
+    vi.mocked(loadHallOfFame).mockResolvedValueOnce(null);
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    const offer = document.querySelector('.share-hof')!;
+    expect(offer.querySelector('strong')?.textContent).toBe('Qualifies for Rankings');
+    expect(offer.querySelector('button')?.textContent).toBe('Submit');
   });
 
   it('keeps the already-listed note, not the qualifying one, for a pull in Rankings', async () => {

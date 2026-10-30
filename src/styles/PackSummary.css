@@ -54,6 +54,15 @@
   text-wrap: balance;
 }
 
+/* A qualifying pull that wouldn't beat the lowest score on Rankings (#1072): keeps the reserved height
+   so the cards below never move, and uses text-xs with tight leading like the public notice. */
+.pack-summary .summary-hof--not-listed {
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+  text-align: center;
+  text-wrap: balance;
+}
+
 .pack-summary .summary-hof:focus {
   outline: none;
 }
