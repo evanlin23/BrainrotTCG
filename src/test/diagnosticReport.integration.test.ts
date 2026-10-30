@@ -1,49 +1,44 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
-import type { Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 
+let fakeFrame: typeof requestAnimationFrame;
+const onFakeFrame = (callback: FrameRequestCallback) => fakeFrame(callback);
+
+type ReportHarness = {
+  unmount: () => Promise<void>;
+  dispose: () => void;
+};
+
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
-let reportRoot: Root | undefined;
+let activeReport: ReportHarness | undefined;
 
 afterEach(async () => {
+  const report = activeReport;
+  activeReport = undefined;
+  const currentApp = app;
+  app = undefined;
+
   try {
     const diagnostics = await import('../game/diagnostics');
     diagnostics.setBrowserDiagnosticCapture(false);
     diagnostics.clearDiagnostics();
-  } catch {
-    // Ignore if diagnostics module is in an unexpected state
-  }
+    Reflect.deleteProperty(navigator, 'clipboard');
+    Reflect.deleteProperty(navigator, 'sendBeacon');
 
-  // jsdom has neither; tests define them on the navigator instance.
-  Reflect.deleteProperty(navigator, 'clipboard');
-  Reflect.deleteProperty(navigator, 'sendBeacon');
+    await report?.unmount();
+    report?.dispose();
 
-  try {
-    if (reportRoot) {
-      const { act } = await import('react');
-      await act(async () => {
-        reportRoot?.unmount();
-      });
-    }
-  } catch {
-    // Ignore unmount error on dirty teardown
+    await currentApp?.dispose();
   } finally {
-    reportRoot = undefined;
-  }
-
-  try {
-    await app?.dispose();
-  } catch {
-    // Ignore dispose error on dirty teardown
-  } finally {
-    app = undefined;
     localStorage.clear();
     sessionStorage.clear();
     history.replaceState(null, '', '/BrainrotTCG/');
     document.body.replaceChildren();
     document.body.className = '';
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   }
@@ -63,34 +58,77 @@ const button = (text: string) => {
 };
 
 const mountReport = async (capturing = false) => {
+  const errors: string[] = [];
+  const blocked = (api: string) => () => {
+    const error = `Unexpected external I/O: ${api}`;
+    errors.push(error);
+    throw new Error(error);
+  };
+
   history.replaceState(null, '', '/BrainrotTCG/');
   localStorage.clear();
   sessionStorage.clear();
-
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+  fakeFrame = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = onFakeFrame;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 
-  // Network guard ensuring report never touches external I/O
-  const blocked = (name: string) => () => { throw new Error(`Unexpected external I/O: ${name}`); };
-  vi.stubGlobal('fetch', vi.fn(blocked('fetch')));
+  const fetchSpy = vi.fn(blocked('fetch'));
+  vi.stubGlobal('fetch', fetchSpy);
+  vi.stubGlobal('WebSocket', class { constructor() { blocked('WebSocket')(); } });
   vi.spyOn(XMLHttpRequest.prototype, 'send').mockImplementation(blocked('XMLHttpRequest'));
+  vi.stubGlobal('indexedDB', undefined);
+  vi.stubGlobal('open', blocked('window.open'));
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  });
+  if ('sendBeacon' in navigator) vi.spyOn(navigator, 'sendBeacon').mockImplementation(blocked('sendBeacon'));
+  vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(blocked('form.submit'));
+  vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(blocked('form.requestSubmit'));
+  for (const method of ['error', 'warn'] as const) {
+    vi.spyOn(console, method).mockImplementation((...args: unknown[]) => errors.push(args.map(String).join(' ')));
+  }
 
   const diagnostics = await import('../game/diagnostics');
   if (capturing) diagnostics.setBrowserDiagnosticCapture(true);
 
-  const { act: reactAct, createElement: reactCreateElement } = await import('react');
-  const { createRoot: reactCreateRoot } = await import('react-dom/client');
-  const { default: Comp } = await import('../components/ui/DiagnosticReport');
+  const React = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { default: MotionProvider } = await import('../components/ui/MotionProvider');
+  const { default: DiagnosticReport } = await import('../components/ui/DiagnosticReport');
 
   const container = document.createElement('div');
-  document.body.appendChild(container);
-  reportRoot = reactCreateRoot(container);
-  await reactAct(async () => {
-    reportRoot!.render(reactCreateElement(Comp, { onClose() {} }));
+  document.body.append(container);
+  const root = createRoot(container);
+  await React.act(async () => {
+    root.render(
+      React.createElement(
+        React.StrictMode,
+        null,
+        React.createElement(MotionProvider, null, React.createElement(DiagnosticReport, { onClose() {} })),
+      ),
+    );
   });
 
-  const interact = async (action: () => void) => { await reactAct(async () => action()); };
-  app = { interact, dispose: async () => {} } as unknown as Awaited<ReturnType<typeof mountedApp>>;
+  const interact = async (action: () => void) => {
+    await React.act(async () => action());
+  };
+
+  activeReport = {
+    unmount: async () => {
+      await React.act(async () => root.unmount());
+      vi.advanceTimersToNextFrame();
+      vi.clearAllTimers();
+      document.body.replaceChildren();
+      document.body.className = '';
+    },
+    dispose: () => {
+      expect(errors, 'unexpected console errors or external I/O').toEqual([]);
+    },
+  };
 
   const text = document.querySelector('textarea')!;
   const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
@@ -98,11 +136,13 @@ const mountReport = async (capturing = false) => {
   const edit = (value: string) => interact(() => { nativeSet.call(text, value); text.dispatchEvent(new Event('input', { bubbles: true })); });
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-  return { text, checkbox, edit, writeText, interact };
+
+  return { text, checkbox, edit, writeText, interact, fetchSpy };
 };
 
 it('previews only sanitized fields, captures optionally, edits and handles clipboard failure without uploading', async () => {
-  const { text, checkbox, edit, interact } = await mountReport();
+  const { text, checkbox, edit, interact, fetchSpy } = await mountReport();
+  const diagnostics = await import('../game/diagnostics');
   expect(JSON.parse(text.value).captureEnabled).toBe(false);
   expect(document.body.textContent).toContain('Event capture is off');
   expect([...document.querySelectorAll('label')].find((label) => label.htmlFor === text.id)?.textContent).toBe('Report details (editable)');
@@ -140,11 +180,11 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   expect(note.textContent).toContain('GitHub requires users to be 13 or older.');
   expect(note.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   await interact(() => button('Clear recorded steps').click());
-  const diagnostics = await import('../game/diagnostics');
   expect(diagnostics.diagnosticSnapshot({}).events).toEqual([]);
   await interact(() => checkbox.click());
   expect(diagnostics.isDiagnosticCaptureEnabled()).toBe(false);
   diagnostics.setBrowserDiagnosticCapture(false);
+  expect(fetchSpy).not.toHaveBeenCalled();
 });
 
 it('opens from the real Settings page as a labelled dialog that never touches the network', async () => {
@@ -206,65 +246,64 @@ it('opens from the real Settings page as a labelled dialog that never touches th
   expect(document.activeElement).toBe(button('Report a problem'));
 });
 
-
 it('keeps a reviewed report when capture consent changes, and still removes recorded steps when opting out', async () => {
-  const { text, checkbox, edit, writeText } = await mountReport();
+  const { text, checkbox, edit, writeText, interact } = await mountReport();
   const diagnostics = await import('../game/diagnostics');
-  await app!.interact(() => checkbox.click());
+  await interact(() => checkbox.click());
   window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
-  await app!.interact(() => button('Refresh details').click());
+  await interact(() => button('Refresh details').click());
   const recorded = JSON.parse(text.value);
   expect(recorded.events).toEqual([{ step: 1, event: 'unhandled-error' }]);
 
   // Redact the route and add a note, then opt out: the edits stay, the recorded steps go.
   await edit(JSON.stringify({ ...recorded, route: 'REDACTED', notes: 'Pack opened twice' }, null, 2));
-  await app!.interact(() => checkbox.click());
+  await interact(() => checkbox.click());
   expect(JSON.parse(text.value)).toMatchObject({ route: 'REDACTED', notes: 'Pack opened twice', captureEnabled: false, events: [] });
   expect(document.body.textContent).toContain('Event capture is off');
   expect(document.body.textContent).toContain('Your edits were kept');
   expect(diagnostics.diagnosticSnapshot({}).events).toEqual([]);
-  await app!.interact(() => button('Copy report').click());
+  await interact(() => button('Copy report').click());
   const copied = writeText.mock.calls[0][0] as string;
   expect(copied).toBe(text.value);
   expect(copied).not.toContain('unhandled-error');
   expect(JSON.parse(copied)).toMatchObject({ route: 'REDACTED', captureEnabled: false });
 
   // Opting back in keeps the edits too and states the new consent truthfully.
-  await app!.interact(() => checkbox.click());
+  await interact(() => checkbox.click());
   expect(JSON.parse(text.value)).toMatchObject({ route: 'REDACTED', notes: 'Pack opened twice', captureEnabled: true, events: [] });
   expect(document.body.textContent).not.toContain('Event capture is off');
 
   // Explicit Refresh details still regenerates the whole report.
   window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
-  await app!.interact(() => button('Refresh details').click());
+  await interact(() => button('Refresh details').click());
   expect(JSON.parse(text.value)).toMatchObject({ route: 'opening', captureEnabled: true, events: [{ step: 1, event: 'unhandled-error' }] });
   expect(text.value).not.toContain('REDACTED');
 
   // Clear recorded steps still empties them.
-  await app!.interact(() => button('Clear recorded steps').click());
+  await interact(() => button('Clear recorded steps').click());
   expect(JSON.parse(text.value).events).toEqual([]);
   expect(diagnostics.diagnosticSnapshot({}).events).toEqual([]);
 });
 
 it('keeps a redacted events field redacted when capture changes', async () => {
-  const { text, checkbox, edit } = await mountReport();
-  await app!.interact(() => checkbox.click());
+  const { text, checkbox, edit, interact } = await mountReport();
+  await interact(() => checkbox.click());
   const { events: _events, ...withoutEvents } = JSON.parse(text.value);
   await edit(JSON.stringify(withoutEvents));
-  await app!.interact(() => checkbox.click());
+  await interact(() => checkbox.click());
   expect(JSON.parse(text.value)).not.toHaveProperty('events');
   expect(JSON.parse(text.value).captureEnabled).toBe(false);
 });
 
 it('blocks copying edited text that is no longer JSON until recorded steps are removed from it', async () => {
-  const { text, checkbox, edit, writeText } = await mountReport();
-  await app!.interact(() => checkbox.click());
+  const { text, checkbox, edit, writeText, interact } = await mountReport();
+  await interact(() => checkbox.click());
   window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
-  await app!.interact(() => button('Refresh details').click());
+  await interact(() => button('Refresh details').click());
   await edit(`I tapped open twice\n${text.value.slice(text.value.indexOf('"events"'))}`);
   expect(button('Copy report').disabled).toBe(false);
 
-  await app!.interact(() => checkbox.click());
+  await interact(() => checkbox.click());
   expect(text.value).toContain('I tapped open twice');
   expect(text.value).toContain('unhandled-error');
   expect(button('Copy report').disabled).toBe(true);
@@ -276,18 +315,18 @@ it('blocks copying edited text that is no longer JSON until recorded steps are r
   await edit('I tapped open twice');
   expect(button('Copy report').disabled).toBe(false);
   expect(document.body.textContent).not.toContain('still has recorded steps');
-  await app!.interact(() => button('Copy report').click());
+  await interact(() => button('Copy report').click());
   expect(writeText).toHaveBeenCalledWith('I tapped open twice');
 });
 
 it('replaces a blocked draft only when the player refreshes details', async () => {
-  const { text, checkbox, edit } = await mountReport();
-  await app!.interact(() => checkbox.click());
+  const { text, checkbox, edit, interact } = await mountReport();
+  await interact(() => checkbox.click());
   window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
   await edit('notes "event": "unhandled-error"');
-  await app!.interact(() => checkbox.click());
+  await interact(() => checkbox.click());
   expect(button('Copy report').disabled).toBe(true);
-  await app!.interact(() => button('Refresh details').click());
+  await interact(() => button('Refresh details').click());
   expect(JSON.parse(text.value)).toMatchObject({ captureEnabled: false, events: [] });
   expect(button('Copy report').disabled).toBe(false);
 });
@@ -295,7 +334,7 @@ it('replaces a blocked draft only when the player refreshes details', async () =
 const before = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 it('puts the privacy notice, the editable draft and Copy report before the optional recording controls', async () => {
-  const { text, checkbox } = await mountReport();
+  const { text, checkbox, interact } = await mountReport();
   const privacy = [...document.querySelectorAll('p')].find((p) => p.textContent!.includes('Never attach a private save'))!;
   const posting = [...document.querySelectorAll('p')].find((p) => p.textContent!.includes('Posting requires a GitHub account'))!;
   const record = document.querySelector<HTMLDetailsElement>('details.diagnostic-record')!;
@@ -327,9 +366,9 @@ it('puts the privacy notice, the editable draft and Copy report before the optio
   expect(document.body.textContent).toContain('Event capture is off');
 
   // Opening it is a normal disclosure, and the summary reports the capture state while it is on.
-  await app!.interact(() => summary.click());
+  await interact(() => summary.click());
   expect(record.open).toBe(true);
-  await app!.interact(() => checkbox.click());
+  await interact(() => checkbox.click());
   expect(summary.textContent).toBe('Record steps to reproduce (on)');
   expect(JSON.parse(text.value).captureEnabled).toBe(true);
 });
