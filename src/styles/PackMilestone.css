@@ -1,5 +1,5 @@
-/* The next goal (#212): one line beside the Card guide link, in the row the guide already takes under the
-   pack (App.tsx), so it adds no height of its own and can't change the pack's size or place, the nav's, or
+/* The next goal (#212): one chip to the right of the Card guide link, in the row the guide already takes under
+   the pack (App.tsx), with the guide kept centred under the pack (see the grid below). It adds no height of its own and can't change the pack's size or place, the nav's, or
    cover the pack, its tear line or the toast. Opening the pack stays the biggest thing on screen. It is
    exactly the row's height (a 44px target): two short lines, a small picture of the reward when it has one,
    and nothing in it moves, so there is no motion to turn off. A row too narrow for it (a 320px
@@ -139,9 +139,37 @@ button.pack-milestone:disabled {
   }
 }
 
+/* The Card guide link stays centred under the pack, with the goal or without it (the owner's call on #212): the row
+   is three columns, the guide alone in the middle one and the goal in the one after it, so the goal can't push the
+   guide aside. The left column stays empty. The goal gets the column's width, so a row too narrow for it on both
+   sides of the guide shows no goal at all (below) rather than shift or squeeze the guide. While an announcement is
+   in the row (News.css) the row keeps its own flex layout, which that chip is sized for. */
+.card-guide-entry:has(> .pack-milestone):not(:has(> .news-banner)) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.card-guide-entry:has(> .pack-milestone):not(:has(> .news-banner)) > :not(.pack-milestone) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.card-guide-entry > .pack-milestone {
+  grid-column: 3;
+  grid-row: 1;
+}
+
 /* The row (Scoring.css) is the container, so the thresholds follow the text size as well as the width. */
 @container card-guide (max-width: 20rem) {
   .pack-milestone {
+    display: none;
+  }
+}
+
+/* A column either side of the centred guide link (about 7.3rem) with a chip that holds a whole name and cue
+   (about 12.5rem) and the gap before it needs about 34rem; below that the goal waits for a wider row. */
+@container card-guide (max-width: 34rem) {
+  .card-guide-entry > .pack-milestone {
     display: none;
   }
 }

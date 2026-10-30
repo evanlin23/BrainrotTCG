@@ -107,7 +107,7 @@ const holdsText = (page: Page) => page.locator('.pack-milestone').evaluate((chip
 /** What the chip says on screen about its own goal, by the kind of goal it is. */
 const expectedCue = /^(Cosmetic, odds unchanged · Lv \d+|\d+\/\d+ (cards|as holos), \d+ to go|Every reward is unlocked)$/;
 
-for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 568, 100], [320, 568, 200]] as const) {
+for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 844, 100], [360, 640, 100], [320, 568, 100], [320, 568, 200]] as const) {
   test(`sits in the guide's row without moving anything on a ${width} x ${height} phone at ${percent}% text`, async ({ page, baseURL }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
     const errors = await open(page, baseURL!, { width, height });
@@ -120,8 +120,8 @@ for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 
     expect(await layout(page)).toEqual(withNews);
 
     const goal = page.locator('.card-guide-entry .pack-milestone');
-    if (width === 320) {
-      // No room beside the guide link: it shows nothing rather than squeeze it.
+    if (width < 580) {
+      // No room beside the guide link, which stays centred under the pack (pack-guide-centred.spec.ts): it shows nothing rather than shift or squeeze it.
       await expect(goal).toBeHidden();
     } else {
       await expect(goal).toBeVisible();
@@ -160,7 +160,7 @@ for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 
   });
 }
 
-for (const [width, height] of [[390, 844], [360, 640]] as const) {
+for (const [width, height] of [[600, 900], [580, 900]] as const) {
   test(`keeps a card back's proportions on a ${width} x ${height} phone once the Profile styles have loaded`, async ({ page, baseURL }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
     const errors = await open(page, baseURL!, { width, height });
@@ -190,7 +190,7 @@ for (const [width, height] of [[390, 844], [360, 640]] as const) {
 
 // The chip is a fixed 44px but its text is not: at enlarged text on a roomy screen (the row is still wide enough to show it)
 // the second line gives way, and nothing is clipped or left under the progress bar.
-for (const [width, height, percent] of [[768, 1024, 125], [768, 1024, 150], [768, 1024, 200], [1280, 800, 150], [1280, 800, 200]] as const) {
+for (const [width, height, percent] of [[768, 1024, 125], [1280, 800, 150], [1280, 800, 200]] as const) {
   test(`holds its text in 44px on a ${width} x ${height} screen at ${percent}% text`, async ({ page, baseURL }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop-chromium', 'A desktop layout check; the window is set here.');
     const errors = await open(page, baseURL!, { width, height });
