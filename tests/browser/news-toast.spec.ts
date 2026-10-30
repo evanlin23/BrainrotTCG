@@ -57,16 +57,22 @@ async function untilNewsToast(page: Page) {
   await expect(newsToast(page)).toBeVisible();
 }
 
-/** Sends each toast away, one at a time, until none comes in after the last (the next one is in within the wait). */
+/**
+ * Sends each of the pack's toasts away, one at a time, until none is left. The pack's first toast is waited for (a pack
+ * always has one); after that, sending one away brings the next in at once, so once the browser is idle again a toast
+ * that is not there is one that is not coming. No timed wait stands in for "no more".
+ */
 async function sendAwayEveryToast(page: Page) {
+  await expect(page.locator('.toast')).toHaveCount(1, { timeout: 15000 });
   for (let step = 0; step < 8; step++) {
-    const current = page.locator('.toast').first();
-    if (!(await current.waitFor({ timeout: 3000 }).then(() => true, () => false))) return;
-    const handle = await current.elementHandle();
-    const words = await handle!.evaluate((el) => el.textContent);
+    const handle = await page.$('.toast');
+    if (!handle) return;
+    const words = await handle.evaluate((el) => el.textContent);
     await page.locator('.toast-dismiss').click();
     await page.waitForFunction(([el, was]) => !el!.isConnected || el!.textContent !== was, [handle, words] as const);
+    await page.evaluate(() => new Promise<void>((done) => requestIdleCallback(() => done())));
   }
+  throw new Error('The pack kept sending toasts');
 }
 
 /** A returning player with unread news, one pack put away, and the news toast on screen. */
@@ -339,8 +345,11 @@ test('waits for the save warning: the toast would sit over the banner and its bu
   const banner = page.locator('.save-warning[role="alert"]');
   await expect(banner).toBeVisible();
   await putPackAway(page);
-  // The pack's own toasts show as they always do (the toast system's rule); the news is the one an unread entry can hold back.
-  await expect(page.locator('.toast')).toHaveCount(1, { timeout: 15000 });
+  // The pack's own toasts show as they always do (the toast system's rule); the news is the one the banner holds back, so
+  // send every one of them away: nothing is then left on screen, and the news, which is queued, must not take their place.
+  await sendAwayEveryToast(page);
+  await page.evaluate(() => new Promise<void>((done) => requestIdleCallback(() => done())));
+  await expect(page.locator('.toast')).toHaveCount(0);
   expect(await shownToasts(page)).not.toContain("What's new");
   await expect(banner).toBeVisible();
   // Hiding the note clears the warning: the news follows the pack's toasts, and the banner is gone from under it.

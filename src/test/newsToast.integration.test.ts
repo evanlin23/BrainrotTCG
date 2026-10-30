@@ -228,3 +228,38 @@ it('waits for a pack to be put away: nothing is read or shown over the tear and 
   await app.until('the news toast follows', () => expect(toastTexts().join(' | ')).toContain('Open Card API'), 60_000);
   expect(document.querySelectorAll('.toast')).toHaveLength(1);
 });
+
+it('waits behind the save warning: no news toast covers the banner and its buttons, and it comes in once the note is hidden', async () => {
+  const lostSet = JSON.stringify({ raw: '{"lost-set/ghost":null}', player: null });
+  const mounted = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING, [STORAGE_KEYS.COLLECTION_RECOVERY]: lostSet }, { news: NEWS });
+  app = mounted;
+  await app.mount();
+  const banner = () => $('p.save-warning[role="alert"]');
+  const hideNote = () => [...document.querySelectorAll<HTMLButtonElement>('.save-warning button')].find((el) => el.textContent === 'Hide note');
+  await app.until('the save warning shows', () => expect(banner()).not.toBeNull());
+  expect(hideNote()).toBeDefined();
+
+  await putPackAway();
+  await press(document.querySelector('.toast-dismiss'));
+  await app.until('the news was asked for once the pack was away', () => expect(mounted.newsLoads()).toBe(1));
+  // The pack's own first toasts (its achievements, its level-up) come before the news in the queue even without a banner.
+  // Send each away as it shows, so the only thing left holding the news back is the banner: a loop on simulated time
+  // that ends when nothing more comes (or, were the banner no obstacle, when the news toast is the one on screen).
+  for (let toasts = 0; toasts < 6; toasts += 1) {
+    await app.settle(400);
+    const toast = $('.toast');
+    if (!toast || newsToast()) break;
+    await press(toast.querySelector('.toast-dismiss'));
+  }
+  // Everything has settled and the banner is still up: the news stays queued instead of covering it.
+  await app.settle(500);
+  expect(banner()).not.toBeNull();
+  expect(newsToast()).toBeUndefined();
+  expect(mounted.newsLoads()).toBe(1);
+  expect(stored()).toBeNull();
+
+  await press(hideNote());
+  await app.until('the banner is gone', () => expect(banner()).toBeNull());
+  await app.until('the news toast follows', () => expect(newsToast()?.textContent).toContain('Open Card API'), 60_000);
+  expect(mounted.newsLoads()).toBe(1);
+});
