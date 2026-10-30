@@ -6,7 +6,7 @@ interface NotQualifyingNoteProps {
 }
 
 /**
- * The sentence that says why a pull has no Submit (NOT_QUALIFYING's or NOT_BEATING_FLOOR's words), with "How Rankings work" a
+ * The sentence that says why a pull has no Submit (NOT_QUALIFYING's or NOT_BEATING_FLOOR_LEAD's words), with "How Rankings work" a
  * button that goes to that section of the Rankings page. Without somewhere to go it is plain text.
  */
 const NotQualifyingNote = ({ lead = NOT_QUALIFYING_LEAD, onOpenHelp }: NotQualifyingNoteProps) => (

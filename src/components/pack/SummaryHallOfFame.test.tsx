@@ -157,7 +157,7 @@ describe('the Hall of Fame line on the pack summary', () => {
     vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
     try {
       const el = await render();
-      expect(el?.textContent).toBe("Qualifies for Rankings, but wouldn't beat the lowest listed score. See How Rankings work.");
+      expect(el?.textContent).toBe("Qualifies, but wouldn't beat the lowest listed score. See How Rankings work.");
       expect(button()).toBeNull();
       expect(el?.classList.contains('summary-hof--not-listed')).toBe(true);
       expect(el?.getAttribute('aria-hidden')).toBeNull();
@@ -184,7 +184,7 @@ describe('the Hall of Fame line on the pack summary', () => {
       expect(note.querySelectorAll('button')).toHaveLength(1);
       expect(help.textContent).toBe('How Rankings work');
       expect(help.type).toBe('button');
-      expect(note.textContent).toBe("Qualifies for Rankings, but wouldn't beat the lowest listed score. See How Rankings work.");
+      expect(note.textContent).toBe("Qualifies, but wouldn't beat the lowest listed score. See How Rankings work.");
       expect(open).not.toHaveBeenCalled();
       act(() => help.click());
       expect(open).toHaveBeenCalledTimes(1);

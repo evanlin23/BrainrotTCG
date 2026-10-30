@@ -52,6 +52,7 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
   }, [qualifies]);
   const listed = !!list?.some((e) => e.id === id);
   const wouldJoin = list ? wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list, utcDay(new Date().toISOString())) : null;
+  const [submitState] = useHallOfFameSubmit(proof, id, target.score.score);
 
   if (!shareable) {
     return (
@@ -63,6 +64,13 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
       </Sheet>
     );
   }
+
+  const handleOpenHelp = onOpenRankingsHelp
+    ? () => {
+        onClose();
+        onOpenRankingsHelp();
+      }
+    : undefined;
 
   return (
     <SharePreviewSheet
@@ -98,31 +106,14 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
             <Info aria-hidden="true" />{' '}
             {/* One flex item, so the sentence stays whole around its link. */}
             <span>
-              <NotQualifyingNote
-                onOpenHelp={
-                  onOpenRankingsHelp &&
-                  (() => {
-                    onClose();
-                    onOpenRankingsHelp();
-                  })
-                }
-              />
+              <NotQualifyingNote onOpenHelp={handleOpenHelp} />
             </span>
           </p>
-        ) : wouldJoin === false ? (
+        ) : submitState === 'idle' && wouldJoin === false ? (
           <p className="share-note">
             <Info aria-hidden="true" />{' '}
             <span>
-              <NotQualifyingNote
-                lead={NOT_BEATING_FLOOR_LEAD}
-                onOpenHelp={
-                  onOpenRankingsHelp &&
-                  (() => {
-                    onClose();
-                    onOpenRankingsHelp();
-                  })
-                }
-              />
+              <NotQualifyingNote lead={NOT_BEATING_FLOOR_LEAD} onOpenHelp={handleOpenHelp} />
             </span>
           </p>
         ) : (

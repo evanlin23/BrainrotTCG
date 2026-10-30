@@ -16,6 +16,5 @@ export const NOT_QUALIFYING_LEAD = `Doesn't qualify for Rankings, which take ${Q
 export const NOT_QUALIFYING = `${NOT_QUALIFYING_LEAD}${RANKINGS_HELP}.`;
 
 /** Why a pull that qualifies has no Submit because its score cannot beat the lowest listed score (#1072). */
-export const NOT_BEATING_FLOOR_LEAD = "Qualifies for Rankings, but wouldn't beat the lowest listed score. See ";
-export const NOT_BEATING_FLOOR = `${NOT_BEATING_FLOOR_LEAD}${RANKINGS_HELP}.`;
+export const NOT_BEATING_FLOOR_LEAD = "Qualifies, but wouldn't beat the lowest listed score. See ";
 

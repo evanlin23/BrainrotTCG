@@ -74,7 +74,7 @@ const SummaryHallOfFame = ({ pack, score, onOpenRankingsHelp }: { pack: PullRef;
   // Retains the reserved min-height so the cards below never move.
   if (state === 'idle' && list && !wouldJoinHallOfFame(pull, list, utcDay(now))) {
     return (
-      <p className="summary-hof summary-hof--not-listed" ref={lineRef} tabIndex={-1}>
+      <p className="summary-hof summary-hof--not-listed">
         <span>
           <NotQualifyingNote lead={NOT_BEATING_FLOOR_LEAD} onOpenHelp={onOpenRankingsHelp} />
         </span>

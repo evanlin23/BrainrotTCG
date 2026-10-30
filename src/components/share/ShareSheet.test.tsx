@@ -154,7 +154,7 @@ describe('Hall of Fame in the pack share sheet', () => {
       expect(document.querySelector('.share-hof')).toBeNull();
       const why = [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('lowest listed score'))!;
       expect(why.textContent?.trim()).toBe(
-        "Qualifies for Rankings, but wouldn't beat the lowest listed score. See How Rankings work.",
+        "Qualifies, but wouldn't beat the lowest listed score. See How Rankings work.",
       );
       expect(inOrder(['.share-actions-main', why, '.share-preview', '.share-pack-cards'])).toBe(true);
     } finally {
@@ -179,7 +179,7 @@ describe('Hall of Fame in the pack share sheet', () => {
       const help = note.querySelector('button')!;
       expect(help.textContent).toBe('How Rankings work');
       expect(note.textContent?.trim()).toBe(
-        "Qualifies for Rankings, but wouldn't beat the lowest listed score. See How Rankings work.",
+        "Qualifies, but wouldn't beat the lowest listed score. See How Rankings work.",
       );
       expect(calls).toEqual([]);
       act(() => help.click());
