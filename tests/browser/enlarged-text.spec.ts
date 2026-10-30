@@ -70,7 +70,7 @@ for (const percent of [100, 200]) {
     await scaleText(page, percent);
     // The Clear search and Clear filters buttons only exist while something is filtered.
     await controls.getByRole('searchbox').fill('zzzz');
-    await controls.getByRole('combobox', { name: 'Show cards' }).selectOption('NOT_FOUND_YET');
+    await controls.getByRole('combobox', { name: 'Show' }).selectOption('NOT_FOUND_YET');
     await expect(cards.getByRole('status')).toHaveText('No cards match the active filters.');
     await insidePage(page, cards, 320);
     await unclipped(controls);
