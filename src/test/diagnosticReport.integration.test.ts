@@ -1,17 +1,52 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
+import type { Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
+let reportRoot: Root | undefined;
+
 afterEach(async () => {
-  const diagnostics = await import('../game/diagnostics');
-  diagnostics.setBrowserDiagnosticCapture(false);
+  try {
+    const diagnostics = await import('../game/diagnostics');
+    diagnostics.setBrowserDiagnosticCapture(false);
+    diagnostics.clearDiagnostics();
+  } catch {
+    // Ignore if diagnostics module is in an unexpected state
+  }
+
   // jsdom has neither; tests define them on the navigator instance.
   Reflect.deleteProperty(navigator, 'clipboard');
   Reflect.deleteProperty(navigator, 'sendBeacon');
-  await app?.dispose();
-  app = undefined;
+
+  try {
+    if (reportRoot) {
+      const { act } = await import('react');
+      await act(async () => {
+        reportRoot?.unmount();
+      });
+    }
+  } catch {
+    // Ignore unmount error on dirty teardown
+  } finally {
+    reportRoot = undefined;
+  }
+
+  try {
+    await app?.dispose();
+  } catch {
+    // Ignore dispose error on dirty teardown
+  } finally {
+    app = undefined;
+    localStorage.clear();
+    sessionStorage.clear();
+    history.replaceState(null, '', '/BrainrotTCG/');
+    document.body.replaceChildren();
+    document.body.className = '';
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
 });
 /** The text of every element the textarea's aria-describedby names, which must all exist. */
 const description = (element: Element) => (element.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
@@ -27,15 +62,47 @@ const button = (text: string) => {
   return node!;
 };
 
-it('previews only sanitized fields, captures optionally, edits and handles clipboard failure without uploading', async () => {
-  app = await mountedApp({});
-  await app.mount(async () => {
-    const { createElement } = await import('react');
-    const { default: DiagnosticReport } = await import('../components/ui/DiagnosticReport');
-    return { default: () => createElement(DiagnosticReport, { onClose() {} }) };
-  });
+const mountReport = async (capturing = false) => {
+  history.replaceState(null, '', '/BrainrotTCG/');
+  localStorage.clear();
+  sessionStorage.clear();
+
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+
+  // Network guard ensuring report never touches external I/O
+  const blocked = (name: string) => () => { throw new Error(`Unexpected external I/O: ${name}`); };
+  vi.stubGlobal('fetch', vi.fn(blocked('fetch')));
+  vi.spyOn(XMLHttpRequest.prototype, 'send').mockImplementation(blocked('XMLHttpRequest'));
+
   const diagnostics = await import('../game/diagnostics');
+  if (capturing) diagnostics.setBrowserDiagnosticCapture(true);
+
+  const { act: reactAct, createElement: reactCreateElement } = await import('react');
+  const { createRoot: reactCreateRoot } = await import('react-dom/client');
+  const { default: Comp } = await import('../components/ui/DiagnosticReport');
+
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  reportRoot = reactCreateRoot(container);
+  await reactAct(async () => {
+    reportRoot!.render(reactCreateElement(Comp, { onClose() {} }));
+  });
+
+  const interact = async (action: () => void) => { await reactAct(async () => action()); };
+  app = { interact, dispose: async () => {} } as unknown as Awaited<ReturnType<typeof mountedApp>>;
+
   const text = document.querySelector('textarea')!;
+  const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+  const edit = (value: string) => interact(() => { nativeSet.call(text, value); text.dispatchEvent(new Event('input', { bubbles: true })); });
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  return { text, checkbox, edit, writeText, interact };
+};
+
+it('previews only sanitized fields, captures optionally, edits and handles clipboard failure without uploading', async () => {
+  const { text, checkbox, edit, interact } = await mountReport();
   expect(JSON.parse(text.value).captureEnabled).toBe(false);
   expect(document.body.textContent).toContain('Event capture is off');
   expect([...document.querySelectorAll('label')].find((label) => label.htmlFor === text.id)?.textContent).toBe('Report details (editable)');
@@ -44,27 +111,25 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   localStorage.setItem('brainrot-player-v1', 'PRIVATE_KEY_NEVER_SHARE');
   localStorage.setItem('brainrot-collection-recovery-v1', JSON.stringify({ raw: 'PRIVATE_RECOVERY_PAYLOAD', player: '{"secretKey":"PRIVATE_KEY_NEVER_SHARE"}' }));
   history.replaceState(null, '', '#/pull/PRIVATE_PROOF_NEVER_SHARE');
-  await app.interact(() => button('Refresh details').click());
+  await interact(() => button('Refresh details').click());
   expect(text.value).not.toContain('PRIVATE_');
-  const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-  await app.interact(() => checkbox.click());
+  await interact(() => checkbox.click());
   expect(document.body.textContent).not.toContain('Event capture is off');
   expect(description(text)).not.toContain('Event capture is off');
   expect(description(text)).toContain('rough guesses');
   window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
-  await app.interact(() => button('Refresh details').click());
+  await interact(() => button('Refresh details').click());
   expect(JSON.parse(text.value).events).toEqual([{ step: 1, event: 'unhandled-error' }]);
   expect(text.value).not.toContain('PRIVATE_');
-  const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
-  await app.interact(() => { nativeSet.call(text, 'Reviewed report'); text.dispatchEvent(new Event('input', { bubbles: true })); });
+  await edit('Reviewed report');
   const writeText = vi.fn().mockRejectedValue(new Error('PRIVATE_CLIPBOARD_ERROR'));
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-  await app.interact(() => button('Copy report').click());
+  await interact(() => button('Copy report').click());
   expect(writeText).toHaveBeenCalledWith('Reviewed report');
   expect(document.body.textContent).toContain('Copy was blocked');
   expect(document.body.textContent).not.toContain('PRIVATE_');
   writeText.mockResolvedValue(undefined);
-  await app.interact(() => button('Copy report').click());
+  await interact(() => button('Copy report').click());
   expect(document.body.textContent).toContain('Copied the report');
   const link = document.querySelector<HTMLAnchorElement>('a')!;
   expect(link.href).toBe('https://github.com/evanlin23/BrainrotTCG/issues/new?template=bug.yml');
@@ -74,9 +139,10 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   const note = Array.from(document.querySelectorAll('p')).find((p) => p.textContent!.includes('Posting requires a GitHub account'))!;
   expect(note.textContent).toContain('GitHub requires users to be 13 or older.');
   expect(note.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  await app.interact(() => button('Clear recorded steps').click());
+  await interact(() => button('Clear recorded steps').click());
+  const diagnostics = await import('../game/diagnostics');
   expect(diagnostics.diagnosticSnapshot({}).events).toEqual([]);
-  await app.interact(() => checkbox.click());
+  await interact(() => checkbox.click());
   expect(diagnostics.isDiagnosticCaptureEnabled()).toBe(false);
   diagnostics.setBrowserDiagnosticCapture(false);
 });
@@ -140,22 +206,6 @@ it('opens from the real Settings page as a labelled dialog that never touches th
   expect(document.activeElement).toBe(button('Report a problem'));
 });
 
-const mountReport = async (capturing = false) => {
-  app = await mountedApp({});
-  await app.mount(async () => {
-    if (capturing) (await import('../game/diagnostics')).setBrowserDiagnosticCapture(true);
-    const { createElement } = await import('react');
-    const { default: DiagnosticReport } = await import('../components/ui/DiagnosticReport');
-    return { default: () => createElement(DiagnosticReport, { onClose() {} }) };
-  });
-  const text = document.querySelector('textarea')!;
-  const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-  const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
-  const edit = (value: string) => app!.interact(() => { nativeSet.call(text, value); text.dispatchEvent(new Event('input', { bubbles: true })); });
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-  return { text, checkbox, edit, writeText };
-};
 
 it('keeps a reviewed report when capture consent changes, and still removes recorded steps when opting out', async () => {
   const { text, checkbox, edit, writeText } = await mountReport();
