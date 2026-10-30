@@ -329,7 +329,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     onCutComplete: handleCutComplete,
     isOpening,
     isPackCut: isPackCut && !leavingOpen,
-    volume: effectsVolume,
+    volume: leavingOpen ? 0 : effectsVolume,
     particlesEnabled: settings.particlesEnabled,
     disabled: disabled || openBlocked,
     onMiss: nudgeMiss,
