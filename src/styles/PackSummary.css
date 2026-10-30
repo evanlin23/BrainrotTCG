@@ -45,13 +45,27 @@
 }
 
 /* A solid medal: the all-time best (Spec 2 on #757 keeps the outline for a per-set best). The disc is
-   filled and its "1" drawn in the ink that goes on yellow. */
-.pack-summary .pack-headline-record svg circle {
+   filled and its "1" drawn in the ink that goes on yellow. This leans on how lucide's Medal is drawn
+   (lucide-react 1.61.0, the version in package-lock.json): the disc is its only circle, drawn after the
+   ribbon so its fill covers the ribbon's ends, and the "1" is its last path. Check it on a lucide upgrade. */
+.pack-summary .pack-headline-record:not(.pack-headline-record--set) svg circle {
   fill: currentColor;
 }
 
-.pack-summary .pack-headline-record svg path:last-of-type {
+.pack-summary .pack-headline-record:not(.pack-headline-record--set) svg path:last-of-type {
   stroke: var(--brand-ink);
+}
+
+/* A set best keeps the outlined medal and stays one line, as tall as NEW BEST, so the one-screen summary
+   still fits: a long set name is cut short on screen (a screen reader reads it whole). */
+.pack-summary .pack-headline-record--set {
+  white-space: nowrap;
+}
+
+.pack-summary .pack-headline-record-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pack-summary .pack-headline-previous {

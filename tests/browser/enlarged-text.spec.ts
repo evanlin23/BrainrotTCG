@@ -168,3 +168,29 @@ for (const width of [320, 390]) {
     });
   }
 }
+
+// Personal records (#1287): the fixture's ten 1,020-point packs, all on one day, give every record a
+// value to beat. The book's cells wrap to one column instead of running off the page, and no value or
+// detail line is clipped.
+for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }]) {
+  for (const percent of [100, 200]) {
+    test(`Profile: Personal records fit a ${viewport.width}x${viewport.height} phone at ${percent}% text (#1287)`, { tag: '@mobile-only' }, async ({ page, baseURL }) => {
+      await page.setViewportSize(viewport);
+      const errors = await monitor(page, baseURL!, 10, { returning: true });
+      await page.goto('./#/profile');
+      const book = pageNamed(page, 'Profile').getByRole('region', { name: 'Personal records', exact: true });
+      await expect(book).toBeVisible();
+      await expect(book).toContainText('Beat 10 packs to set it');
+      await expect(book).toContainText('Beat 1,020 to set it');
+      await scaleText(page, percent);
+      await book.scrollIntoViewIfNeeded();
+      await insidePage(page, book, viewport.width);
+      await unclipped(book);
+      // It sits between the stats and Achievements, under the page's one heading level.
+      const headings = await pageNamed(page, 'Profile').getByRole('heading', { level: 2 }).allTextContents();
+      expect(headings.indexOf('Personal records')).toBeGreaterThan(headings.indexOf('Level and stats'));
+      expect(headings.indexOf('Personal records')).toBeLessThan(headings.indexOf('Achievements'));
+      expect(errors).toEqual([]);
+    });
+  }
+}
