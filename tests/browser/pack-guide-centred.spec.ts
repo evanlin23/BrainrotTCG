@@ -12,9 +12,6 @@ async function open(page: Page, baseURL: string, size: { width: number; height: 
   const errors = await monitor(page, baseURL, 1, { returning: true });
   await page.goto('./');
   await expect(page.locator('.card-guide-link')).toBeVisible();
-  // An unread announcement has the row first (its own layout, News.css); this is about the goal, so take it out.
-  await page.evaluate(() => document.querySelector('.news-banner')?.remove());
-  await expect(page.locator('.news-banner')).toHaveCount(0);
   await expectStill(page.locator('.pack-display'), 'the pack has settled');
   return errors;
 }

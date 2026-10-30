@@ -1,7 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
-import { afterPackArt, packArtSettled } from './packArt';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The module settles once and stays settled, so each test loads its own copy: otherwise whichever
+// test runs second sees the art already settled (shuffled order, #1122).
+let afterPackArt: typeof import('./packArt').afterPackArt;
+let packArtSettled: typeof import('./packArt').packArtSettled;
 
 describe('afterPackArt', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    ({ afterPackArt, packArtSettled } = await import('./packArt'));
+  });
+
   it('holds tasks until the sealed pack art settles, then runs them and any later ones (#776)', async () => {
     const early = vi.fn();
     afterPackArt(early);

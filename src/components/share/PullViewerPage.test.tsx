@@ -45,6 +45,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.mocked(previewFor).mockReset();
+  // A once-value a test queued and never consumed would answer the next test's check, so no test starts with one waiting.
+  vi.mocked(checkPull).mockReset();
 });
 
 const subtitle = async (name: string) => {

@@ -4,8 +4,8 @@
    toast. Opening the pack stays the biggest thing on screen. It is exactly the row's height (a 44px target):
    two short lines and a small picture of the reward when it has one (one line, no picture on a phone, where
    the column beside the centred guide is narrow), and nothing in it moves, so there is no motion to turn
-   off. A row too narrow even for that (a 320px phone, enlarged text), a short landscape screen and a row that already shows an announcement (News.css,
-   which comes first in the row) show nothing rather than squeeze the guide link. */
+   off. A row too narrow even for that (a 320px phone, enlarged text) and a short landscape screen show
+   nothing rather than squeeze the guide link. */
 .pack-milestone {
   position: relative;
   flex: 1 1 0;
@@ -142,14 +142,13 @@ button.pack-milestone:disabled {
 
 /* The Card guide link stays centred under the pack, with the goal or without it (the owner's call on #212): the row
    is three columns, the guide alone in the middle one and the goal in the one after it, so the goal can't push the
-   guide aside. The left column stays empty. While an announcement is in the row (News.css) the row keeps its own
-   flex layout, which that chip is sized for. */
-.card-guide-entry:has(> .pack-milestone):not(:has(> .news-banner)) {
+   guide aside. The left column stays empty. */
+.card-guide-entry:has(> .pack-milestone) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 }
 
-.card-guide-entry:has(> .pack-milestone):not(:has(> .news-banner)) > :not(.pack-milestone) {
+.card-guide-entry:has(> .pack-milestone) > :not(.pack-milestone) {
   grid-column: 2;
   grid-row: 1;
 }
@@ -183,11 +182,6 @@ button.pack-milestone:disabled {
   .card-guide-entry > .pack-milestone .pack-milestone-detail {
     display: none;
   }
-}
-
-/* An announcement is in the row: it goes first, and the goal waits until it is dismissed. */
-.news-banner ~ .pack-milestone {
-  display: none;
 }
 
 @media (forced-colors: active) {
