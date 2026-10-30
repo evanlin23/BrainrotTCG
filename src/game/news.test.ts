@@ -8,9 +8,16 @@ import {
   getLatestUnreadNews,
   isNewsDismissed,
   isValidNewsItem,
+  isNewsToastId,
   loadNews,
+  markNewsRead,
+  newestFirst,
+  newsTag,
+  newsToast,
+  newsToastId,
   type NewsItem,
   parseNews,
+  readNewsToasts,
 } from './news';
 
 describe('news data & validation', () => {
@@ -97,5 +104,53 @@ describe('news data & validation', () => {
     expect(new Set(items.map((item) => item.id)).size).toBe(items.length);
     const dates = items.map((item) => item.date);
     expect(dates).toEqual([...dates].sort().reverse());
+  });
+
+  it('puts entries newest first by date, keeping the file\'s order within a day', () => {
+    const item = (id: string, date: string): NewsItem => ({ id, title: id, date, summary: id });
+    const sorted = parseNews([item('old', '2026-10-01'), item('new-a', '2026-10-27'), item('mid', '2026-10-25'), item('new-b', '2026-10-27')]);
+    expect(sorted.map((entry) => entry.id)).toEqual(['new-a', 'new-b', 'mid', 'old']);
+    expect(newestFirst([])).toEqual([]);
+  });
+
+  it('labels an entry by its tag, else its category, else News', () => {
+    const base = { id: 'a', title: 'A', date: '2026-10-27', summary: 'A' };
+    expect(newsTag({ ...base, tag: 'Feature', category: 'event' })).toBe('Feature');
+    expect(newsTag({ ...base, category: 'changelog' })).toBe('Changelog');
+    expect(newsTag({ ...base, category: 'event' })).toBe('Event');
+    expect(newsTag(base)).toBe('News');
+  });
+
+  it('makes a toast of an entry that opens the page, and reads it back out of the toast ids', () => {
+    const entry: NewsItem = { id: 'update-1', title: 'Update 1', date: '2026-10-27', summary: 'What changed.' };
+    expect(newsToast(entry)).toEqual({ id: newsToastId('update-1'), kicker: "What's new", name: 'Update 1', description: 'What changed.', opens: 'news' });
+    expect(isNewsToastId(newsToastId('update-1'))).toBe(true);
+    expect(isNewsToastId('level-2')).toBe(false);
+    expect(isNewsToastId('pack-kept-1')).toBe(false);
+
+    readNewsToasts(['level-2', 'pack-kept-1']);
+    expect(getDismissedNewsId()).toBeNull();
+    readNewsToasts(['level-2', newsToastId('update-1')]);
+    expect(isNewsDismissed('update-1')).toBe(true);
+  });
+
+  it('reads the newest entry when the page is opened, and nothing when there is none', () => {
+    markNewsRead([]);
+    expect(getDismissedNewsId()).toBeNull();
+    markNewsRead([{ id: 'latest', title: 'L', date: '2026-10-27', summary: 'L' }, { id: 'older', title: 'O', date: '2026-10-25', summary: 'O' }]);
+    expect(getDismissedNewsId()).toBe('latest');
+  });
+
+  it('shows the toast once per visit even when storage refuses the reading', () => {
+    const entry: NewsItem = { id: 'update-1', title: 'Update 1', date: '2026-10-27', summary: 'What changed.' };
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    try {
+      readNewsToasts([newsToastId(entry.id)]);
+    } finally {
+      setItem.mockRestore();
+    }
+    expect(getLatestUnreadNews([entry])).toBeNull();
   });
 });

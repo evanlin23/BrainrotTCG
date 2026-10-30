@@ -11,6 +11,7 @@ import ProfileSummary from './ProfileSummary';
 import PackCacheNote from './PackCacheNote';
 import PlayerSection from './PlayerSection';
 import PullRow from './PullRow';
+import RecordBook from './RecordBook';
 import RewardsSection from './RewardsSection';
 import SubmittedBadge from './SubmittedBadge';
 import AchievementsSection from '../achievements/AchievementsSection';
@@ -19,6 +20,7 @@ import { renderPlayerCard } from '../../game/playerCard';
 import { getLatestSet } from '../../content/sets';
 import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
 import { computeDroughtCounters } from '../../game/droughtCounters';
+import { packMedals, recordBook } from '../../game/personalRecords';
 import { QUALIFY_RULE } from '../ui/rankingsRule';
 import type { BestPackStats } from '../../game/bestSources';
 import { STORAGE_KEYS } from '../../constants';
@@ -133,6 +135,14 @@ const ProfilePage = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [history, player.publicKeyHex, reopenRuns, packCache],
   );
+  // Personal records and the medals packs keep, from this player's own packs; recounted on the same
+  // signals, since holos and droughts read saved cards as they arrive.
+  const records = useMemo(
+    () => recordBook(history, player.publicKeyHex),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [history, player.publicKeyHex, reopenRuns, packCache],
+  );
+  const medals = useMemo(() => packMedals(history, player.publicKeyHex), [history, player.publicKeyHex]);
   // Until saved packs are read, a pack not in memory yet isn't one this device lacks.
   const unopened = mine?.cache === 'ready' ? mine.missing - mine.filled : 0;
   // A best card is on its way only while a read is: the saved packs loading, or their Best cards being weighed
@@ -311,6 +321,8 @@ const ProfilePage = ({
           )
         )}
 
+        {history.length > 0 && <RecordBook book={records} cardsPending={mine?.cache === 'loading'} />}
+
         <AchievementsSection
           unlockedAchievements={unlockedAchievements}
           progress={achievementProgress}
@@ -367,6 +379,7 @@ const ProfilePage = ({
                     score={entry.score}
                     meta={timeAgo(entry.openedAt)}
                     worthy={isHallOfFameWorthy(entry)}
+                    medal={medals.get(entry)}
                     badge={<SubmittedBadge entry={entry} />}
                     onClick={() => openEntry(entry)}
                   />

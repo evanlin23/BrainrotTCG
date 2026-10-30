@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { dismissShippedNews, expectSummaryTakesClicks, monitor, recordShownToasts } from './support';
+import { expectSummaryTakesClicks, monitor, recordShownToasts } from './support';
 
 /**
  * The achievement toast on the home screen (#803). The first visit back after a pack's summary still has
@@ -74,8 +74,6 @@ const placed = (page: Page) => page.evaluate((selectors) => selectors.flatMap((s
 async function toSummary(page: Page, baseURL: string) {
   await recordShownToasts(page, { hold: true });
   const errors = await monitor(page, baseURL);
-  // The next goal gives way to an unread announcement: with it read, the goal is on screen wherever the row has room.
-  await dismissShippedNews(page);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   await page.getByRole('button', { name: /^Open pack/ }).focus();

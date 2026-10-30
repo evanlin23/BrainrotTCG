@@ -2,13 +2,14 @@
  * The app's pages, one per hash route. Opening packs is the default: no hash at all. Shared links
  * (#/pull/<proof>, #/profile/<id>) aren't pages: they open a viewer sheet over whichever page is showing.
  */
-export type Page = 'open' | 'cards' | 'rankings' | 'profile' | 'settings';
+export type Page = 'open' | 'cards' | 'rankings' | 'profile' | 'settings' | 'news';
 
 const PAGES: ReadonlyMap<string, Exclude<Page, 'open'>> = new Map([
   ['#/cards', 'cards'],
   ['#/rankings', 'rankings'],
   ['#/profile', 'profile'],
   ['#/settings', 'settings'],
+  ['#/news', 'news'],
 ]);
 
 /** The page a hash names, matched exactly (`#/profile/<id>` is a shared profile, not your own). */
@@ -28,6 +29,7 @@ export const PAGE_TITLES: Record<Exclude<Page, 'open'>, string> = {
   rankings: 'Rankings - Brainrot TCG',
   profile: 'Profile - Brainrot TCG',
   settings: 'Settings - Brainrot TCG',
+  news: "What's new - Brainrot TCG",
 };
 
 /** Fired after something else in the app adds a history entry (a pack's), so the route knows what's current. */

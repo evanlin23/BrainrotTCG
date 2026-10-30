@@ -176,6 +176,8 @@ afterEach(async () => {
   stepsBack.mockRestore();
   document.body.innerHTML = '';
   vi.unstubAllGlobals();
+  // Spies on jsdom's prototypes (media load, pause, play) must not outlive the test that set them.
+  vi.restoreAllMocks();
 });
 
 describe('optional work around a pack', () => {
@@ -804,6 +806,9 @@ describe('one record per pack, whatever order the player and the ticket arrive i
     vi.stubGlobal('cancelIdleCallback', () => {});
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    // jsdom's play() returns undefined, and a sound that starts calls .catch on it; this was only
+    // stubbed by another describe's spy, left behind when that one ran first (#1122).
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
     onOpen.mockReset();
     onLeaveEarly.mockReset();
   });
@@ -1083,6 +1088,8 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
     media.push(
       vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {}),
       vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {}),
+      // The brainrot voice starts 700ms into a reveal; jsdom's play() returns undefined, and a stray timer then throws (#1122).
+      vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve()),
     );
   });
   afterEach(() => {

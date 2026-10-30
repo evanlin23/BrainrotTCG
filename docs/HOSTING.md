@@ -14,10 +14,16 @@ Either way, nothing on the free plans can charge you: there's no payment method 
 
 - **Hashed, safe to keep forever:** everything in `assets/` (code, styles, fonts, card art, sounds).
   Vite names each file by a hash of its content (`name-XXXXXXXX.ext`), so a changed file is a new URL.
-- **Revalidated, same name every deploy:** `index.html`, the files from `public/` beside it (icons,
+- **Revalidated, same name every deploy:** `index.html`, `404.html`, the files from `public/` beside it (icons,
   `og-image.jpg`, `hall-of-fame.json`), `robots.txt` and `sitemap.xml`, the preview pages and
   pictures in `p/` and `s/`, and the static fan-tool API endpoints in `api/` (`api/sets.json`,
   `api/cards.json`, `api/hall-of-fame.json`, see `docs/API.md`).
+- **404 page:** the build writes `404.html` (`noindex`, linking home to `base`). Cloudflare Pages
+  serves this root `404.html` with an HTTP 404 status for unknown paths and missing assets
+  (stopping its default Single Page Application fallback from returning 200 with `index.html` on bad URLs).
+  In-app routes use URL hash fragments (`#/cards`, `#/rankings`), so real in-app routes continue to load
+  through `index.html` at the root. The old-address redirect site keeps its own `404.html`
+  (`scripts/redirect-site.ts`), which forwards old deep links and unknown paths to the new address.
 - **Crawler files:** the build writes `robots.txt` (allow all) and `sitemap.xml` (the app's address
   only; shares, profiles and sets are `#/` routes or `noindex` preview pages) for `SITE_URL`, or for
   production, `https://brainrottcg.pages.dev/`, when it isn't set, which is also what `index.html`'s

@@ -26,6 +26,7 @@ const PAGES = [
   },
   { route: 'profile', name: 'Profile', chunk: 'ProfilePage', content: (main: Locator) => main.getByText(/^Player ID #/), settled: shown },
   { route: 'settings', name: 'Settings', chunk: 'SettingsPage', content: (main: Locator) => main.locator('.settings'), settled: shown },
+  { route: 'news', name: "What's new", chunk: 'NewsPage', content: (main: Locator) => main.locator('.news-entry'), settled: shown },
 ];
 
 /**
@@ -310,8 +311,9 @@ test('long tasks while opening each page, cold and then with its chunk loaded (e
   const tabs = page.getByRole('navigation', { name: 'Main', exact: true });
   for (const { name, content, settled } of PAGES) {
     for (const when of ['cold', 'loaded']) {
-      // Settings sits in the header; the others are tabs.
-      await (name === 'Settings' ? page.locator('.app-utilities').getByRole('button', { name, exact: true }) : tabs.getByRole('button', { name, exact: true })).click();
+      // Settings sits in the header and What's new is reached by its address (and from Settings); the others are tabs.
+      if (name === "What's new") await page.evaluate(() => { location.hash = '#/news'; });
+      else await (name === 'Settings' ? page.locator('.app-utilities').getByRole('button', { name, exact: true }) : tabs.getByRole('button', { name, exact: true })).click();
       const main = page.getByRole('main', { name, exact: true });
       await expect(content(main).first()).toBeVisible({ timeout: 30000 });
       await settled(main);
