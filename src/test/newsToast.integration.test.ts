@@ -49,7 +49,8 @@ it('toasts the latest unread entry once the pack screen is at rest, and the pack
   await app.until('the news toast shows', () => expect(newsToast()?.textContent).toContain('Open Card API'));
   expect(app.newsLoads()).toBe(1);
   expect($('.news-banner')).toBeNull();
-  expect($('.card-guide-entry')?.textContent?.trim()).toBe('Card guide');
+  expect($('.card-guide-entry')?.querySelector('.news-banner')).toBeNull();
+  expect($('.card-guide-entry .card-guide-link')?.textContent?.trim()).toBe('Card guide');
   // Only the newest entry is toasted.
   expect(toastTexts().join()).not.toContain('Player Profiles');
 });

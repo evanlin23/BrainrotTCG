@@ -60,10 +60,10 @@ for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 
     if (percent !== 100) await scaleText(page, percent);
     const toast = newsToast(page);
     await expect(toast).toBeVisible({ timeout: 15000 });
-    // The chip beside the Card guide link is gone: that row carries the guide alone.
+    // The chip beside the Card guide link is gone: that row carries the guide and the next goal, no news.
     await expect(page.locator('.news-banner')).toHaveCount(0);
-    await expect(page.locator('.card-guide-entry').getByRole('button')).toHaveCount(1);
-    await expect(page.locator('.card-guide-entry > *')).toHaveCount(1);
+    await expect(page.locator('.card-guide-entry > :not(.card-guide-link, .pack-milestone)')).toHaveCount(0);
+    await expect(page.locator('.card-guide-entry > .card-guide-link')).toHaveCount(1);
     expect((await toast.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect.poll(() => blocked(page), { message: 'no control is under the news toast' }).toEqual([]);
     await noHorizontalScroll(page, width);
