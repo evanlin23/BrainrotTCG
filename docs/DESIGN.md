@@ -436,9 +436,13 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   While filtering, the opening budget above applies to the matching pockets (the recent era, then
   newest first while 24 fit; a header you toggle keeps its choice until Clear filters), eras with no
   match hide, and one polite status line says "Showing N cards" (accurately counting matching pockets
-  inside open eras) or "No cards match the active filters." with a Clear filters button that returns focus
-  to the search box. When filters cannot match (e.g. Holo only with Not found yet), the empty state
-  explains why and offers Clear filters. Not-started eras stay one-line rows, listed when they match.
+  inside open eras) or, when nothing matches, "No cards match the active filters." plus a hint to try
+  fewer filters. One Clear filters button sits in the control row while anything is filtered and returns
+  focus to the search box. When the filters alone decide the result, that status line carries the reason
+  instead, so the live region announces it once: "You haven't found any cards yet." (Show Owned with
+  nothing owned), "You've found every card." (Show Not found yet with every card found), or "No cards
+  match the active filters." followed by why (e.g. Not found yet with Holo only: "Cards not found yet
+  cannot be holo."). Not-started eras stay one-line rows, listed when they match.
 - **Toasts** (`achievements/AchievementToasts.tsx`): auto-dismiss after 5 s (6 s for a grouped toast); hovering
   a toast, or focusing it from the keyboard (`:focus-visible`; a tap leaves focus on it, which must not hold it
   for good), holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or

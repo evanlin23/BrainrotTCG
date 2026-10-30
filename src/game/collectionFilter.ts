@@ -9,7 +9,6 @@ export interface FilterableCounts {
 
 /** Whether to show all cards, only owned cards, or cards not found yet (#756). */
 export type ShowFilter = 'ALL' | 'OWNED' | 'NOT_FOUND_YET';
-export type OwnershipFilter = ShowFilter;
 
 /** The Cards page's search and filter controls (#756). */
 export interface CollectionFilters {
