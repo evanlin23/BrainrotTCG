@@ -63,11 +63,14 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
     return () => controller.abort();
   }, [qualifies]);
   const list = useMemo(() => (published ? [...published, ...pending] : published), [published, pending]);
-  // Published entries only: a pull still pending on the relays is the one you may have just sent, and
-  // that reads "Submitted" (submitState), not "in Rankings".
-  const listed = !!published?.some((e) => e.id === id);
-  const wouldJoin = list ? wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list, utcDay(new Date().toISOString())) : null;
   const [submitState] = useHallOfFameSubmit(proof, id, target.score.score);
+  // In Rankings: published, or on the relays and not sent from this device. A pull this device sent
+  // that is still pending reads "Submitted" (submitState), not "in Rankings" (#1317). Whether it
+  // would join is asked of the list without the pull itself, which would otherwise answer "no".
+  const listed = !!published?.some((e) => e.id === id) || (submitState === 'idle' && pending.some((e) => e.id === id));
+  const wouldJoin = list
+    ? wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list.filter((e) => e.id !== id), utcDay(new Date().toISOString()))
+    : null;
 
   if (!shareable) {
     return (

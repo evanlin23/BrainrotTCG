@@ -344,8 +344,6 @@ test('"How Rankings work" in the share sheet closes the sheet and opens that sec
   expect(errors).toEqual([]);
 });
 
-// On a 320px phone at 100% and 200% text, the pack's own Share still fits its row and nothing
-// scrolls sideways (#312, #472). Each card shares from its up-close view, not from the summary.
 // The share sheet reads recent pulls from the relays when it opens, which can cost up to ten ticket checks.
 // The relays are stand-ins that answer "nothing stored" and note each goodbye (CLOSE), so a read is known
 // to have ended once every relay has said it; nothing leaves the browser and nothing is submitted (#1317).
@@ -375,10 +373,16 @@ test('opening the share sheet again reads recent pulls from the relays only once
   await expect(sheet).toBeHidden();
   await share.click();
   await expect(sheet.getByText('This makes Rankings')).toBeVisible();
-  expect({ withdrawnReads, relayReads }).toEqual({ withdrawnReads: 2, relayReads: 2 * HOF_RELAYS.length });
+  // The sheet's read, if it made one, would have fetched the rejected list before now. Asking for that file
+  // once more from the page goes through the same route queue, so once it is answered every earlier ask
+  // has been counted: a read that should not have happened can no longer be on its way.
+  await page.evaluate(() => fetch(new URL('hall-of-fame-withdrawn.json', document.baseURI), { cache: 'no-cache' }).then((res) => res.json()));
+  expect({ withdrawnReads, relayReads }).toEqual({ withdrawnReads: 3, relayReads: 2 * HOF_RELAYS.length });
   expect(errors).toEqual([]);
 });
 
+// On a 320px phone at 100% and 200% text, the pack's own Share still fits its row and nothing
+// scrolls sideways (#312, #472). Each card shares from its up-close view, not from the summary.
 for (const [textZoom, viewport] of [[100, { width: 320, height: 640 }], [200, { width: 320, height: 568 }]] as const) test(`the pack's actions fit a 320px phone at ${textZoom}% text (#472)`, async ({ page, baseURL }) => {
   test.setTimeout(90000);
   const { errors } = await openSummary(page, baseURL!, { textZoom, viewport });

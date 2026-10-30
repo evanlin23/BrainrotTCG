@@ -213,8 +213,9 @@ let pendingRead: { published: readonly HallOfFameEntry[]; at: number; entries: H
  * `loadHallOfFame` reuses its list, so reopening costs no relay read and no tickets. The entries replay
  * to `onEntry` as they were; the read is still read-only, bounded and stopped by `signal`. A read that
  * was stopped, found every relay down or could not check (anything but `true`) is never kept, so the
- * next open tries again. Rankings and the summary keep calling `loadPending`, so a pull sent a moment
- * ago still shows there at once.
+ * next open tries again. A `true` read is kept as it is, even if only some relays answered or a pull
+ * failed its check, as `loadPending` counts it. Rankings and the summary keep calling `loadPending`,
+ * so a pull sent a moment ago still shows there at once.
  */
 export const loadPendingCached = async (published: readonly HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void, signal: AbortSignal): Promise<boolean | 'unchecked'> => {
   if (pendingRead && pendingRead.published === published && Date.now() - pendingRead.at < LIST_TTL_MS) {
