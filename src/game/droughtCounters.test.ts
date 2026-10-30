@@ -225,6 +225,47 @@ describe('droughtCounters', () => {
       expect(stats.brainrot).toEqual({ packsSince: 1, foundInHistory: false, isBoundedByIncompleteHistory: true });
       expect(formatDroughtStreak(stats.brainrot)).toBe('1+');
     });
+
+    it('counts the same whatever order the caller passes the history in (#1287)', () => {
+      // historyForKey's ticket order (oldest first): the Brainrot is the oldest pack, three packs ago.
+      const ascending: HistoryEntry[] = [
+        makeEntry({ nonce: 0, openedAt: 1000, cards: [{ id: brainrotCard.id, holo: false }] }),
+        makeEntry({ nonce: 1, openedAt: 2000 }),
+        makeEntry({ nonce: 2, openedAt: 3000 }),
+        makeEntry({ nonce: 3, openedAt: 4000, cards: [{ id: epicCard.id, holo: false }] }),
+      ];
+      const fromAscending = computeDroughtCounters(ascending);
+      expect(fromAscending.brainrot).toEqual({ packsSince: 3, foundInHistory: true });
+      expect(fromAscending.epicPlus).toEqual({ packsSince: 0, foundInHistory: true });
+      expect(computeDroughtCounters([...ascending].reverse())).toEqual(fromAscending);
+      // The caller's array is left as it was.
+      expect(ascending.map((e) => e.nonce)).toEqual([0, 1, 2, 3]);
+    });
+
+    it('bounds the count at a card id the set does not list, instead of counting the pack as a miss (#1287)', () => {
+      const history: HistoryEntry[] = [
+        makeEntry({ nonce: 3 }),
+        makeEntry({ nonce: 2, cards: [{ id: commonCard.id, holo: false }, { id: 'not-a-card', holo: false }] }),
+        makeEntry({ nonce: 1 }),
+        makeEntry({ nonce: 0, cards: [{ id: brainrotCard.id, holo: false }] }),
+      ];
+
+      const stats = computeDroughtCounters(history);
+      expect(stats.brainrot).toEqual({ packsSince: 1, foundInHistory: false, isBoundedByIncompleteHistory: true });
+      expect(stats.epicPlus).toEqual({ packsSince: 1, foundInHistory: false, isBoundedByIncompleteHistory: true });
+      expect(stats.totalPacks).toBe(4);
+    });
+
+    it('still counts a hit in a pack that also holds an unknown card id (#1287)', () => {
+      const history: HistoryEntry[] = [
+        makeEntry({ nonce: 1 }),
+        makeEntry({ nonce: 0, cards: [{ id: 'not-a-card', holo: false }, { id: epicCard.id, holo: false }] }),
+      ];
+
+      const stats = computeDroughtCounters(history);
+      expect(stats.epicPlus).toEqual({ packsSince: 1, foundInHistory: true });
+      expect(stats.brainrot).toEqual({ packsSince: 1, foundInHistory: false, isBoundedByIncompleteHistory: true });
+    });
   });
 
   describe('formatDroughtStreak', () => {
