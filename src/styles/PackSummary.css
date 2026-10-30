@@ -44,6 +44,16 @@
   flex: none;
 }
 
+/* A solid medal: the all-time best (Spec 2 on #757 keeps the outline for a per-set best). The disc is
+   filled and its "1" drawn in the ink that goes on yellow. */
+.pack-summary .pack-headline-record svg circle {
+  fill: currentColor;
+}
+
+.pack-summary .pack-headline-record svg path:last-of-type {
+  stroke: var(--brand-ink);
+}
+
 .pack-summary .pack-headline-previous {
   color: var(--text-muted);
   font-size: var(--text-sm);

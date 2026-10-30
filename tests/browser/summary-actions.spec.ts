@@ -445,7 +445,13 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }
   const { errors } = await openSummary(page, baseURL!, { viewport, history: 10 });
   await expect(page.locator('.summary-title')).toContainText('NEW BEST');
   await expect(page.locator('.pack-headline-previous')).toHaveText('previous best 1,020 · +1,949%');
-  for (const locator of [page.locator('.summary-title'), page.locator('.pack-headline-previous'), page.locator('.summary-card').last()]) await expect(locator).toBeInViewport({ ratio: 1 });
+  for (const locator of [page.locator('.summary-title'), page.locator('.pack-headline-previous')]) await expect(locator).toBeInViewport({ ratio: 1 });
+  // The tallest headline (NEW BEST and the Rankings line) still leaves the last card clear of the stuck
+  // actions, which sit in the same scroller (so being in the viewport isn't enough), and at 390x844 the
+  // summary has nothing to scroll (docs/DESIGN.md, one-screen summary rule).
+  const fit = await layout(page);
+  expect(fit.lastCard.bottom, JSON.stringify(fit)).toBeLessThanOrEqual(Math.min(...fit.buttons.map((button) => button.top)));
+  if (viewport.height === 844) expect(fit.scrollable, JSON.stringify(fit)).toBeLessThanOrEqual(0);
   const line = page.locator('.summary-hof');
   await expect(line).toContainText("Makes today's Rankings");
   await expect(line.getByRole('button', { name: 'Submit to Rankings' })).toBeVisible();

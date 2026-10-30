@@ -17,6 +17,8 @@ export interface NewBest {
 
 /** A pack whose ticket this history records. */
 export interface RecordPack {
+  setId: string;
+  setVersion: number;
   nonce: number;
   /** The key that opened it: only that player's packs are compared, never another identity's. */
   publicKeyHex?: string;
@@ -26,16 +28,22 @@ export interface RecordPack {
  * Whether `score` (the pack just opened with this ticket) beats the best this player had before it,
  * across every set: their packs on earlier tickets, one record per ticket (the one a profile admits,
  * firstOpened), counting only packs with a known hand and score (a ticket stand-in has neither yet).
- * Null on the first comparable pack, on a tie or below, and for a pack with no key.
+ * Null on the first comparable pack, on a tie or below, and for a pack with no key. Null too when the
+ * history admits another set's record of this same ticket (two tabs spent it, and that one opened
+ * first): a profile counts that record, not this pack, so this pack can't be the player's best.
  */
 export const newBestPack = (history: readonly HistoryEntry[], pack: RecordPack, score: number): NewBest | null => {
   if (!pack.publicKeyHex || !Number.isFinite(score)) return null;
   const admitted = new Map<number, HistoryEntry>();
   for (const e of history.filter(isKeysEntry(pack.publicKeyHex))) {
-    if (e.nonce >= pack.nonce) continue;
+    if (e.nonce > pack.nonce) continue;
     const other = admitted.get(e.nonce);
     if (!other || firstOpened(e, other) < 0) admitted.set(e.nonce, e);
   }
+  // This ticket's admitted record (it is normally this pack's own, recorded as it opened).
+  const own = admitted.get(pack.nonce);
+  if (own && (own.setId !== pack.setId || own.setVersion !== pack.setVersion)) return null;
+  admitted.delete(pack.nonce);
   let previous: number | null = null;
   for (const e of admitted.values()) {
     if (e.hand === '' || !Number.isFinite(e.score)) continue;
