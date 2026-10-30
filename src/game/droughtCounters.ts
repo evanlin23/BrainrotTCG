@@ -21,7 +21,8 @@ export interface DroughtStreak {
   foundInHistory: boolean;
   /**
    * True if the streak reached a pack whose cards can't be read: their details are missing (storage
-   * eviction, un-reopened tickets) or it is from a set version this build doesn't know. The true
+   * eviction, un-reopened tickets), it is from a set version this build doesn't know, or it holds a
+   * card id its set doesn't list (and missed this tier otherwise). The true
    * streak is then at least `packsSince`.
    */
   isBoundedByIncompleteHistory?: boolean;
@@ -47,14 +48,18 @@ export interface DroughtOptions {
   playerKeyHex?: string;
 }
 
+/** Newest first: the latest openedAt, then the higher ticket; equal ones keep the caller's order. */
+const newestFirst = (a: HistoryEntry, b: HistoryEntry): number => b.openedAt - a.openedAt || b.nonce - a.nonce;
+
 /**
- * Derives observational drought counters from local pack history (newest first).
+ * Derives observational drought counters from local pack history. Sorted newest first here, so a caller
+ * passing another order (historyForKey's ticket order) can't invert the counts.
  */
 export const computeDroughtCounters = (
   history: readonly HistoryEntry[],
   options?: DroughtOptions,
 ): PullDroughtStats => {
-  let entries = history;
+  let entries: readonly HistoryEntry[] = [...history].sort(newestFirst);
   if (options?.playerKeyHex) {
     entries = entries.filter(isKeysEntry(options.playerKeyHex));
   }
@@ -121,10 +126,15 @@ export const computeDroughtCounters = (
       let hasBrainrot = false;
       let hasLeg = false;
       let hasEpic = false;
+      // A card id this set doesn't list has no rarity to read: a tier this pack didn't hit is unknown
+      // here, so it bounds that streak rather than counting the pack as a miss.
+      let hasUnknown = false;
 
       for (const c of cards) {
         const rarity = set.cards.find((d) => d.id === c.id)?.rarity;
-        if (rarity === 'BRAINROT') {
+        if (rarity === undefined) {
+          hasUnknown = true;
+        } else if (rarity === 'BRAINROT') {
           hasBrainrot = true;
           hasLeg = true;
           hasEpic = true;
@@ -140,6 +150,8 @@ export const computeDroughtCounters = (
       if (!brainrotFound && !brainrotBounded) {
         if (hasBrainrot) {
           brainrotFound = true;
+        } else if (hasUnknown) {
+          brainrotBounded = true;
         } else {
           brainrotPacks++;
         }
@@ -148,6 +160,8 @@ export const computeDroughtCounters = (
       if (!legFound && !legBounded) {
         if (hasLeg) {
           legFound = true;
+        } else if (hasUnknown) {
+          legBounded = true;
         } else {
           legPacks++;
         }
@@ -156,6 +170,8 @@ export const computeDroughtCounters = (
       if (!epicFound && !epicBounded) {
         if (hasEpic) {
           epicFound = true;
+        } else if (hasUnknown) {
+          epicBounded = true;
         } else {
           epicPacks++;
         }

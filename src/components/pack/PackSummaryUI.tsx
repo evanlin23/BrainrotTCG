@@ -9,6 +9,8 @@ import { modifierLabel, modifierThumb } from '../../game/modifiers';
 import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
 import type { PullRef } from '../../game/pulls';
+import { getHistory } from '../../game/history';
+import { newBestPack } from '../../game/personalRecords';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import { STAGE_PRIMARY_ATTR, type StageClickGuard } from '../../hooks/useStageClickGuard';
 import PackHeadline from './PackHeadline';
@@ -38,7 +40,8 @@ interface PackSummaryUIProps {
 
 /**
  * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (Brainrot
- * Score, then "[combo] ×[multiplier]", then the Hall of Fame line), one line with the card hint and the Card guide link, the five cards in one compact row, in
+ * Score, led by NEW BEST when it beats the player's best, then "[combo] ×[multiplier]", then the
+ * previous best for a NEW BEST, then the Hall of Fame line), one line with the card hint and the Card guide link, the five cards in one compact row, in
  * the order they were revealed (each wears its New and special badges and opens up close, where it can be
  * shared as an image that links to this pack; the summary has no per-card Share), then the actions, stuck
  * to the bottom so they never scroll away. Nothing follows them: level progress lives on Profile. Sharing
@@ -76,12 +79,14 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
     event.currentTarget.scrollBy({ top: before ? box.bottom - stuck.top + 8 : box.top - stuck.bottom - 8 });
   };
   const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
+  // Read as the summary first renders, so a NEW BEST shows from the first paint and nothing moves after.
+  const newBest = useMemo(() => (pack ? newBestPack(getHistory(), pack, packScore.score) : null), [pack, packScore]);
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
       <div className="summary-content" onFocus={clearActions} onClickCapture={blockClicks}>
         <div className="summary-details">
-          <PackHeadline cards={openedCards} headingRef={headingRef}>
+          <PackHeadline cards={openedCards} headingRef={headingRef} newBest={newBest}>
             {pack && <SummaryHallOfFame pack={pack} score={packScore} onOpenRankingsHelp={onOpenRankingsHelp} />}
           </PackHeadline>
           <div className="summary-guide-line">
