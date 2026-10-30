@@ -1,8 +1,9 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { ChevronRight, Trophy } from 'lucide-react';
+import { ChevronRight, Medal, Trophy } from 'lucide-react';
 import type { SetDefinition } from '../../engine';
 import { setCode } from '../../content/sets';
 import { modifierClasses } from '../../game/modifiers';
+import type { PackMedal } from '../../game/personalRecords';
 import CardImage from '../cards/CardImage';
 import type { CardWithMeta } from '../cards/Card';
 import '../../styles/Pulls.css';
@@ -19,13 +20,18 @@ interface PullRowProps {
   meta: ReactNode;
   /** The pack qualifies for Rankings, the public Hall of Fame: a trophy. */
   worthy: boolean;
+  /**
+   * The record this pack set when it opened (personalRecords' packMedals, your own packs only): a solid
+   * medal for an all-time best, an outlined one for a best in its set.
+   */
+  medal?: PackMedal;
   /** After the hand, e.g. whether this device sent the pack to the Hall of Fame (your own packs only). */
   badge?: ReactNode;
   onClick: () => void;
 }
 
 /** One pack in a list of packs: thumbnails, hand, set, score. Your pack list and your best pulls share it, so they can't drift apart. */
-const PullRow = ({ cards, set, setId, hand, score, meta, worthy, badge, onClick }: PullRowProps) => {
+const PullRow = ({ cards, set, setId, hand, score, meta, worthy, medal, badge, onClick }: PullRowProps) => {
   const [a = '#ff3df2', b = '#29f0ff'] = set?.palette ?? [];
   return (
     <li>
@@ -42,6 +48,12 @@ const PullRow = ({ cards, set, setId, hand, score, meta, worthy, badge, onClick 
               <>
                 <Trophy className="pull-row-hof" aria-hidden="true" />
                 <span className="sr-only">, qualifies for Rankings</span>
+              </>
+            )}
+            {medal && (
+              <>
+                <Medal className={`pull-row-medal${medal === 'best' ? ' pull-row-medal--best' : ''}`} aria-hidden="true" />
+                <span className="sr-only">{medal === 'best' ? ', a new best when opened' : ', a best in its set when opened'}</span>
               </>
             )}
             {badge}

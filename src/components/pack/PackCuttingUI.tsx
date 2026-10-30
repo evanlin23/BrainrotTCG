@@ -168,8 +168,8 @@ const PackCuttingUI = ({
               </span>
             </div>
           )}
-          {/* Only while there is a pack left to tear. */}
-          {!isPackCut && (
+          {/* Only while there is a pack left to tear and not waiting. */}
+          {!isPackCut && !waiting && (
             <div className="swipe-hint">
               <MoveHorizontal className="swipe-hint-icon" aria-hidden="true" />
               <span className="swipe-hint-text">
