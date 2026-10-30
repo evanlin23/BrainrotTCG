@@ -203,3 +203,31 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
   }
   return reached;
 };
+
+/** The last completed `loadPending` read and the published list it was made against (see `loadPendingCached`). */
+let pendingRead: { published: readonly HallOfFameEntry[]; at: number; entries: HallOfFameEntry[] } | null = null;
+
+/**
+ * `loadPending` for a screen that opens again and again (the share sheet, from Packs, Profile and
+ * achievements): a read that reached a relay and ran to the end is reused for as long as
+ * `loadHallOfFame` reuses its list, so reopening costs no relay read and no tickets. The entries replay
+ * to `onEntry` as they were; the read is still read-only, bounded and stopped by `signal`. A read that
+ * was stopped, found every relay down or could not check (anything but `true`) is never kept, so the
+ * next open tries again. A `true` read is kept as it is, even if only some relays answered or a pull
+ * failed its check, as `loadPending` counts it. Rankings and the summary keep calling `loadPending`,
+ * so a pull sent a moment ago still shows there at once.
+ */
+export const loadPendingCached = async (published: readonly HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void, signal: AbortSignal): Promise<boolean | 'unchecked'> => {
+  if (pendingRead && pendingRead.published === published && Date.now() - pendingRead.at < LIST_TTL_MS) {
+    for (const entry of pendingRead.entries) if (!signal.aborted) onEntry(entry);
+    return true;
+  }
+  const entries: HallOfFameEntry[] = [];
+  const startedAt = Date.now();
+  const result = await loadPending(published, (entry) => {
+    entries.push(entry);
+    onEntry(entry);
+  }, signal);
+  if (result === true && !signal.aborted) pendingRead = { published, at: startedAt, entries };
+  return result;
+};

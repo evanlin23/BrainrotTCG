@@ -35,7 +35,7 @@ vi.mock('../../engine', async (importOriginal) => ({
   wouldJoinHallOfFame: vi.fn(() => true),
   dailyRank: vi.fn((...args: Parameters<typeof import('../../engine').dailyRank>) => realDailyRank(...args)),
 }));
-vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame: vi.fn(async () => []), loadPending: vi.fn(async () => true) }));
+vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame: vi.fn(async () => []), loadPending: vi.fn(async () => true), loadPendingCached: vi.fn(async () => true) }));
 vi.mock('../../game/nostrInbox', () => ({
   hallOfFameEvent: vi.fn(() => ({})),
   publishUntilAccepted: vi.fn(async () => ({ accepted: {}, all: Promise.resolve([]) })),

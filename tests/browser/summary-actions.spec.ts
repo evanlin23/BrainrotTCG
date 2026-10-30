@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot, untilIdle, PLAYER_KEY_PREFIX } from './support';
 import { STORAGE_KEYS } from '../../src/constants/config';
+import { HOF_RELAYS } from '../../src/game/nostrInbox';
 
 /**
  * The pack summary (#182, #339): its actions stay stuck on screen while the rest scrolls, at 360x640
@@ -340,6 +341,43 @@ test('"How Rankings work" in the share sheet closes the sheet and opens that sec
   const how = page.getByRole('main', { name: 'Rankings', exact: true }).locator('details.hof-how');
   await expect(how).toHaveJSProperty('open', true);
   await expect(how.locator('summary')).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+// The share sheet reads recent pulls from the relays when it opens, which can cost up to ten ticket checks.
+// The relays are stand-ins that answer "nothing stored" and note each goodbye (CLOSE), so a read is known
+// to have ended once every relay has said it; nothing leaves the browser and nothing is submitted (#1317).
+test('opening the share sheet again reads recent pulls from the relays only once', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+  let withdrawnReads = 0;
+  await page.route('**/hall-of-fame-withdrawn.json', (route) => {
+    withdrawnReads += 1;
+    return route.fulfill({ json: [] });
+  });
+  let relayReads = 0;
+  await page.routeWebSocket(/.*/, (socket) => socket.onMessage((message) => {
+    const [type, subscription] = JSON.parse(String(message)) as [string, string];
+    if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
+    if (type === 'CLOSE') relayReads += 1;
+  }));
+  const { errors } = await openSummary(page, baseURL!, { history: 10 });
+  const sheet = page.getByRole('dialog', { name: 'Share your pull' });
+  const share = page.getByRole('button', { name: 'Share', exact: true });
+  // The summary's own line reads once, to the end.
+  await expect.poll(() => relayReads).toBe(HOF_RELAYS.length);
+  await share.click();
+  await expect(sheet.getByText('This makes Rankings')).toBeVisible();
+  await expect.poll(() => relayReads).toBe(2 * HOF_RELAYS.length);
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await share.click();
+  await expect(sheet.getByText('This makes Rankings')).toBeVisible();
+  // The sheet's read, if it made one, would have fetched the rejected list before now. Asking for that file
+  // once more from the page goes through the same route queue, so once it is answered every earlier ask
+  // has been counted: a read that should not have happened can no longer be on its way.
+  await page.evaluate(() => fetch(new URL('hall-of-fame-withdrawn.json', document.baseURI), { cache: 'no-cache' }).then((res) => res.json()));
+  expect({ withdrawnReads, relayReads }).toEqual({ withdrawnReads: 3, relayReads: 2 * HOF_RELAYS.length });
   expect(errors).toEqual([]);
 });
 

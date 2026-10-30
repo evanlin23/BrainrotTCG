@@ -7,7 +7,7 @@ import { DEFAULT_SET_ID, getSet } from '../../content/sets';
 import { getSetCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
 import { revealOrder } from '../../game/reveal';
-import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
+import { loadHallOfFame, loadPendingCached, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { hallOfFameEvent, publishUntilAccepted } from '../../game/nostrInbox';
 import ShareSheet from './ShareSheet';
 
@@ -27,7 +27,7 @@ vi.mock('../../engine', async (importOriginal) => ({
 }));
 vi.mock('../../game/hallOfFameList', () => ({
   loadHallOfFame: vi.fn(async () => []),
-  loadPending: vi.fn(async () => true),
+  loadPendingCached: vi.fn(async () => true),
 }));
 vi.mock('../../game/share', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/share')>()),
@@ -241,7 +241,7 @@ describe('Hall of Fame in the pack share sheet', () => {
 
   it('includes pending submissions from relays when ranking in the share sheet (#1072)', async () => {
     const pendingEntry = { id: 'pending-1' } as HallOfFameEntry;
-    vi.mocked(loadPending).mockImplementationOnce(async (_published, onEntry) => {
+    vi.mocked(loadPendingCached).mockImplementationOnce(async (_published, onEntry) => {
       onEntry(pendingEntry);
       return true;
     });
@@ -265,6 +265,42 @@ describe('Hall of Fame in the pack share sheet', () => {
     vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
     expect([...document.querySelectorAll('.share-note')].some((el) => /qualif/.test(el.textContent ?? ''))).toBe(false);
+  });
+
+  it('keeps "Submitted", not "in Rankings", for your own pull that is only pending on the relays (#1317)', async () => {
+    localStorage.setItem('brainrot-hof-submitted-v1', JSON.stringify([`pull-${pull}`]));
+    vi.mocked(loadPendingCached).mockImplementationOnce(async (_published, onEntry) => {
+      onEntry({ id: `pull-${pull}`, pending: true, mine: true } as HallOfFameEntry);
+      return true;
+    });
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    expect(document.querySelector('.share-hof button')?.textContent).toBe('Submitted');
+    expect([...document.querySelectorAll('.share-note')].some((el) => el.textContent?.includes('in Rankings'))).toBe(false);
+  });
+
+  it('says "in Rankings", not "wouldn\'t beat the lowest", for a pending pull this device never sent (#1317)', async () => {
+    // The real rule, which answers no for a list that already holds the pull: the pull is pending on the
+    // relays but this device has no send record (sent elsewhere, or site data cleared).
+    const { wouldJoinHallOfFame: real } = await vi.importActual<typeof import('../../engine')>('../../engine');
+    vi.mocked(wouldJoinHallOfFame).mockImplementation(real);
+    const qualifying = { ...target, score: { points: 100, hand: { name: 'Royal Rot', multiplier: 1 }, score: HALL_OF_FAME_MIN_SCORE } as unknown as PackScore };
+    vi.mocked(loadPendingCached).mockImplementationOnce(async (_published, onEntry) => {
+      onEntry({ id: `pull-${pull}`, pending: true } as HallOfFameEntry);
+      return true;
+    });
+    try {
+      await act(async () => root.render(<ShareSheet target={qualifying} onClose={() => {}} />));
+      expect(document.querySelector('.share-note')?.textContent).toContain('This pull is in Rankings.');
+      expect(document.body.textContent).not.toContain('lowest listed score');
+    } finally {
+      vi.mocked(wouldJoinHallOfFame).mockReset().mockReturnValue(true);
+    }
+  });
+
+  it('still says a published pull is in Rankings (#1317)', async () => {
+    vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    expect(document.querySelector('.share-note')?.textContent).toContain('This pull is in Rankings.');
   });
 
   const clickSubmit = async () => {
