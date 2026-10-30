@@ -7,7 +7,8 @@
  *   own address), and the picture they name is in the build, decodes as a JPEG, and has the size
  *   its og:image:width/height tags give (both are required);
  * - every page has og:title, og:image, twitter:image and a summary_large_image twitter:card, and
- *   index.html has og:url;
+ *   index.html has og:url, a canonical link matching SITE_URL, and semantic #root boot markup
+ *   (exactly one h1 and a blurb matching meta description);
  * - robots.txt and sitemap.xml are real (not the app's page) and name SITE_URL, and the sitemap lists
  *   the app and no share, set or #/ address (scripts/crawler-files.ts);
  * - every share and set page scripts/preview-pages.ts writes for the set registry is there and
@@ -66,6 +67,60 @@ export const metaTags = (html: string): Map<string, string> => {
     if (key !== undefined && content !== undefined) tags.set(key, content);
   }
   return tags;
+};
+
+/** A page's canonical link address (<link rel="canonical" href="...">), if it has one. */
+export const canonicalLink = (html: string): string | undefined => {
+  for (const [tag] of html.matchAll(/<link\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
+    const attributes = new Map([...tag.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map((m) => [m[1].toLowerCase(), unescape(m[2] ?? m[3])]));
+    if (attributes.get('rel')?.toLowerCase() === 'canonical') return attributes.get('href');
+  }
+  return undefined;
+};
+
+/** The inner HTML inside <div id="root">...</div>. */
+export const extractRootContent = (html: string): string | undefined => {
+  const startMatch = /<div\b[^>]*\bid=["']root["'][^>]*>/i.exec(html);
+  if (!startMatch) return undefined;
+  const startIndex = startMatch.index + startMatch[0].length;
+  let depth = 1;
+  const tagRegex = /<\/?div\b[^>]*>/gi;
+  tagRegex.lastIndex = startIndex;
+  let match: RegExpExecArray | null;
+  while ((match = tagRegex.exec(html)) !== null) {
+    if (match[0].startsWith('</')) {
+      depth--;
+      if (depth === 0) return html.slice(startIndex, match.index);
+    } else {
+      depth++;
+    }
+  }
+  return undefined;
+};
+
+export interface RootBootCopy {
+  h1Count: number;
+  h1Text: string;
+  blurb: string;
+}
+
+/** Semantic boot copy inside #root: an h1 heading, and a blurb paragraph (excluding [role="status"]). */
+export const rootBootCopy = (html: string): RootBootCopy | undefined => {
+  const rootInner = extractRootContent(html);
+  if (rootInner === undefined) return undefined;
+  const h1Matches = [...rootInner.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi)];
+  let blurb = '';
+  for (const match of rootInner.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/gi)) {
+    if (!/role=["']status["']|\bboot-status\b/i.test(match[1])) {
+      blurb = unescape(match[2].replace(/<[^>]+>/g, '').trim());
+      break;
+    }
+  }
+  return {
+    h1Count: h1Matches.length,
+    h1Text: h1Matches[0] ? unescape(h1Matches[0][1].replace(/<[^>]+>/g, '').trim()) : '',
+    blurb,
+  };
 };
 
 /** Where a page in the build is served: a directory's index.html at the directory. */
@@ -227,7 +282,13 @@ export const checkManifest = (manifest: string | undefined, base: string, presen
       errors.push({ path: file, error: `${name} is missing` });
       return undefined;
     }
-    const url = new URL(value, manifestUrl);
+    let url: URL;
+    try {
+      url = new URL(value, manifestUrl);
+    } catch {
+      errors.push({ path: file, error: `${name} ${value} isn't a valid URL` });
+      return undefined;
+    }
     if (url.origin !== origin || !url.pathname.startsWith(base)) {
       errors.push({ path: file, error: `${name} ${value} resolves to ${url.href}, outside BASE_PATH ${base}` });
       return undefined;
@@ -349,6 +410,21 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     const url = meta.get('og:url');
     if (file === 'index.html' && url === undefined) fail(file, 'Has no og:url');
     if (url !== undefined && url !== pageUrl(site, file)) fail(file, `og:url is ${url}, not ${pageUrl(site, file)}`);
+    if (file === 'index.html') {
+      const canonical = canonicalLink(html);
+      if (canonical === undefined) fail(file, 'Has no <link rel="canonical">');
+      else if (canonical !== site) fail(file, `canonical is ${canonical}, not ${site}`);
+
+      const boot = rootBootCopy(html);
+      if (boot === undefined) {
+        fail(file, 'Has no #root container');
+      } else {
+        if (boot.h1Count !== 1) fail(file, `#root has ${boot.h1Count} <h1> headings, not 1`);
+        const description = meta.get('description');
+        if (!boot.blurb) fail(file, '#root has no blurb paragraph');
+        else if (description === undefined || boot.blurb !== description) fail(file, '#root blurb does not match <meta name="description">');
+      }
+    }
     for (const key of ['og:image', 'twitter:image']) {
       const url = meta.get(key);
       if (url !== undefined && !url.startsWith(site)) fail(file, `${key} is ${url}, not under SITE_URL ${site}`);
