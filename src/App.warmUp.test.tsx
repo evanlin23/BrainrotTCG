@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 // The toasts chunk is what App warms ahead of the first pack: evaluating this factory is that fetch.
-const toasts = vi.hoisted(() => ({ fetches: 0 }));
+const toasts = vi.hoisted(() => ({ fetches: 0, hold: false, resolve: () => {} }));
 vi.mock('./components/pack/PackOpener', () => ({ default: () => null }));
 
 let container: HTMLDivElement;
@@ -15,9 +15,11 @@ let packArtSettled: () => void;
 beforeEach(async () => {
   vi.resetModules();
   toasts.fetches = 0;
+  toasts.hold = false;
   // Registered again for every fresh module graph: a vi.mock factory's result is cached across resetModules.
-  vi.doMock('./components/achievements/AchievementToasts', () => {
+  vi.doMock('./components/achievements/AchievementToasts', async () => {
     toasts.fetches += 1;
+    if (toasts.hold) await new Promise<void>((resolve) => { toasts.resolve = resolve; });
     return { default: () => null };
   });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -57,6 +59,20 @@ it('warms the toasts ahead of the first pack once the art has settled and the pa
   expect(toasts.fetches).toBe(0);
   await idle();
   expect(toasts.fetches).toBe(1);
+  await act(async () => root.unmount());
+});
+
+it('reports toast readiness only after the pending module has resolved', async () => {
+  toasts.hold = true;
+  packArtSettled();
+  await vi.runAllTimersAsync();
+  await vi.waitFor(() => expect(toasts.fetches).toBe(1));
+  expect(container.querySelector('.app')?.hasAttribute('data-toasts-ready')).toBe(false);
+  await act(async () => {
+    toasts.resolve();
+    await vi.dynamicImportSettled();
+  });
+  expect(container.querySelector('.app')?.getAttribute('data-toasts-ready')).toBe('true');
   await act(async () => root.unmount());
 });
 

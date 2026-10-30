@@ -1,5 +1,5 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { monitor, scaleText } from './support';
+import { monitor, scaleText, tapSpace } from './support';
 
 /**
  * The reveal on a phone on its side (#898, DESIGN.md "First-pack flow decision", Reveal): under 500px
@@ -26,7 +26,7 @@ for (const size of SIZES) {
       await page.keyboard.press('Space');
       const card = page.locator('.reveal-card:focus');
       await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
-      await page.keyboard.press('Space');
+      await tapSpace(page);
       await expect(page.locator('.reveal-rarity .rarity-pill')).toBeVisible();
 
       const cardBox = await box(card);
@@ -60,7 +60,7 @@ for (const size of SIZES) {
       await page.keyboard.press('Space');
       const card = page.locator('.reveal-card:focus');
       await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
-      await page.keyboard.press('Space');
+      await tapSpace(page);
       await expect(page.locator('.reveal-rarity .rarity-pill')).toBeVisible();
 
       // The side column is capped to its share of the stage and scrolls; the card fills the stage's column.
@@ -79,6 +79,85 @@ for (const size of SIZES) {
       await card.click();
       await expect(card).toHaveAttribute('aria-label', 'Flip card 2 of 5', { timeout: 10000 });
       expect(errors).toEqual([]);
+    });
+
+    test.describe('on a phone, where scrollbars are overlays', () => {
+      test.use({ isMobile: true, hasTouch: true });
+
+      test('a column that scrolls fades out under its bottom edge, and its last row clears the fade', async ({ page, baseURL }, testInfo) => {
+        test.skip(testInfo.project.name !== 'desktop-chromium', 'A window-size check; the desktop project runs it once.');
+        test.setTimeout(60000);
+        const errors = await monitor(page, baseURL!);
+        const side = page.locator('.reveal-side');
+        const open = async () => {
+          await page.getByRole('button', { name: /^Open pack/ }).focus();
+          await page.keyboard.press('Space');
+          await expect(page.locator('.reveal-card:focus')).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
+          await tapSpace(page);
+          await expect(page.locator('.reveal-rarity .rarity-pill')).toBeVisible();
+        };
+        const measure = () => side.evaluate((node) => {
+          const el = node as HTMLElement;
+          const style = getComputedStyle(el);
+          const last = el.querySelector('.reveal-bottom')!.getBoundingClientRect();
+          return {
+            gutter: el.offsetWidth - el.clientWidth,
+            overflow: el.scrollHeight - el.clientHeight,
+            mask: style.maskImage,
+            fade: parseFloat(style.paddingBottom),
+            lastBottomFromEdge: el.getBoundingClientRect().bottom - last.bottom,
+          };
+        });
+        // At normal text the column fits: nothing scrolls and no row is under the fade.
+        await page.goto('./');
+        await open();
+        const fits = await measure();
+        expect(fits.overflow, 'at 100% text the column fits').toBeLessThanOrEqual(0);
+        expect(fits.lastBottomFromEdge, 'the last row is clear of the fade').toBeGreaterThanOrEqual(fits.fade - 0.5);
+
+        await page.goto('./');
+        await scaleText(page, 200);
+        await open();
+
+        // The premise: no scrollbar takes any room, so a styled scrollbar could not be the cue.
+        const top = await measure();
+        expect(top.gutter, 'an overlay scrollbar takes no width').toBe(0);
+        expect(top.overflow, 'at 200% text the column scrolls').toBeGreaterThan(0);
+        expect(top.mask, 'the bottom edge fades').toContain('linear-gradient');
+        expect(top.fade, 'the fade is 1rem tall (32px at 200% text)').toBe(32);
+        expect(top.lastBottomFromEdge, 'the unscrolled column ends under the fade, so it is visibly cut').toBeLessThan(top.fade);
+
+        // At the end of the scroll the last row (Skip) is clear of the fade, whole and tappable.
+        await side.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+        const end = await measure();
+        expect(end.lastBottomFromEdge, 'the last row clears the fade at the end').toBeGreaterThanOrEqual(end.fade - 0.5);
+        await page.locator('.reveal-skip').click({ trial: true });
+        expect(errors).toEqual([]);
+      });
+
+      test('Tabbing to Skip at an in-between text size scrolls it clear of the fade', async ({ page, baseURL }, testInfo) => {
+        test.skip(testInfo.project.name !== 'desktop-chromium', 'A window-size check; the desktop project runs it once.');
+        test.setTimeout(60000);
+        const errors = await monitor(page, baseURL!);
+        await page.goto('./');
+        // Sizes where the column scrolls by a little: Skip's focus scroll used to stop with it inside the fade.
+        await scaleText(page, size.height === 360 ? 130 : 120);
+        await page.getByRole('button', { name: /^Open pack/ }).focus();
+        await page.keyboard.press('Space');
+        await expect(page.locator('.reveal-card:focus')).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
+        await tapSpace(page);
+        await expect(page.locator('.reveal-rarity .rarity-pill')).toBeVisible();
+        const skip = page.locator('.reveal-skip');
+        for (let i = 0; i < 10 && !(await skip.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press('Tab');
+        await expect(skip).toBeFocused();
+        const gap = await page.locator('.reveal-side').evaluate((el) => {
+          const fade = parseFloat(getComputedStyle(el).paddingBottom);
+          return { overflow: el.scrollHeight - el.clientHeight, fade, fromEdge: el.getBoundingClientRect().bottom - el.querySelector('.reveal-skip')!.getBoundingClientRect().bottom };
+        });
+        expect(gap.overflow, 'the column scrolls at this size').toBeGreaterThan(0);
+        expect(gap.fromEdge, 'Skip\'s bottom against the fade').toBeGreaterThanOrEqual(gap.fade - 0.5);
+        expect(errors).toEqual([]);
+      });
     });
   });
 }
@@ -122,9 +201,9 @@ test.describe('the first-card cue', () => {
     expect(await page.evaluate(() => localStorage.getItem('brainrot-first-card-cue-plays-v1'))).toBe('1');
 
     // The flip ends it, and the next card never plays it.
-    await page.keyboard.press('Space');
+    await tapSpace(page);
     await expect(page.locator('.lift-cue')).toHaveCount(0);
-    await page.keyboard.press('Space');
+    await tapSpace(page);
     await expect(card).toHaveAttribute('aria-label', 'Flip card 2 of 5', { timeout: 10000 });
     await expect(page.locator('.lift-cue')).toHaveCount(0);
     expect(errors).toEqual([]);

@@ -26,7 +26,10 @@ from a 390 px wide screen.
    is swallowed (a press that moved more than `TAP_SLOP_PX`, 10px, is a drag). The keys work only with
    focus on the pack, never from the page. While the ticket works its name reads "Opening…" and input
    is ignored. Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
-   from the tear until the pack is put away) opens the selected set's card guide.
+   from the tear until the pack is put away) opens the selected set's card guide. The latest unread
+   news shows as a one-line chip beside it in that row, adding no height: it hides on narrow rows,
+   landscape phones and at 200% text on a phone, gives way to a save warning, and is never marked
+   read by being hidden, only by its dismiss button.
    The summary lists the cards in the order they were revealed (best last), each opening up close, where
    its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the
@@ -79,6 +82,10 @@ from a 390 px wide screen.
     doesn't stop it. The card viewer offers Retry, and failed art also retries when the device comes
     back online. Standard UI transitions are 120–320 ms (rare pull celebrations and card shimmers run
     longer, and specific card/reveal effects animate properties like box-shadow or clip-path).
+11. **Zero-backend by design.** The project runs no server, database or account service (#243, #85
+    and #490 are closed as rejected). Proofs are re-derivable by anyone, GitHub Pages hosts the site
+    (Cloudflare Pages when configured, see Hosting), and GitHub Issues and Actions run the Hall of
+    Fame.
 
 ## First-pack flow decision (#898)
 
@@ -169,7 +176,9 @@ results rules below (#339).
 - #627: stationary-click loop from pack to summary; ignore clicks for about 400 ms after a stage
   change and during Opening so no viewer opens. The loop deliberately ends at the summary, where
   the player reads the score, views cards and shares, so a stray click must not skip it; Next pack
-  stays the one deliberate move. This replaces #627's pack-after-pack criterion.
+  stays the one deliberate move. This replaces #627's pack-after-pack criterion. The keyboard
+  follows the same window: on the summary Space and Enter are ignored until it ends
+  (`useKeyboardControls`), so a stuck or repeated press that opened the summary can't close it.
 - #778: results show the score only; direction and card-sum x combo explained once in the Card
   guide, with no chance line.
 - #639: shared pull shows attribution, then score once with combo and multiplier once, the five-card
@@ -189,7 +198,14 @@ results rules below (#339).
   apart and is what a named row shows too. The profile's check line reads "This profile checks out:
   every pack re-opened in your browser", and its in-progress and interrupted lines say "in your
   browser" too: it says what was checked and where, never whose device made the packs, so one
-  line is true for the owner and a guest alike without a branch on who is looking.
+  line is true for the owner and a guest alike without a branch on who is looking. A shared link
+  re-opens only the best packs by default and then pauses: that state shows no progress bar or
+  spinner, its footnote reads "* the pack count is the link's own; cards, holo and best score are from the N
+  best packs only, and the rest of the packs are not checked", "How do we know?" says the best packs
+  were re-opened in your browser and the rest are not checked until you ask (the level and pack
+  count are only what the link claims), and the level stays "claimed". "Verify all N packs" (short label, the hint is
+  secondary text) re-opens the rest, moves focus to the status line, and keeps the best packs'
+  own "Verified" badges.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); small controls get
   44 px hit areas (pack-targets.spec measures the gear, set steps, Card guide, sheet and page
   closes, Skip, the logo link and the profile's "What do these numbers mean?" summary at 390 px,
@@ -376,13 +392,27 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
   Where Submit is missing because a pull doesn't qualify, the results screen and the share sheet say
   so in one sentence made from the same rule text (`ui/rankingsRule.ts`) and name "How Rankings
-  work"; both surfaces say "Rankings", and "Hall of Fame" appears only in the disclosure's
-  "other screens call this the Hall of Fame".
+  work", which is a button (`link-btn link-btn--inline`: the sentence's own size, with a 44 px hit
+  area around the words that never overlaps the control beside or below it) that opens Rankings with
+  that section open and in view (the app's section request, id `how-rankings-work`; focus lands on
+  its summary). The share sheet closes first; the results screen stays mounted under the page, as for
+  any page, and Close returns to it. Both surfaces say "Rankings", and "Hall of Fame" appears only
+  in the disclosure's "other screens call this the Hall of Fame".
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest
   first while they fit 24 pockets, and collapses the rest. A collapsed grid is unmounted, not hidden,
   so a big collection stays cheap to open (#344).
+  **Search and filters** (#756, first slice; sorting is a later one): above the eras, a search box by
+  card name, rarity and finish selects, and Holo only and Missing only toggle buttons (`aria-pressed`),
+  all 44px high and wrapping, so they fit 320px and 200% text. The rules are pure, in
+  `game/collectionFilter.ts`; ownership comes from the same map the tiles use. Filters only narrow
+  which pockets show: collector numbers, era counts and the score line stay the unfiltered ones, and
+  an archived or draft era still shows only owned cards, so Missing only never reveals its cards.
+  While filtering, every era with a match opens (collapsing one is remembered until Clear filters),
+  eras with no match hide, and one polite status line says "Showing N cards" or "No cards match the
+  active filters." with a Clear filters button that returns focus to the search box. Not-started eras
+  stay one-line rows, listed when they match.
 - **Toasts** (`achievements/AchievementToasts.tsx`): auto-dismiss after 5 s (6 s for a grouped toast); hovering
   a toast, or focusing it from the keyboard (`:focus-visible`; a tap leaves focus on it, which must not hold it
   for good), holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or

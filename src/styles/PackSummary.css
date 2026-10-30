@@ -42,11 +42,14 @@
 }
 
 /* A pull that doesn't qualify: why Submit is missing, small and muted like the public-name notice. It has no
-   button, so it takes only its own lines, and a pull that doesn't qualify never gains a Submit, so nothing moves. */
+   Submit, so it takes only its own lines, and a pull that doesn't qualify never gains one, so nothing moves. */
 .pack-summary .summary-hof--why {
   min-height: 0;
   font-size: var(--text-xs);
   line-height: var(--leading-tight);
+  /* "How Rankings work" is a link with a 44px hit area (.link-btn--inline): it reaches this far below the
+     words, so it stops where the headline's gap ends and never overlaps the Card guide under it. */
+  margin-bottom: max(0px, calc((var(--touch-target) - 1lh) / 2 - var(--space-3)));
   text-align: center;
   text-wrap: balance;
 }

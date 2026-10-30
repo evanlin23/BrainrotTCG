@@ -18,10 +18,12 @@ export type TicketReply = { delayMs: number } | { error: string } | 'crash';
 
 /**
  * jsdom only: no resource loading, native media, canvas, Worker or IndexedDB claims. hallOfFame answers the published list's request with that list, and the withdrawn list's with none (a summary whose pull qualifies
- * asks for it), and relay sockets close unanswered; every other request still fails.
+ * asks for it), and relay sockets close unanswered; every other request still fails. news stands in for the
+ * banner's shipped src/content/news.json (none unless a test supplies items); it is imported, not
+ * fetched, so it needs no allowance from the I/O guard, and newsLoads() says whether the app asked.
  */
 export async function mountedApp(storage: Record<string, string>,
-  options: { tickets?: (request: TicketRequest) => TicketReply | undefined; hallOfFame?: unknown[] } = {}) {
+  options: { tickets?: (request: TicketRequest) => TicketReply | undefined; hallOfFame?: unknown[]; news?: unknown[] } = {}) {
   const errors: string[] = [];
   const jobs = new Set<Promise<unknown>>();
   const track = (job: Promise<unknown>) => {
@@ -50,7 +52,12 @@ export async function mountedApp(storage: Record<string, string>,
     errors.push(error);
     throw new Error(error);
   };
-  const { hallOfFame } = options;
+  const { hallOfFame, news = [] } = options;
+  const newsLoaded = vi.fn();
+  vi.doMock('../content/news.json', () => {
+    newsLoaded();
+    return { default: news };
+  });
   // With a list, nothing has been withdrawn from it either (the pending check reads that next to it).
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) =>
     hallOfFame && String(input).endsWith('hall-of-fame.json') ? Promise.resolve(Response.json(hallOfFame))
@@ -170,6 +177,8 @@ export async function mountedApp(storage: Record<string, string>,
     mount,
     /** Every request posted to a simulated ticket worker, prefetches included. */
     ticketRequests,
+    /** How many times the app has imported the shipped news (the module loads once per mount or reload). */
+    newsLoads: () => newsLoaded.mock.calls.length,
     async reload() {
       await unmount();
       const saved = Object.fromEntries(Object.entries(localStorage));
@@ -188,6 +197,7 @@ export async function mountedApp(storage: Record<string, string>,
     },
     async until(description: string, assertion: () => void | Promise<void>, budgetMs = 10_000) {
       let last: unknown;
+      try { await assertion(); return; } catch (error) { last = error; }
       // Advance simulated animation time inside act, polling only the named observable outcome.
       // Await real ticket computation in the same act scope; never retry the interaction itself.
       for (let elapsed = 0; elapsed < budgetMs; elapsed += 25) {
@@ -221,6 +231,7 @@ export async function mountedApp(storage: Record<string, string>,
         vi.useRealTimers();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+        vi.doUnmock('../content/news.json');
         vi.resetModules();
       }
     },

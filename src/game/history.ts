@@ -335,10 +335,16 @@ type OpenedOrder = Pick<HistoryEntry, 'openedAt' | 'setId' | 'setVersion'>;
 export const firstOpened = (a: OpenedOrder, b: OpenedOrder): number =>
   a.openedAt - b.openedAt || (a.setId < b.setId ? -1 : a.setId > b.setId ? 1 : 0) || a.setVersion - b.setVersion;
 
+/** Whether a history record is one of this key's packs: its stored key prefix is exactly the key's. */
+export const isKeysEntry = (publicKeyHex: string) => {
+  const prefix = publicKeyHex.slice(0, KEY_PREFIX);
+  return (e: Pick<HistoryEntry, 'key'>): boolean => e.key === prefix;
+};
+
 /** This key's packs in ticket order (what a profile is built from). */
 export const historyForKey = (publicKeyHex: string): HistoryEntry[] =>
   getHistory()
-    .filter((e) => e.key === publicKeyHex.slice(0, KEY_PREFIX))
+    .filter(isKeysEntry(publicKeyHex))
     .sort((a, b) => a.nonce - b.nonce);
 
 /** ticketsRecorded's count per key prefix, with the stored history it was counted from. */

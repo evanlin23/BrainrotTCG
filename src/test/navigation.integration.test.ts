@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 import { STORAGE_KEYS } from '../constants/config';
 import { getSetCards } from '../data/cards';
@@ -173,6 +173,60 @@ it('shows the switch again to a new player who has stored the choice, so they ca
   await app.interact(() => button('Settings').click());
   await app.until('Settings loads', () => expect(showEveryPage()).toBeTruthy());
   expect(showEveryPage()!.getAttribute('aria-checked')).toBe('true');
+});
+
+it('removes the Show every page switch from Settings when an imported save unlocks pages', async () => {
+  app = await mountedApp({ ...PLAYER, ...QUIET });
+  await app.mount();
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(showEveryPage()).toBeTruthy());
+  expect(showEveryPage()!.getAttribute('aria-checked')).toBe('false');
+
+  const reload = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+  const save = JSON.stringify({
+    version: 2,
+    exportedAt: '2026-10-14T00:00:00.000Z',
+    dataVersion: CURRENT_DATA_VERSION,
+    player: JSON.stringify({ secretKey: '03'.repeat(32), name: 'Imported Player', nextNonce: 1, createdAt: 1 }),
+    stats: JSON.stringify({ packsOpened: 1, holoCards: {} }),
+    collection: '{}',
+    achievements: '{}',
+    hallOfFame: '{}',
+    settings: JSON.stringify({ effectsVolume: 0 }),
+    history: '[]',
+  });
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, 'files', { value: [new File([save], 'save.json', { type: 'application/json' })], configurable: true });
+  await app.interact(() => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await app.until('import reloads the page', () => expect(reload).toHaveBeenCalled());
+
+  await app.reload();
+  await app.until('the tabs show after importing an unlocked save', () => expect(document.querySelector('.app-nav')).not.toBeNull());
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings-group')).not.toBeNull());
+  expect(showEveryPage()).toBeUndefined();
+});
+
+it('restores the Show every page switch to Settings when resetting to a fresh player', async () => {
+  app = await mountedApp({ ...RETURNING, ...QUIET, 'brainrot-player-v1': 'not-json' });
+  await app.mount();
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings-group')).not.toBeNull());
+  expect(showEveryPage()).toBeUndefined();
+
+  const startBtn = button('Start a new player');
+  expect(startBtn).toBeDefined();
+  const reload = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+  await app.interact(() => startBtn.click());
+  await app.until('confirmation question appears', () => expect(document.querySelector('.btn--danger')).not.toBeNull());
+  await app.interact(() => document.querySelector<HTMLButtonElement>('.btn--danger')!.click());
+  expect(reload).toHaveBeenCalled();
+
+  await app.reload();
+  expect(document.querySelector('.app-nav')).toBeNull();
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(showEveryPage()).toBeTruthy());
+  expect(showEveryPage()!.getAttribute('aria-checked')).toBe('false');
 });
 
 it('gives Open, Cards, Rankings and Profile a page each, with an address, a title and Back between them', async () => {

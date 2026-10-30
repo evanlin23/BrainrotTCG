@@ -22,7 +22,7 @@ import { countableTickets, stateFor, type PackCacheState } from './packCache';
 import { onReopenProgress, reopen } from './reopenJob';
 
 // Verifying a shared profile lives in its own module; re-exported so existing imports keep working.
-export { verifyProfileLive, type ProfileProgress } from './profileVerification';
+export { verifyProfileLive, type ProfileProgress, type VerifyProfileOptions } from './profileVerification';
 
 export const profileUrl = (profile: string): string => `${siteUrl()}#/profile/${profile}`;
 

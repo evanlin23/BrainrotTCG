@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ALL_CARDS, COLLECTIBLE_CARDS, getSetCards, type Card } from '../../data/cards';
+import { ALL_CARDS, CARD_RARITIES, COLLECTIBLE_CARDS, getSetCards, type Card } from '../../data/cards';
 import { isOpenable, SETS } from '../../content/sets';
 import type { Finish, SetDefinition } from '../../engine';
 import type { CollectionItem } from '../../types';
@@ -323,6 +323,25 @@ describe('completed sets', () => {
     expect(headerOf(set().name).textContent).toContain('Complete: every card collected');
   });
 
+  it('shows holo completion percentage in the binder header and progress bar when holos are owned', () => {
+    // 3 of 12 cards as holo = 25% holo
+    render(ownAll((i) => i < 3));
+    const header = headerOf(set().name);
+    const holoPct = header.querySelector('.collection-set-holo-pct');
+    expect(holoPct?.textContent).toBe('25% holo');
+    expect(holoPct?.getAttribute('title')).toBe(`3 of ${cardsOf().length} cards collected as holo`);
+    const holoBar = header.closest('.collection-set-header')?.querySelector('.collection-set-bar-holo');
+    expect(holoBar).not.toBeNull();
+    expect(holoBar?.getAttribute('style')).toContain('width: 25%');
+  });
+
+  it('hides the holo percentage badge when the set reaches Master status', () => {
+    render(ownAll(() => true));
+    const header = headerOf(set().name);
+    expect(header.querySelector('.collection-set-holo-pct')).toBeNull();
+    expect(header.querySelector('.set-badge--master')?.textContent).toBe('Master');
+  });
+
   it('shows the tag beside Archived on an archived set\'s header', () => {
     const archived = SETS.find((s) => s.archivedAt)!;
     render(Object.fromEntries(getSetCards(archived.id).map((card) => [card.key, { card, normalCount: 1, holoCount: 0 } satisfies CollectionItem])));
@@ -391,146 +410,313 @@ describe('zero-copy records (#812)', () => {
 });
 
 describe('collection search and filters (#756)', () => {
-  const searchInput = () => page().querySelector<HTMLInputElement>('input#collection-search')!;
-  const raritySelect = () => page().querySelector<HTMLSelectElement>('select#collection-rarity-filter')!;
-  const finishSelect = () => page().querySelector<HTMLSelectElement>('select#collection-finish-filter')!;
-  const holoButton = () => [...page().querySelectorAll<HTMLButtonElement>('.collection-pill-btn')].find((b) => b.textContent?.includes('Holo only'))!;
-  const missingButton = () => [...page().querySelectorAll<HTMLButtonElement>('.collection-pill-btn')].find((b) => b.textContent?.includes('Missing only'))!;
-  const clearButton = () => page().querySelector<HTMLButtonElement>('.collection-reset-btn');
-  const searchClear = () => page().querySelector<HTMLButtonElement>('.collection-search-clear');
+  const searchInput = () => page().querySelector<HTMLInputElement>('input[type="search"]')!;
+  const select = (label: string) => page().querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
+  const toggle = (name: string) => [...page().querySelectorAll<HTMLButtonElement>('.collection-pill-btn')].find((b) => b.textContent === name)!;
+  const clearFilters = () => page().querySelector<HTMLButtonElement>('.collection-filter-row .collection-reset-btn');
+  const status = () => page().querySelector('[role="status"]')!.textContent;
+  const names = () => tiles().map((tile) => tile.getAttribute('aria-label')!.split(',')[0]);
+  const slotCount = () => page().querySelectorAll('.collection-slot').length;
+  const holoPct = () => page().querySelector('.collection-set-holo-pct')?.textContent;
 
-  const typeSearch = (value: string) => {
-    act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(searchInput(), value);
-      searchInput().dispatchEvent(new Event('input', { bubbles: true }));
-    });
+  const typeSearch = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(searchInput(), value);
+    searchInput().dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const choose = (label: string, value: string) => act(() => {
+    select(label).value = value;
+    select(label).dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  const press = (name: string) => act(() => toggle(name).click());
+
+  /** One openable era with a known spread: card 0 plain, 1 holo, 2 gold, 3 silver + holo. The rest missing. */
+  const mixed = () => {
+    const set = SETS.find(isOpenable)!;
+    const cards = getSetCards(set.id);
+    const collection: Record<string, CollectionItem> = {
+      [cards[0].key]: { card: cards[0], normalCount: 2, holoCount: 0 },
+      [cards[1].key]: { card: cards[1], normalCount: 0, holoCount: 1 },
+      [cards[2].key]: { card: cards[2], normalCount: 1, holoCount: 0, finishes: { GOLD: 1 } },
+      [cards[3].key]: { card: cards[3], normalCount: 1, holoCount: 1, finishes: { SILVER: 1 } },
+    };
+    return { set, cards, collection };
   };
 
-  it('filters cards by name search and clears search via the clear button', () => {
-    const set = SETS.find(isOpenable)!;
-    const cards = getSetCards(set.id);
-    const target = cards[0];
-    render(own(cards));
-
-    // Initially all cards in the open era are visible
-    expect(tiles().length).toBeGreaterThan(1);
-
-    // Type target card name substring
-    const query = target.name.slice(0, 4);
-    typeSearch(query);
-
-    const matchingTiles = tiles();
-    expect(matchingTiles.length).toBeGreaterThanOrEqual(1);
-    expect(matchingTiles.every((tile) => tile.getAttribute('aria-label')?.toLowerCase().includes(query.toLowerCase()))).toBe(true);
-    expect(page().querySelector('.collection-filter-status')?.textContent).toContain('Showing');
-
-    // Click clear search button
-    expect(searchClear()).not.toBeNull();
-    act(() => searchClear()!.click());
-
+  it('searches by name in any case and clears with the button, handing focus back to the box', () => {
+    const { cards, collection } = mixed();
+    render(collection);
+    expect(tiles()).toHaveLength(4);
+    typeSearch(`  ${cards[2].name.slice(0, 5).toUpperCase()} `);
+    expect(names()).toContain(cards[2].name);
+    expect(names().every((name) => name.toLowerCase().includes(cards[2].name.slice(0, 5).toLowerCase()))).toBe(true);
+    expect(status()).toMatch(/^Showing \d+ cards?/);
+    const clear = page().querySelector<HTMLButtonElement>('.collection-search-clear')!;
+    expect(clear.getAttribute('aria-label')).toBe('Clear search');
+    act(() => clear.click());
     expect(searchInput().value).toBe('');
-    expect(page().querySelector('.collection-filter-status')).toBeNull();
+    expect(document.activeElement).toBe(searchInput());
+    expect(page().querySelector('.collection-search-clear')).toBeNull();
+    expect(tiles()).toHaveLength(4);
+    expect(status()).toBe('');
   });
 
-  it('filters cards by rarity', () => {
-    const set = SETS.find(isOpenable)!;
-    const cards = getSetCards(set.id);
-    render(own(cards));
-
-    act(() => {
-      raritySelect().value = 'RARE';
-      raritySelect().dispatchEvent(new Event('change', { bubbles: true }));
-    });
-
-    const currentTiles = tiles();
-    expect(currentTiles.length).toBeGreaterThan(0);
-    expect(currentTiles.every((tile) => tile.classList.contains('rare'))).toBe(true);
-
-    // Reset filters
-    act(() => clearButton()!.click());
-    expect(raritySelect().value).toBe('ALL');
+  it('a blank search is not a filter', () => {
+    render(mixed().collection);
+    typeSearch('   ');
+    expect(tiles()).toHaveLength(4);
+    expect(status()).toBe('');
+    expect(clearFilters()).toBeNull();
   });
 
-  it('filters cards by holo only', () => {
-    const set = SETS.find(isOpenable)!;
-    const cards = getSetCards(set.id);
-    // Card 0 is holo, card 1 is non-holo
-    const collection: Record<string, CollectionItem> = {
-      [cards[0].key]: { card: cards[0], normalCount: 0, holoCount: 1 },
-      [cards[1].key]: { card: cards[1], normalCount: 2, holoCount: 0 },
-    };
+  it('filters by rarity', () => {
+    const { cards, collection } = mixed();
+    const rarity = cards[0].rarity;
     render(collection);
-
-    expect(holoButton().getAttribute('aria-pressed')).toBe('false');
-    act(() => holoButton().click());
-
-    expect(holoButton().getAttribute('aria-pressed')).toBe('true');
-    const currentTiles = tiles();
-    expect(currentTiles.length).toBe(1);
-    expect(currentTiles[0].getAttribute('aria-label')).toContain(cards[0].name);
-    expect(currentTiles[0].classList.contains('holo')).toBe(true);
+    choose('Filter by rarity', rarity);
+    const expected = [0, 1, 2, 3].filter((i) => cards[i].rarity === rarity).map((i) => cards[i].name);
+    expect(names()).toEqual(expected);
+    expect(tiles().every((tile) => tile.classList.contains(rarity.toLowerCase()))).toBe(true);
   });
 
-  it('filters cards by finish', () => {
-    const set = SETS.find(isOpenable)!;
-    const cards = getSetCards(set.id);
-    const collection: Record<string, CollectionItem> = {
-      [cards[0].key]: { card: cards[0], normalCount: 1, holoCount: 0, finishes: { GOLD: 1 } },
-      [cards[1].key]: { card: cards[1], normalCount: 1, holoCount: 0, finishes: { SILVER: 1 } },
-      [cards[2].key]: { card: cards[2], normalCount: 1, holoCount: 0 },
-    };
+  it('filters by holo only, counting a card with any holo copy', () => {
+    const { cards, collection } = mixed();
     render(collection);
-
-    // Filter to any finish
-    act(() => {
-      finishSelect().value = 'ANY';
-      finishSelect().dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    expect(tiles().length).toBe(2);
-
-    // Filter to Gold only
-    act(() => {
-      finishSelect().value = 'GOLD';
-      finishSelect().dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    expect(tiles().length).toBe(1);
-    expect(tiles()[0].getAttribute('aria-label')).toContain('Gold');
+    press('Holo only');
+    expect(toggle('Holo only').getAttribute('aria-pressed')).toBe('true');
+    expect(names()).toEqual([cards[1].name, cards[3].name]);
+    press('Holo only');
+    expect(tiles()).toHaveLength(4);
   });
 
-  it('filters to missing cards only', () => {
-    const set = SETS.find(isOpenable)!;
-    const cards = getSetCards(set.id);
-    // Own only the first card of the set
-    const collection: Record<string, CollectionItem> = {
-      [cards[0].key]: { card: cards[0], normalCount: 1, holoCount: 0 },
-    };
+  it('filters by any finish and by one finish', () => {
+    const { cards, collection } = mixed();
     render(collection);
-
-    expect(missingButton().getAttribute('aria-pressed')).toBe('false');
-    act(() => missingButton().click());
-
-    expect(missingButton().getAttribute('aria-pressed')).toBe('true');
-    // Only uncollected slots should be rendered in the grid, owned tile button should be hidden
-    expect(tiles().length).toBe(0);
-    const slots = page().querySelectorAll('.collection-slot');
-    expect(slots.length).toBe(cards.length - 1);
+    choose('Filter by finish', 'ANY');
+    expect(names()).toEqual([cards[2].name, cards[3].name]);
+    choose('Filter by finish', 'GOLD');
+    expect(names()).toEqual([cards[2].name]);
+    choose('Filter by finish', 'DIAMOND');
+    expect(tiles()).toHaveLength(0);
+    expect(status()).toBe('No cards match the active filters.');
   });
 
-  it('displays empty message when no cards match filters and allows reset', () => {
-    const set = SETS.find(isOpenable)!;
-    const cards = getSetCards(set.id);
-    render(own(cards));
+  it('lists only missing cards as empty pockets with Missing only', () => {
+    const { cards, collection } = mixed();
+    render(collection);
+    expect(slotCount()).toBe(cards.length - 4);
+    press('Missing only');
+    expect(toggle('Missing only').getAttribute('aria-pressed')).toBe('true');
+    expect(tiles()).toHaveLength(0);
+    expect(slotCount()).toBe(cards.length - 4);
+    expect(status()).toMatch(new RegExp(`^Showing ${cards.length - 4} cards`));
+  });
 
-    typeSearch('ThisNameDoesNotExistInAnySet12345');
+  it('combines filters, every one narrowing the result', () => {
+    const { cards, collection } = mixed();
+    render(collection);
+    press('Holo only');
+    choose('Filter by finish', 'ANY');
+    expect(names()).toEqual([cards[3].name]);
+    typeSearch(cards[2].name);
+    expect(tiles()).toHaveLength(0);
+    typeSearch(cards[3].name);
+    expect(names()).toEqual([cards[3].name]);
+    // Holo only and Missing only together can match nothing: a card can't be both.
+    press('Missing only');
+    expect(tiles()).toHaveLength(0);
+    expect(status()).toBe('No cards match the active filters.');
+  });
 
-    expect(page().querySelector('.collection-empty-filter')).not.toBeNull();
-    expect(page().querySelector('.collection-empty-filter')?.textContent).toContain('No cards match the active filters.');
-
-    // Click reset in the empty state
-    const reset = page().querySelector<HTMLButtonElement>('.collection-empty-filter .collection-reset-btn')!;
-    act(() => reset.click());
-
+  it('shows an empty result with a reset that restores the binder and moves focus to the search box', () => {
+    const { collection } = mixed();
+    render(collection);
+    typeSearch('zzz no card is named this');
+    choose('Filter by rarity', 'LEGENDARY');
+    expect(status()).toBe('No cards match the active filters.');
+    expect(headers()).toHaveLength(0);
+    const empty = page().querySelector<HTMLElement>('.collection-empty-filter')!;
+    expect(empty).not.toBeNull();
+    act(() => empty.querySelector<HTMLButtonElement>('.collection-reset-btn')!.click());
     expect(page().querySelector('.collection-empty-filter')).toBeNull();
-    expect(tiles().length).toBeGreaterThan(0);
+    expect(searchInput().value).toBe('');
+    expect(select('Filter by rarity').value).toBe('ALL');
+    expect(select('Filter by finish').value).toBe('ALL');
+    expect(toggle('Holo only').getAttribute('aria-pressed')).toBe('false');
+    expect(tiles()).toHaveLength(4);
+    expect(document.activeElement).toBe(searchInput());
+    expect(status()).toBe('');
+  });
+
+  it('keeps collector numbers, set progress and the score line as the unfiltered binder shows them', () => {
+    const { cards, collection } = mixed();
+    render(collection);
+    const count = headers()[0].querySelector('.collection-set-count')!.textContent;
+    const subtitle = page().querySelector('.page-subtitle')!.textContent;
+    const pct = holoPct();
+    const numberOf = (card: Card) => `${String(cards.indexOf(card) + 1).padStart(3, '0')}/${String(cards.length).padStart(3, '0')}`;
+    expect(pct).toBeDefined();
+    typeSearch(cards[3].name);
+    expect(headers()[0].querySelector('.collection-set-count')!.textContent).toBe(count);
+    expect(page().querySelector('.page-subtitle')!.textContent).toBe(subtitle);
+    expect(holoPct()).toBe(pct);
+    expect(tiles()[0].getAttribute('aria-label')).toContain(numberOf(cards[3]));
+    expect(page().querySelector('.collection-grid .collection-label')!.textContent).toContain(numberOf(cards[3]));
+    // A missing pocket keeps the number it has in the full binder, not one counted from the filtered list.
+    typeSearch('');
+    press('Missing only');
+    const last = cards[cards.length - 1];
+    expect([...page().querySelectorAll('.collection-grid > li')].map((li) => li.getAttribute('aria-label'))).toContain(
+      `${numberOf(last)}, ${CARD_RARITIES[last.rarity].name}, not collected yet`,
+    );
+    expect(headers()[0].querySelector('.collection-set-count')!.textContent).toBe(count);
+  });
+
+  it('opens a collapsed era that has matches and lets you collapse it again while filtering', () => {
+    const { collection } = mixed();
+    render(collection);
+    act(() => headers()[0].click());
+    expect(openEras()).toEqual([]);
+    typeSearch('a');
+    expect(openEras().length).toBeGreaterThan(0);
+    act(() => headers()[0].click());
+    expect(openEras()).toEqual([]);
+    act(() => clearFilters()!.click());
+    expect(openEras()).toEqual([]);
+  });
+
+  it('hides eras with no match', () => {
+    const openable = SETS.filter(isOpenable);
+    const older = openable[0];
+    const newer = openable[openable.length - 1];
+    const olderCard = getSetCards(older.id)[0];
+    const newerCard = getSetCards(newer.id)[0];
+    render({
+      [olderCard.key]: { card: olderCard, normalCount: 1, holoCount: 0 },
+      [newerCard.key]: { card: newerCard, normalCount: 1, holoCount: 0 },
+    });
+    expect(headers().map(nameOf)).toEqual([older.name, newer.name]);
+    typeSearch(newerCard.name);
+    expect(headers().map(nameOf)).toEqual([newer.name]);
+    expect(names()).toEqual([newerCard.name]);
+  });
+
+  describe('never shows more than the unfiltered binder', () => {
+    it('Missing only lists no pocket of an archived or draft era, and turning it off brings back the owned cards', () => {
+      const archived = SETS.find((s) => s.archivedAt)!;
+      const draftBase = SETS.find(isOpenable)!;
+      const draft: SetDefinition = { ...draftBase, id: 'draft-test', name: 'Draft test', era: '2099', draft: true, archivedAt: undefined };
+      const draftCards: Card[] = Array.from({ length: 4 }, (_, k) => ({
+        key: `draft-test/c${k}`, setId: 'draft-test', id: `c${k}`, name: `Draftcard ${k}`, rarity: 'COMMON', image: `/draft/c${k}.webp`,
+      }));
+      SETS.push(draft);
+      ALL_CARDS.push(...draftCards);
+      COLLECTIBLE_CARDS.push(...draftCards);
+      const archivedCards = getSetCards(archived.id);
+      render({
+        [archivedCards[0].key]: { card: archivedCards[0], normalCount: 1, holoCount: 0 },
+        [draftCards[0].key]: { card: draftCards[0], normalCount: 1, holoCount: 0 },
+      });
+      // Unfiltered: only the owned card of each.
+      expect(tiles()).toHaveLength(2);
+      expect(slotCount()).toBe(0);
+      press('Missing only');
+      expect(slotCount()).toBe(0);
+      expect(tiles()).toHaveLength(0);
+      expect(headers().map(nameOf)).not.toContain(archived.name);
+      expect(headers().map(nameOf)).not.toContain(draft.name);
+      expect(page().textContent).not.toContain('Draftcard');
+      press('Missing only');
+      expect(tiles()).toHaveLength(2);
+      expect(slotCount()).toBe(0);
+    });
+
+    it('searching by name does not find a card of an unstarted draft era', () => {
+      const base = SETS.find(isOpenable)!;
+      const draft: SetDefinition = { ...base, id: 'secret-draft', name: 'Secret draft', era: '2099', draft: true, archivedAt: undefined };
+      const secret: Card = { key: 'secret-draft/x', setId: 'secret-draft', id: 'x', name: 'Zzyzx Leak', rarity: 'COMMON', image: '/x.webp' };
+      SETS.push(draft);
+      ALL_CARDS.push(secret);
+      COLLECTIBLE_CARDS.push(secret);
+      render({});
+      typeSearch('zzyzx');
+      expect(page().textContent).not.toContain('Secret draft');
+      expect(page().textContent).not.toContain('Zzyzx');
+      expect(status()).toBe('No cards match the active filters.');
+    });
+
+    it('lists an era you have not started as a row with Missing only, and no pockets', () => {
+      const set = SETS.find(isOpenable)!;
+      render({});
+      press('Missing only');
+      expect(tiles()).toHaveLength(0);
+      expect(slotCount()).toBe(0);
+      const rows = [...page().querySelectorAll('.collection-later-name')].map((n) => n.textContent);
+      expect(rows).toContain(set.name);
+      expect(status()).toMatch(/^Showing 0 cards, and \d+ eras? not started$/);
+    });
+  });
+
+  describe('keyboard and ARIA', () => {
+    it('labels every control and exposes the toggles as pressed buttons in tab order', () => {
+      render(mixed().collection);
+      const search = page().querySelector('[role="search"]')!;
+      expect(search.getAttribute('aria-label')).toBeTruthy();
+      expect(searchInput().getAttribute('aria-label')).toBe('Search cards by name');
+      expect(select('Filter by rarity').tagName).toBe('SELECT');
+      expect(select('Filter by finish').tagName).toBe('SELECT');
+      for (const name of ['Holo only', 'Missing only']) {
+        expect(toggle(name).tagName).toBe('BUTTON');
+        expect(toggle(name).getAttribute('type')).toBe('button');
+        expect(toggle(name).getAttribute('aria-pressed')).toBe('false');
+        expect(toggle(name).tabIndex).toBe(0);
+      }
+      const order = [...search.querySelectorAll<HTMLElement>('input, select, button')];
+      expect(order.map((el) => el.getAttribute('aria-label') ?? el.textContent)).toEqual([
+        'Search cards by name', 'Filter by rarity', 'Filter by finish', 'Holo only', 'Missing only',
+      ]);
+      expect(order.every((el) => el.tabIndex >= 0)).toBe(true);
+    });
+
+    it('offers every rarity and finish by name, from the game data, and only those', () => {
+      render(mixed().collection);
+      const rarities = [...select('Filter by rarity').options].map((o) => o.textContent);
+      expect(rarities).toEqual(['All rarities', 'Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Brainrot']);
+      const finishes = [...select('Filter by finish').options].map((o) => o.textContent);
+      expect(finishes).toEqual(['All finishes', 'Any finish', 'Silver', 'Gold', 'Platinum', 'Diamond']);
+    });
+
+    it('announces the result in one always-present polite status, and not twice when nothing matches', () => {
+      render(mixed().collection);
+      const live = page().querySelector('[role="status"]')!;
+      expect(live).not.toBeNull();
+      expect(page().querySelectorAll('[role="status"]')).toHaveLength(1);
+      typeSearch('zzz');
+      expect(page().querySelector('[role="status"]')).toBe(live);
+      expect(live.textContent).toBe('No cards match the active filters.');
+      expect(page().querySelectorAll('[role="status"]')).toHaveLength(1);
+      expect(page().querySelector('.collection-empty-filter')!.textContent).not.toContain('No cards match');
+    });
+
+    it('shows Clear filters only while filtering and pressing it resets the toggles', () => {
+      render(mixed().collection);
+      expect(clearFilters()).toBeNull();
+      press('Holo only');
+      expect(clearFilters()).not.toBeNull();
+      act(() => clearFilters()!.click());
+      expect(toggle('Holo only').getAttribute('aria-pressed')).toBe('false');
+      expect(clearFilters()).toBeNull();
+    });
+
+    it('keeps tiles reachable and named as buttons while filtered', () => {
+      const { cards, collection } = mixed();
+      render(collection);
+      press('Holo only');
+      for (const tile of tiles()) {
+        expect(tile.tabIndex).toBe(0);
+        expect(tile.getAttribute('aria-label')).toMatch(/holo/);
+      }
+      act(() => tiles()[0].click());
+      expect(document.body.textContent).toContain(cards[1].name);
+    });
   });
 });

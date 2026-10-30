@@ -3,6 +3,12 @@ import { useEffect, useRef, MutableRefObject } from 'react';
 interface UseKeyboardControlsOptions {
   isOpening: boolean;
   showSummary: boolean;
+  /**
+   * The summary is still inside its settle window (#972): Space and Enter don't close it yet. This is the
+   * same state that holds its clicks and drives its data-settling attribute (useStageClickGuard), so the
+   * keys and the page's signal can never disagree.
+   */
+  summarySettling: boolean;
   disabled: boolean;
   onCloseSummary: () => void;
   /** Open the pack on screen (the keyboard's version of the swipe), when focus is on it. */
@@ -64,7 +70,7 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const { isOpening, showSummary, disabled, onCloseSummary, onOpenPack, handleInteractionRef, inPack, onLeave } = latest.current;
+      const { isOpening, showSummary, summarySettling, disabled, onCloseSummary, onOpenPack, handleInteractionRef, inPack, onLeave } = latest.current;
       // Ignore if disabled, or if a sheet is open over the pack (its buttons need these keys), or if
       // focus is on a control that Space or Enter already activates. A reveal card is a button that
       // opts in (data-pack-keys), so a held Space keeps moving on; preventing the key stops its click.
@@ -91,6 +97,7 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       if (e.repeat) return;
 
       if (showSummary) {
+        if (summarySettling) return;
         onCloseSummary();
       } else if (!isOpening) {
         onOpenPack();
@@ -119,12 +126,11 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
     };
   }, []);
 
-  // The summary stops a held Space.
+  // The summary stops a held Space, which would otherwise run on into it.
   useEffect(() => {
-    if (options.showSummary && spaceTimerRef.current) {
-      clearTimeout(spaceTimerRef.current);
-      spaceTimerRef.current = null;
-      spaceHeldRef.current = false;
-    }
+    if (!options.showSummary || !spaceTimerRef.current) return;
+    clearTimeout(spaceTimerRef.current);
+    spaceTimerRef.current = null;
+    spaceHeldRef.current = false;
   }, [options.showSummary]);
 };
