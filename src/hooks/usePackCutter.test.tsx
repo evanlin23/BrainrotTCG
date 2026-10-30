@@ -1086,6 +1086,47 @@ describe('usePackCutter swipes let go short (#803)', () => {
   });
 });
 
+describe('usePackCutter ends the idle cue before the tear', () => {
+  /** Gives the pack a running idle lift, and records it ending against the cut. */
+  const idlePack = () => {
+    const order: string[] = [];
+    const pack = container.firstElementChild as HTMLDivElement;
+    pack.getAnimations = () => [{ animationName: 'pack-idle-lift', effect: { target: pack }, cancel: () => order.push('cue ended') }] as unknown as Animation[];
+    onCutComplete.mockImplementation(() => { order.push('cut'); });
+    return order;
+  };
+
+  it('ends it when a drag tears the pack mid-swipe', () => {
+    const order = idlePack();
+    down(at(0.2));
+    move(at(0.35));
+    move(at(0.6));
+    expect(order).toEqual(['cue ended', 'cut']);
+  });
+
+  it('ends it when the release tears the pack', () => {
+    const order = idlePack();
+    down(at(0.35));
+    move(at(0.5));
+    expect(order).toEqual([]);
+    up(at(0.6));
+    expect(order).toEqual(['cue ended', 'cut']);
+  });
+
+  it('ends it when a flick with only a press and a release tears the pack', () => {
+    const order = idlePack();
+    down(at(0.3));
+    up(at(0.6));
+    expect(order).toEqual(['cue ended', 'cut']);
+  });
+
+  it('leaves it running when a short swipe opens nothing', () => {
+    const order = idlePack();
+    swipe(at(0.4), at(0.45), at(0.49));
+    expect(order).toEqual([]);
+  });
+});
+
 describe('usePackCutter sound gains', () => {
   it('plays the fairy dust and the woosh at their gain on the effects level', () => {
     const played: { src: string; volume: number }[] = [];

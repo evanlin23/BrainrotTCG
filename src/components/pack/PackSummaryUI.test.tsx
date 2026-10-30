@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cardFinishThumbUrl } from '../../content/art';
@@ -7,8 +7,13 @@ import { getSet } from '../../content/sets';
 import { getSetCards, scoreCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
 import { revealOrder } from '../../game/reveal';
-import { STAGE_CLICK_GUARD_MS } from '../../hooks/useStageClickGuard';
-import PackSummaryUI from './PackSummaryUI';
+import { STAGE_CLICK_GUARD_MS, useStageClickGuard } from '../../hooks/useStageClickGuard';
+import SummaryScreen from './PackSummaryUI';
+
+// PackOpener owns the settle window and hands it down; stand in for it, as it does for a summary just shown.
+const PackSummaryUI = (props: Omit<ComponentProps<typeof SummaryScreen>, 'guard'>) => (
+  <SummaryScreen {...props} guard={useStageClickGuard()} />
+);
 
 // The share sheet itself is tested on its own (CardShareSheet.test.tsx): here, what it was opened with.
 const { shareSheet } = vi.hoisted(() => ({ shareSheet: vi.fn() }));

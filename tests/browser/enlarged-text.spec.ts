@@ -31,8 +31,7 @@ const unclipped = (target: Locator) => expect.poll(() => target.evaluate((root) 
 
 for (const width of [320, 390]) {
   for (const percent of [100, 200]) {
-    test(`Cards: unstarted eras fit a ${width} px phone at ${percent}% text (#681)`, async ({ page, baseURL }, testInfo) => {
-      test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
+    test(`Cards: unstarted eras fit a ${width} px phone at ${percent}% text (#681)`, { tag: '@mobile-only' }, async ({ page, baseURL }) => {
       await page.setViewportSize({ width, height: 700 });
       const errors = await monitor(page, baseURL!, 0, { returning: true });
       await page.goto('./#/cards');
@@ -59,8 +58,31 @@ for (const width of [320, 390]) {
   }
 }
 
-test('Cards: Spring Breakdown keeps its count on screen at 320 px and 200% text (#681)', async ({ page, baseURL }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
+for (const percent of [100, 200]) {
+  test(`Cards: search and filter controls fit a 320 px phone at ${percent}% text, 44 px high (#756)`, { tag: '@mobile-only' }, async ({ page, baseURL }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    const errors = await monitor(page, baseURL!, 0, { returning: true });
+    await page.goto('./#/cards');
+    const cards = pageNamed(page, 'Cards');
+    const controls = cards.getByRole('search');
+    await expect(controls).toBeVisible();
+    await scaleText(page, percent);
+    // The Clear search and Clear filters buttons only exist while something is filtered.
+    await controls.getByRole('searchbox').fill('zzzz');
+    await controls.getByRole('button', { name: 'Missing only' }).click();
+    await expect(cards.getByRole('status')).toHaveText('No cards match the active filters.');
+    await insidePage(page, cards, 320);
+    await unclipped(controls);
+    const heights = await controls.locator('input, select, button').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().height)));
+    expect(heights.length).toBe(7);
+    expect(Math.min(...heights)).toBeGreaterThanOrEqual(44);
+    const clearWidths = await controls.getByRole('button', { name: 'Clear search' }).evaluate((el) => el.getBoundingClientRect().width);
+    expect(clearWidths).toBeGreaterThanOrEqual(44);
+    expect(errors).toEqual([]);
+  });
+}
+
+test('Cards: Spring Breakdown keeps its count on screen at 320 px and 200% text (#681)', { tag: '@mobile-only' }, async ({ page, baseURL }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.goto('./#/cards');
@@ -78,8 +100,7 @@ test('Cards: Spring Breakdown keeps its count on screen at 320 px and 200% text 
 
 for (const width of [320, 390]) {
   for (const percent of [100, 200]) {
-    test(`Profile: the empty first-pack action fits a ${width} px phone at ${percent}% text (#682)`, async ({ page, baseURL }, testInfo) => {
-      test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
+    test(`Profile: the empty first-pack action fits a ${width} px phone at ${percent}% text (#682)`, { tag: '@mobile-only' }, async ({ page, baseURL }) => {
       await page.setViewportSize({ width, height: 700 });
       // A new player: no saved packs, so Profile shows its empty state.
       const errors = await monitor(page, baseURL!);

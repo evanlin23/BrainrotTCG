@@ -83,6 +83,16 @@ async function expectTiles(tiles: Locator, state: 'ready' | 'failed' | 'loading'
   return facts;
 }
 
+/**
+ * Where an element sits in the page, whatever the scroll: the journeys scroll each tile into view
+ * before they wait on it, and where that leaves the page depends on the controls above the binder.
+ */
+const boxInPage = (target: Locator) => target.evaluate((el) => {
+  const box = el.getBoundingClientRect();
+  const scroller = el.closest('main')!;
+  return { x: box.x + scroller.scrollLeft, y: box.y + scroller.scrollTop, width: box.width, height: box.height };
+});
+
 /** The same boxes, to a hair: a state change never moves or resizes a tile. */
 function expectSameBoxes(actual: Tile[], expected: Tile[]) {
   expect(actual).toHaveLength(expected.length);
@@ -174,7 +184,7 @@ test('slow collection art shows a placeholder the size of the art, then fills it
   // Every tile is loading and draws its shimmer in a box that is already the card's shape.
   const loading = await expectTiles(tiles, 'loading');
   const section = main.locator('.collection-set').first();
-  const sectionBefore = await section.boundingBox();
+  const sectionBefore = await boxInPage(section);
   const [first] = loading;
   for (const tile of loading) expect(tile.height / tile.width).toBeCloseTo(first.height / first.width, 1);
   expect(first.height).toBeGreaterThan(first.width);
@@ -183,7 +193,7 @@ test('slow collection art shows a placeholder the size of the art, then fills it
   const ready = await expectTiles(tiles, 'ready');
   await expectDecoded(tiles, ids.length);
   expectSameBoxes(ready, loading);
-  expect(await section.boundingBox()).toEqual(sectionBefore);
+  expect(await boxInPage(section)).toEqual(sectionBefore);
   expect(errors).toEqual([]);
 });
 

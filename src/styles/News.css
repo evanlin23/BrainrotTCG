@@ -1,0 +1,150 @@
+/* One line beside the Card guide link (App.tsx), in the row the guide already takes under the pack: it adds
+   no height of its own, so it can never change the pack's size or position, the nav's, or cover the pack or
+   its tear line. It is exactly the row's height (a 44px dismiss target) and shows what fits: the headline,
+   then the tag, then the summary and link as the row widens. The full text is its tooltip; a row too narrow
+   for any of it (a 320px phone, enlarged text) shows nothing rather than squeeze the guide link. */
+.news-banner {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 28rem;
+  height: var(--touch-target);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: var(--space-3);
+  padding-left: var(--space-3);
+  background: var(--surface-2);
+  /* A shadow, not a border, so the box stays the row's height. */
+  box-shadow: inset 0 0 0 1px var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+  color: var(--text);
+  animation: news-banner-slide-in var(--dur-fast) var(--ease-out);
+}
+
+@keyframes news-banner-slide-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.news-banner-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.news-banner-tag {
+  display: none;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  color: var(--brand-ink);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.news-banner-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.news-banner-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.news-banner-sep,
+.news-banner-summary,
+.news-banner-link {
+  display: none;
+}
+
+.news-banner-link {
+  flex-shrink: 0;
+  color: var(--brand);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.news-banner-link:hover {
+  color: var(--text);
+}
+
+.news-banner-dismiss {
+  display: grid;
+  place-items: center;
+  width: var(--touch-target);
+  height: var(--touch-target);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.news-banner-dismiss:hover {
+  color: var(--text);
+}
+
+.news-banner-dismiss-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* The row (Scoring.css) is the container, so the thresholds follow the text size as well as the width. */
+@container card-guide (max-width: 20rem) {
+  .news-banner {
+    display: none;
+  }
+}
+
+@container card-guide (min-width: 30rem) {
+  .news-banner-tag {
+    display: inline-block;
+  }
+}
+
+@container card-guide (min-width: 46rem) {
+  .news-banner {
+    max-width: 40rem;
+  }
+  .news-banner-sep,
+  .news-banner-summary,
+  .news-banner-link {
+    display: inline;
+  }
+}
+
+@media (forced-colors: active) {
+  .news-banner {
+    box-shadow: none;
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+}
+
+/* A phone on its side (the app's own short-screen cut-off, index.css) has no room for the pack as it is:
+   news waits for a taller screen rather than shrinking it. */
+@media (max-width: 899px) and (max-height: 520px) {
+  .news-banner {
+    display: none;
+  }
+}

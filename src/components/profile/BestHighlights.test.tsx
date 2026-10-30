@@ -165,6 +165,8 @@ describe('states', () => {
     await act(async () => pack.resolve(verifiedPack(checkBestPack.mock.calls[0][0])));
     expect(live('Best pack')).toEqual(['Verified: your best pack.']);
     expect(highlight('Best pack').querySelector('.pull-row')).not.toBeNull();
+    // The Verified badge on the row is aria-hidden so browse mode reads Verified only once (from the live status region)
+    expect(highlight('Best pack').querySelector('.profile-verified')?.getAttribute('aria-hidden')).toBe('true');
     expect(highlight('Best pack').querySelector('[role="status"] .pull-row, [role="status"] button')).toBeNull();
     // One live region per highlight, so two settling at once never read a whole row.
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(2);
@@ -207,6 +209,19 @@ describe('states', () => {
     // Without the expectation there is nothing to hold.
     await render({}, false);
     expect(container.innerHTML).toBe('');
+  });
+
+  it('does not hold or announce a check for a Best pack that is already known to be none while the best card is weighed', async () => {
+    // Saved packs, no best-pack record: resolveBestPack reads only the stats and the player, so 'none' is final now.
+    await render({}, true);
+    expect(checkBestPack).not.toHaveBeenCalled();
+    expect(text('Best pack')).not.toContain('Checking');
+    expect(highlight('Best pack').querySelector('.profile-highlight-pending')).toBeNull();
+    const live = (name: string) => [...highlight(name).querySelectorAll('[role="status"]')].map((r) => r.textContent);
+    expect(live('Best pack').join(' ')).not.toContain('Checking');
+    expect(live('Best pack')).toHaveLength(1);
+    // The card, which does wait on the rebuild, still holds its place and says so.
+    expect(live('Best card')).toEqual(['Checking your best card against its ticket…']);
   });
 
   it('holds the place through an unranked state while the rebuild runs, then shows the note once it ends', async () => {
