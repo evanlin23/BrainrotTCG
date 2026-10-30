@@ -25,18 +25,27 @@ from a 390 px wide screen.
    or Enter with focus on it, opens it exactly as a finished swipe does, and the click a swipe ends in
    is swallowed (a press that moved more than `TAP_SLOP_PX`, 10px, is a drag). The keys work only with
    focus on the pack, never from the page. While the ticket works its name reads "Opening…" and input
-   is ignored. Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
+   is ignored. If the player leaves early while that ticket is still pending, the pack appears sealed
+   again, and a press, swipe, Space or Enter shows "Taking a moment…" (announcing "Opening the pack…")
+   while hiding the swipe hint until the ticket lands (#1277). Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
    from the tear until the pack is put away) opens the selected set's card guide. The latest unread
    news shows as a one-line chip beside it in that row, adding no height: it hides on narrow rows,
    landscape phones and at 200% text on a phone, gives way to a save warning, and is never marked
    read by being hidden, only by its dismiss button. Once it is read, the next goal (#212) takes
-   its place in the same row: one two-line, 44px chip (a small card-back picture when the reward is a
+   its place in the same row, to the right of the Card guide link, which stays centred under the pack
+   with the goal or without it (the row is three columns, the guide alone in the middle): one two-line, 44px chip (a small card-back picture when the reward is a
    card back, the name, a percentage or count, and "Cosmetic, odds unchanged" or the cards still to
    go), a link to Profile rewards or the binder. It comes from the same verified-pack level and set
    counts the profile shows, adds no height, never moves and has no animation, and hides in the
-   same narrow and landscape rows as the news. Past about 125% text the two lines no longer fit in 44px, so
+   same landscape rows as the news and in a row of 20rem or less (a 320px phone, enlarged text), rather
+   than shift or squeeze the guide. In a row up to 34rem (every phone) the column beside the centred
+   guide is small, so the chip shrinks to one line, the name (an ellipsis if long), the percentage and
+   the progress bar; the picture and the cue line are not drawn there, but the cue stays in its accessible
+   name and tooltip. From 34rem it is the whole chip, capped at 18rem wide so on a desktop it stays near
+   the pack instead of running to the screen's edge. Past about 125% text the two lines no longer fit in 44px, so
    the cue line gives way and the name and progress stay on one line (`tests/browser/pack-milestone.spec.ts`
-   measures every reward's name at 360 and 390px and its text at 125% to 200% on 768 and 1280px).
+   measures every reward's name at 580 and 600px and the compact chip at 360 and 390px, its text at 125% to 200% on 768 and 1280px, and
+   `pack-guide-centred.spec.ts` that the guide's centre is the pack's within 1px with and without the goal).
    The summary lists the cards in the order they were revealed (best last), each opening up close, where
    its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the

@@ -19,11 +19,42 @@ import { REFUSAL_COPY } from './refusal';
 // and completeCut finishes one the way the real cutter does (the Open pack button calls it).
 // Its callbacks are stable, as the real hook's are: the opener's unmount cleanup depends on them.
 const cutter = vi.hoisted(() => ({
-  cutting: false, tear: () => {}, shortSwipe: () => {}, endCutAttempt: vi.fn(), completeCut: vi.fn(), resetCutState: () => {}, cleanup: () => {},
+  cutting: false,
+  isPackCut: false,
+  isOpening: false,
+  disabled: false,
+  volume: 1,
+  tear: () => {},
+  shortSwipe: () => {},
+  endCutAttempt: vi.fn(),
+  completeCut: vi.fn(),
+  resetCutState: () => {},
+  cleanup: () => {},
 }));
 vi.mock('../../hooks/usePackCutter', () => ({
-  usePackCutter: ({ onCutComplete, onShortSwipe }: { onCutComplete: () => void; onShortSwipe?: () => void }) => {
-    cutter.tear = onCutComplete;
+  usePackCutter: ({
+    onCutComplete,
+    onShortSwipe,
+    isPackCut = false,
+    isOpening = false,
+    disabled = false,
+    volume = 1,
+  }: {
+    onCutComplete: () => void;
+    onShortSwipe?: () => void;
+    isPackCut?: boolean;
+    isOpening?: boolean;
+    disabled?: boolean;
+    volume?: number;
+  }) => {
+    cutter.isPackCut = isPackCut;
+    cutter.isOpening = isOpening;
+    cutter.disabled = disabled;
+    cutter.volume = volume;
+    cutter.tear = () => {
+      if (cutter.isPackCut || cutter.isOpening || cutter.disabled) return;
+      onCutComplete();
+    };
     cutter.shortSwipe = onShortSwipe ?? (() => {});
     return {
       packRef: { current: null },
@@ -829,6 +860,140 @@ describe('one record per pack, whatever order the player and the ticket arrive i
     expect(onOpen).toHaveBeenCalledOnce();
     expect(onLeaveEarly).toHaveBeenCalledOnce();
     expect(document.querySelector('.card-reveal-area')).toBeNull();
+  });
+
+  it('shows wait feedback when pressed while an earlier left pack is still pending (#1277)', async () => {
+    let landFirst = () => {};
+    let landSecond = () => {};
+    const firstTicket = new Promise<Awaited<ReturnType<typeof openPack>>>((resolve) => { landFirst = () => resolve(dealt); });
+    const secondTicket = new Promise<Awaited<ReturnType<typeof openPack>>>((resolve) => { landSecond = () => resolve(dealt); });
+    vi.mocked(openPack).mockReturnValueOnce(firstTicket).mockReturnValueOnce(secondTicket);
+
+    await show();
+    await tear();
+
+    act(() => {
+      const closeButton = document.querySelector<HTMLButtonElement>('.pack-close');
+      expect(closeButton).not.toBeNull();
+      closeButton!.click();
+    });
+
+    const pack = document.querySelector<HTMLElement>('[data-pack-open]');
+    expect(pack).not.toBeNull();
+    act(() => pack!.click());
+
+    const liveRegion = document.querySelector<HTMLElement>('.pack-opener-container > [aria-live="polite"]');
+    expect(liveRegion?.textContent).toBe('Opening the pack…');
+    expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull();
+
+    await act(async () => { landFirst(); });
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(liveRegion?.textContent).toBe('');
+    expect(document.querySelector('.pack-hint.is-waiting')).toBeNull();
+
+    act(() => pack!.click());
+    await act(async () => { vi.advanceTimersByTime(500); });
+    expect(openPack).toHaveBeenCalledTimes(2);
+
+    await act(async () => { landSecond(); });
+    expect(document.querySelector('.card-reveal-area')).not.toBeNull();
+  });
+
+  it('shows wait feedback when swiped while an earlier left pack is still pending (#1277)', async () => {
+    const landFirst = holdTicket();
+    await show();
+    await tear();
+
+    act(() => {
+      const closeButton = document.querySelector<HTMLButtonElement>('.pack-close');
+      expect(closeButton).not.toBeNull();
+      closeButton!.click();
+    });
+
+    // While the left pack is pending: pack appears sealed, cutter is not cut, sounds are muted
+    expect(cutter.isPackCut).toBe(false);
+    expect(cutter.volume).toBe(0);
+    expect(document.querySelector('.swipe-hint')).not.toBeNull();
+
+    act(() => cutter.tear());
+
+    const liveRegion = document.querySelector<HTMLElement>('.pack-opener-container > [aria-live="polite"]');
+    expect(liveRegion?.textContent).toBe('Opening the pack…');
+    expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull();
+    // Swipe hint is hidden while waiting pill is shown
+    expect(document.querySelector('.swipe-hint')).toBeNull();
+
+    await landFirst();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(liveRegion?.textContent).toBe('');
+    expect(document.querySelector('.pack-hint.is-waiting')).toBeNull();
+    expect(document.querySelector('.swipe-hint')).not.toBeNull();
+    expect(cutter.volume).toBeGreaterThan(0);
+  });
+
+  it('shows wait feedback when Space or Enter is pressed on the pack while an earlier left pack is still pending (#1277)', async () => {
+    let landFirst = () => {};
+    const firstTicket = new Promise<Awaited<ReturnType<typeof openPack>>>((resolve) => { landFirst = () => resolve(dealt); });
+    vi.mocked(openPack).mockReturnValueOnce(firstTicket);
+
+    await show();
+    await tear();
+
+    act(() => {
+      const closeButton = document.querySelector<HTMLButtonElement>('.pack-close');
+      expect(closeButton).not.toBeNull();
+      closeButton!.click();
+    });
+
+    const pack = document.querySelector<HTMLElement>('[data-pack-open]');
+    expect(pack).not.toBeNull();
+    const liveRegion = document.querySelector<HTMLElement>('.pack-opener-container > [aria-live="polite"]');
+
+    // Space keydown with focus on the pack triggers wait feedback
+    act(() => {
+      pack!.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
+    });
+    expect(liveRegion?.textContent).toBe('Opening the pack…');
+    expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull();
+    expect(document.querySelector('.swipe-hint')).toBeNull();
+
+    await act(async () => { landFirst(); });
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(liveRegion?.textContent).toBe('');
+    expect(document.querySelector('.pack-hint.is-waiting')).toBeNull();
+    expect(document.querySelector('.swipe-hint')).not.toBeNull();
+
+    // Now start a second pack and verify Enter key behavior
+    let landSecond = () => {};
+    const secondTicket = new Promise<Awaited<ReturnType<typeof openPack>>>((resolve) => { landSecond = () => resolve(dealt); });
+    vi.mocked(openPack).mockReturnValueOnce(secondTicket);
+
+    // Open second pack
+    act(() => {
+      pack!.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true }));
+    });
+    await act(async () => { vi.advanceTimersByTime(500); });
+    expect(openPack).toHaveBeenCalledTimes(2);
+
+    // Leave second pack while pending
+    act(() => {
+      const closeButton = document.querySelector<HTMLButtonElement>('.pack-close');
+      expect(closeButton).not.toBeNull();
+      closeButton!.click();
+    });
+
+    // Enter keydown with focus on the pack while pending triggers wait feedback
+    act(() => {
+      pack!.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true }));
+    });
+    expect(liveRegion?.textContent).toBe('Opening the pack…');
+    expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull();
+    expect(document.querySelector('.swipe-hint')).toBeNull();
+
+    await act(async () => { landSecond(); });
+    expect(liveRegion?.textContent).toBe('');
   });
 
   it('keeps a pack whose ticket lands after the opener unmounted', async () => {
