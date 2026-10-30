@@ -12,7 +12,7 @@ describe('isFiltering', () => {
   it('is off for the defaults and for a blank search, on for any one control', () => {
     expect(isFiltering(NO_FILTERS)).toBe(false);
     expect(isFiltering(f({ query: '  ' }))).toBe(false);
-    for (const change of [{ query: 'a' }, { rarity: 'RARE' }, { finish: 'ANY' }, { finish: 'GOLD' }, { holoOnly: true }, { missingOnly: true }] as const) {
+    for (const change of [{ query: 'a' }, { rarity: 'RARE' }, { finish: 'ANY' }, { finish: 'GOLD' }, { holoOnly: true }, { missingOnly: true }, { ownedOnly: true }] as const) {
       expect(isFiltering(f(change))).toBe(true);
     }
   });
@@ -44,6 +44,12 @@ describe('cardMatches', () => {
   it('missing only needs no copy at all', () => {
     expect(cardMatches(card, undefined, f({ missingOnly: true }))).toBe(true);
     expect(cardMatches(card, plain, f({ missingOnly: true }))).toBe(false);
+  });
+
+  it('owned only needs at least one copy', () => {
+    expect(cardMatches(card, plain, f({ ownedOnly: true }))).toBe(true);
+    expect(cardMatches(card, holo, f({ ownedOnly: true }))).toBe(true);
+    expect(cardMatches(card, undefined, f({ ownedOnly: true }))).toBe(false);
   });
 
   it('finish: any finish, one finish, and a finish tallied at zero', () => {

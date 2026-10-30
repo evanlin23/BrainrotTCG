@@ -18,9 +18,11 @@ export interface CollectionFilters {
   holoOnly: boolean;
   /** Only cards you don't own. */
   missingOnly: boolean;
+  /** Only cards you own at least one copy of. */
+  ownedOnly: boolean;
 }
 
-export const NO_FILTERS: CollectionFilters = { query: '', rarity: 'ALL', finish: 'ALL', holoOnly: false, missingOnly: false };
+export const NO_FILTERS: CollectionFilters = { query: '', rarity: 'ALL', finish: 'ALL', holoOnly: false, missingOnly: false, ownedOnly: false };
 
 /** Rarity choices for the control, commonest first (the order a binder prints them). */
 export const RARITY_CHOICES: readonly Rarity[] = [...RARITIES_RAREST_FIRST].reverse();
@@ -29,7 +31,7 @@ export const FINISH_CHOICES: readonly Finish[] = [...FINISHES_RAREST_FIRST].reve
 
 /** Whether any control narrows the binder. */
 export const isFiltering = (f: CollectionFilters): boolean =>
-  f.query.trim() !== '' || f.rarity !== 'ALL' || f.finish !== 'ALL' || f.holoOnly || f.missingOnly;
+  f.query.trim() !== '' || f.rarity !== 'ALL' || f.finish !== 'ALL' || f.holoOnly || f.missingOnly || f.ownedOnly;
 
 /**
  * Whether a card passes every active filter. Pure: `counts` is what the player owns of it
@@ -42,6 +44,7 @@ export const cardMatches = (card: { name: string; rarity: Rarity }, counts: Filt
   if (query && !card.name.toLowerCase().includes(query)) return false;
   if (f.rarity !== 'ALL' && card.rarity !== f.rarity) return false;
   if (f.missingOnly && counts) return false;
+  if (f.ownedOnly && !counts) return false;
   if (f.holoOnly && !(counts && counts.holoCount > 0)) return false;
   if (f.finish === 'ANY') return !!bestFinish(counts?.finishes);
   if (f.finish !== 'ALL') return (counts?.finishes?.[f.finish] ?? 0) > 0;
