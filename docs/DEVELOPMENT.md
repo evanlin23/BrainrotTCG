@@ -204,9 +204,10 @@ The site check (`npm run check:site`, after a build, about 30 s) reads `dist/` w
 `BASE_PATH` and `SITE_URL`. Every page's local links and stylesheet `url()`s must stay under
 `BASE_PATH` and be in the build, every share and set page the set registry gets must be there and
 forward to `BASE_PATH`, and each page's `og:image` must be under `SITE_URL` and decode as a JPEG of
-its `og:image:width`x`og:image:height`. It also holds `index.html` and the code and styles it loads up
-front to `MAX_FIRST_LOAD_BYTES` gzipped (#776): what a first visit downloads before the pack can show.
-`scripts/check-site.test.ts` covers it offline with fixtures.
+its `og:image:width`x`og:image:height`. It checks that the web app manifest (`manifest.webmanifest`)
+resolves within `BASE_PATH` and references existing icon assets, and holds `index.html` and the code
+and styles it loads up front to `MAX_FIRST_LOAD_BYTES` gzipped (#776): what a first visit downloads
+before the pack can show. `scripts/check-site.test.ts` covers it offline with fixtures.
 
 Three fixture suites in `npm run check` cover the hosting and Hall of Fame contracts without a build,
 a token or the network. `scripts/preview-pages.test.ts` writes the share pages (`p/`) and set pages

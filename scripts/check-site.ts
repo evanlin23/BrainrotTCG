@@ -68,6 +68,15 @@ export const metaTags = (html: string): Map<string, string> => {
   return tags;
 };
 
+/** A page's canonical link address (<link rel="canonical" href="...">), if it has one. */
+export const canonicalLink = (html: string): string | undefined => {
+  for (const [tag] of html.matchAll(/<link\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
+    const attributes = new Map([...tag.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map((m) => [m[1].toLowerCase(), unescape(m[2] ?? m[3])]));
+    if (attributes.get('rel')?.toLowerCase() === 'canonical') return attributes.get('href');
+  }
+  return undefined;
+};
+
 /** Where a page in the build is served: a directory's index.html at the directory. */
 export const pageUrl = (site: string, file: string): string =>
   file === 'index.html' ? site : file.endsWith('/index.html') ? `${site}${file.slice(0, -'index.html'.length)}` : `${site}${file}`;
@@ -227,7 +236,13 @@ export const checkManifest = (manifest: string | undefined, base: string, presen
       errors.push({ path: file, error: `${name} is missing` });
       return undefined;
     }
-    const url = new URL(value, manifestUrl);
+    let url: URL;
+    try {
+      url = new URL(value, manifestUrl);
+    } catch {
+      errors.push({ path: file, error: `${name} ${value} isn't a valid URL` });
+      return undefined;
+    }
     if (url.origin !== origin || !url.pathname.startsWith(base)) {
       errors.push({ path: file, error: `${name} ${value} resolves to ${url.href}, outside BASE_PATH ${base}` });
       return undefined;
@@ -349,6 +364,11 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     const url = meta.get('og:url');
     if (file === 'index.html' && url === undefined) fail(file, 'Has no og:url');
     if (url !== undefined && url !== pageUrl(site, file)) fail(file, `og:url is ${url}, not ${pageUrl(site, file)}`);
+    if (file === 'index.html') {
+      const canonical = canonicalLink(html);
+      if (canonical === undefined) fail(file, 'Has no <link rel="canonical">');
+      else if (canonical !== site) fail(file, `canonical is ${canonical}, not ${site}`);
+    }
     for (const key of ['og:image', 'twitter:image']) {
       const url = meta.get(key);
       if (url !== undefined && !url.startsWith(site)) fail(file, `${key} is ${url}, not under SITE_URL ${site}`);

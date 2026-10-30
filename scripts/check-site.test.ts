@@ -6,7 +6,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { buildCardsCatalog, buildSetsCatalog } from './build-api.ts';
-import { checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkManifest, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { canonicalLink, checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkManifest, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
 import { robotsTxt, sitemapXml } from './crawler-files.ts';
 import { generatePreviews } from './preview-pages.ts';
 
@@ -67,6 +67,7 @@ const build = async (host: Host) => {
 <html lang="en">
   <head>
     <link rel="icon" type="image/svg+xml" href="${base}favicon.svg" />
+    <link rel="canonical" href="${site}" />
     <meta property="og:title" content="Brainrot TCG" />
     <meta property="og:url" content="${site}" />
     <meta property="og:image" content="${site}og-image.jpg" />
@@ -110,6 +111,19 @@ describe('metaTags', () => {
       'og:image:width': '1200',
       'og:title': 'A & B',
     });
+  });
+});
+
+describe('canonicalLink', () => {
+  it('reads a canonical link tag in whatever order its attributes are in', () => {
+    expect(canonicalLink('<link rel="canonical" href="https://example.com/" />')).toBe('https://example.com/');
+    expect(canonicalLink('<link href="https://example.com/" rel="canonical">')).toBe('https://example.com/');
+    expect(canonicalLink('<link rel="CANONICAL" href="https://example.com/a&amp;b" />')).toBe('https://example.com/a&b');
+  });
+
+  it('returns undefined when there is no canonical link', () => {
+    expect(canonicalLink('<link rel="icon" href="/favicon.svg" />')).toBeUndefined();
+    expect(canonicalLink('')).toBeUndefined();
   });
 });
 
@@ -232,6 +246,20 @@ describe('checkSite', () => {
       { path: 'index.html', error: 'Has no og:url' },
       { path: 'robots.txt', error: 'Missing' },
       { path: 'sitemap.xml', error: 'Missing' },
+    ]);
+  });
+
+  it('fails a build whose index.html has no canonical link, or has the wrong address', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    const file = `${outDir}index.html`;
+    const original = readFileSync(file, 'utf8');
+    writeFileSync(file, original.replace(/\s*<link rel="canonical"[^>]*>/, ''));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: 'Has no <link rel="canonical">' },
+    ]);
+    writeFileSync(file, original.replace(`href="${CLOUDFLARE.site}"`, 'href="https://wrong.test/"'));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: `canonical is https://wrong.test/, not ${CLOUDFLARE.site}` },
     ]);
   });
 
@@ -415,6 +443,12 @@ describe('checkManifest', () => {
     expect(checkManifest(undefined, GITHUB.base, present)).toEqual([{ path: 'manifest.webmanifest', error: 'Missing' }]);
     expect(checkManifest('{', GITHUB.base, present)).toEqual([{ path: 'manifest.webmanifest', error: "Isn't valid JSON" }]);
     expect(check({ ...MANIFEST, icons: [] }, GITHUB.base).map((e) => e.error)).toEqual(['Has no icons']);
+  });
+
+  it('fails a manifest with an unparseable URL rather than throwing', () => {
+    expect(check({ ...MANIFEST, start_url: 'http://[invalid' }, GITHUB.base)).toEqual([
+      { path: 'manifest.webmanifest', error: "start_url http://[invalid isn't a valid URL" },
+    ]);
   });
 });
 
