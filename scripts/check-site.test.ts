@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,8 +27,11 @@ const SET = { ...OPENABLE, cards: OPENABLE.cards.slice(0, 2) };
 
 const picture = (width = 1200, height = 630) => sharp({ create: { width, height, channels: 3, background: '#121114' } });
 let JPEG: Buffer;
+const TEMPLATES = new Map<string, { outDir: string; pages: string[]; images: string[] }>();
 beforeAll(async () => {
   JPEG = await picture().jpeg().toBuffer();
+  TEMPLATES.set(GITHUB.name, await seedBuild(GITHUB));
+  TEMPLATES.set(CLOUDFLARE.name, await seedBuild(CLOUDFLARE));
 });
 
 /** A manifest as public/manifest.webmanifest has it: URLs relative to itself, so they hold under any base. */
@@ -56,10 +59,10 @@ const writePages = async (outDir: string, { base, site }: Host) => {
   return { pages: [...pages.keys()], images: [...images] };
 };
 
-/** A small build for a host, laid out like `npm run build`'s: the app shell, what it loads, and the preview pages. */
-const build = async (host: Host) => {
+/** Pre-builds a golden fixture for a host so individual test cases can quickly copy rather than re-running generatePreviews. */
+const seedBuild = async (host: Host) => {
   const { base, site } = host;
-  const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'check-site-test-'))}/`;
+  const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'check-site-template-'))}/`;
   dirs.push(outDir);
   write(
     `${outDir}index.html`,
@@ -92,6 +95,18 @@ const build = async (host: Host) => {
   write(`${outDir}robots.txt`, robotsTxt(site));
   write(`${outDir}sitemap.xml`, sitemapXml(site));
   const { pages, images } = await writePages(outDir, host);
+  return { outDir, pages, images };
+};
+
+/** A small build for a host, laid out like `npm run build`'s: the app shell, what it loads, and the preview pages. */
+const build = async (host: Host) => {
+  const { base, site } = host;
+  const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'check-site-test-'))}/`;
+  dirs.push(outDir);
+  const template = TEMPLATES.get(host.name) ?? await seedBuild(host);
+  cpSync(template.outDir, outDir, { recursive: true });
+  const pages = [...template.pages];
+  const images = [...template.images];
   const options: SiteCheckOptions = { outDir, base, site, versions: [SET], sets: [SET] };
   return { options, outDir, pages, images };
 };
