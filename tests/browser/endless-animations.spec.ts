@@ -53,6 +53,49 @@ test('the packs screen runs its endless animations on the compositor, whichever 
   }
 });
 
+test('in-app Reduced motion stills endless animations and the ceremony with the device allowing motion', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const origin = new URL(baseURL!).origin;
+  await page.addInitScript((origin) => {
+    if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
+    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 22, createdAt: 1 }));
+    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ motion: 'reduced', effectsVolume: 0 }));
+  }, origin);
+  await monitor(page, baseURL!);
+  await page.goto('./');
+  await expect(page.locator('.app-logo')).toBeVisible();
+  await expect(page.locator('.pack-shell')).toBeVisible();
+
+  // With a prism foil applied, still no endless animation runs under in-app reduced motion.
+  for (const foil of ['standard', 'shimmer', 'gold', 'prism']) {
+    await page.evaluate((name) => { document.documentElement.dataset.packFoil = name; }, foil);
+    const running = await endlessAnimations(page);
+    expect(running, `${foil} pack foil under in-app reduced motion`).toEqual([]);
+  }
+
+  // Open the pack to the big pull celebration (nonce 22).
+  await page.getByRole('button', { name: /^Open pack/ }).focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  await page.locator('button.reveal-skip').click({ timeout: 15000 });
+
+  // Waiting for the showcase halo (big pull ceremony).
+  const halo = page.locator('.showcase-halo');
+  await expect(halo).toBeVisible({ timeout: 15000 });
+
+  // Verify the ceremony (showcase-halo and showcase-rays) is stilled under reduced motion.
+  const haloAnimations = await page.evaluate(() => {
+    const el = document.querySelector('.showcase-halo');
+    if (!el) return [];
+    return document.getAnimations().filter((a) => {
+      const target = (a.effect as KeyframeEffect)?.target;
+      return target === el || (target as Element)?.parentElement === el;
+    }).map((a) => (a as CSSAnimation).animationName);
+  });
+  expect(haloAnimations).toEqual([]);
+});
+
 test('the reveal, the summary and a card opened over it run their endless animations on the compositor', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   await monitor(page, baseURL!);

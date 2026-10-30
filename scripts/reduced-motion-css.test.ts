@@ -110,4 +110,14 @@ describe('reduced-motion-css', () => {
     expect(mirrored).toBeGreaterThan(0);
     expect(guarded).toBeGreaterThan(0);
   });
+
+  it('specifically covers the pack opener calm-downs (pack foil, idle lift, seam shimmer, ceremony)', async () => {
+    const dir = new URL('../src/styles/', import.meta.url);
+    const css = readFileSync(new URL('PackOpener.css', dir), 'utf8');
+    const out = (await postcss([reducedMotionCss()]).process(css, { from: undefined })).css;
+    expect(out).toContain(':where(:root[data-motion="reduced"]) .pack-foil::before');
+    expect(out).toContain(':where(:root:not([data-motion="reduced"])) .pack-shell.is-idle .pack-half-top');
+    expect(out).toContain(':where(:root[data-motion="reduced"]) .cut-line');
+    expect(out).toContain(':where(:root[data-motion="reduced"]) .showcase-halo');
+  });
 });
