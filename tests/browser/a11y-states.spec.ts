@@ -27,9 +27,10 @@ test('the card close-up levels, and stops tilting, when reduced motion turns on 
   const transform = () => card.evaluate((el) => (el as HTMLElement).style.transform);
 
   // Motion allowed: the card follows the mouse. The media change and the mouse listener reach the
-  // page asynchronously, so each move waits for the card to say it follows the mouse (data-tilt).
-  const box = (await card.boundingBox())!;
+  // page asynchronously, so each move waits for the card to say it follows the mouse (data-tilt)
+  // before reading its settled bounding box.
   await expect(card).toHaveAttribute('data-tilt', 'live');
+  let box = (await card.boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.9);
   await expect.poll(transform).not.toBe(LEVEL);
 
@@ -44,6 +45,7 @@ test('the card close-up levels, and stops tilting, when reduced motion turns on 
   // Back to no preference: it tilts again with the mouse.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await expect(card).toHaveAttribute('data-tilt', 'live');
+  box = (await card.boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.1);
   await expect.poll(transform).not.toBe(LEVEL);
   expect(errors).toEqual([]);
