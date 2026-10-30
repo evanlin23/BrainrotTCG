@@ -7,42 +7,40 @@ export interface PackMilestoneGoalProps {
   disabled?: boolean;
 }
 
+/**
+ * One goal as a single line in the Card guide's row (see PackMilestone.css): the thing to chase, how
+ * far along it is, and, when there is somewhere to go, a link to it. Nothing in it moves.
+ */
 const PackMilestoneGoal = ({ goal, onNavigate, disabled = false }: PackMilestoneGoalProps) => {
-  return (
-    <section className="pack-milestone" aria-label={`Next milestone: ${goal.targetName}`}>
-      <div className="pack-milestone-header">
-        <span className="pack-milestone-kicker">{goal.title}</span>
-        {goal.previewBadge && <span className="pack-milestone-badge">{goal.previewBadge}</span>}
-      </div>
-      <div className="pack-milestone-main">
-        <span className="pack-milestone-target">{goal.targetName}</span>
-        <span className="pack-milestone-progress-text">{goal.progressText}</span>
-      </div>
-      <div
-        className="pack-milestone-bar"
-        role="progressbar"
-        aria-valuenow={goal.progressPct}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={`${goal.targetName} progress`}
-      >
-        <div
-          className="pack-milestone-bar-fill"
-          style={{ width: `${Math.min(100, Math.max(0, goal.progressPct))}%` }}
-        />
-      </div>
-      <div className="pack-milestone-footer">
-        <span className="pack-milestone-detail">{goal.detail}</span>
-        <button
-          type="button"
-          className="pack-milestone-action"
-          onClick={() => onNavigate(goal.actionTarget)}
-          disabled={disabled}
-        >
-          {goal.actionText} →
-        </button>
-      </div>
-    </section>
+  const { action } = goal;
+  const label = `Next goal: ${goal.targetName}, ${goal.progressText}. ${goal.detail}.${action ? ` ${action.text}.` : ''}`;
+  const body = (
+    <>
+      <span className="pack-milestone-text">
+        <strong className="pack-milestone-target">{goal.targetName}</strong>
+        <span className="pack-milestone-detail" aria-hidden="true"> · {goal.detail}</span>
+      </span>
+      <span className="pack-milestone-progress" aria-hidden="true">{goal.progressText}</span>
+      <span className="pack-milestone-bar" aria-hidden="true">
+        <span className="pack-milestone-fill" style={{ width: `${Math.min(100, Math.max(0, goal.progressPct))}%` }} />
+      </span>
+    </>
+  );
+  return action ? (
+    <button
+      type="button"
+      className="pack-milestone"
+      aria-label={label}
+      title={`${goal.targetName}: ${goal.detail}`}
+      disabled={disabled}
+      onClick={() => onNavigate(action.target)}
+    >
+      {body}
+    </button>
+  ) : (
+    <div className="pack-milestone" role="group" aria-label={label} title={`${goal.targetName}: ${goal.detail}`}>
+      {body}
+    </div>
   );
 };
 

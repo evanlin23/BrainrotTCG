@@ -1,135 +1,137 @@
-/*
- * Next cosmetic or collection milestone shown on the pack screen between packs.
- * Steps aside when a pack is being torn/opened to keep focus mode free.
- */
-
+/* The next goal (#212): one line beside the Card guide link, in the row the guide already takes under the
+   pack (App.tsx), so it adds no height of its own and can't change the pack's size or place, the nav's, or
+   cover the pack, its tear line or the toast. Opening the pack stays the biggest thing on screen. It is
+   exactly the row's height (a 44px target), shows what fits (the goal and its progress, then why as the row
+   widens) and nothing in it moves, so there is no motion to turn off. A row too narrow for it (a 320px
+   phone, enlarged text), a short landscape screen and a row that already shows an announcement (News.css,
+   which comes first in the row) show nothing rather than squeeze the guide link. */
 .pack-milestone {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  width: calc(100% - var(--space-8));
-  max-width: 360px;
-  margin: var(--space-2) auto var(--space-1);
-  padding: var(--space-2) var(--space-3);
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 28rem;
+  height: var(--touch-target);
   box-sizing: border-box;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-family: var(--font-body);
-}
-
-.pack-milestone-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: var(--space-2);
-}
-
-.pack-milestone-kicker {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-subtle);
-}
-
-.pack-milestone-badge {
-  font-size: 0.6875rem;
-  font-family: var(--font-mono);
+  margin: 0 0 0 var(--space-3);
+  padding: 0 var(--space-3);
+  overflow: hidden;
   background: var(--surface-2);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 1px 6px;
-  line-height: 1.2;
+  /* A shadow, not a border, so the box stays the row's height. */
+  box-shadow: inset 0 0 0 1px var(--border);
+  border: 0;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+  color: var(--text);
+  text-align: left;
 }
 
-.pack-milestone-main {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: var(--space-2);
+button.pack-milestone {
+  cursor: pointer;
+}
+
+button.pack-milestone:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+button.pack-milestone:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+button.pack-milestone:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pack-milestone-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
 }
 
 .pack-milestone-target {
-  font-size: 0.875rem;
-  font-weight: 600;
   color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pack-milestone-progress-text {
-  font-size: 0.75rem;
-  font-family: var(--font-mono);
-  color: var(--brand);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.pack-milestone-bar {
-  position: relative;
-  width: 100%;
-  height: 5px;
-  background: var(--track);
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-  margin: 2px 0;
-}
-
-.pack-milestone-bar-fill {
-  height: 100%;
-  background: var(--brand);
-  border-radius: var(--radius-pill);
-  transition: width 0.3s ease;
-}
-
-.pack-milestone-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-2);
+  font-weight: 600;
 }
 
 .pack-milestone-detail {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-  line-height: 1.25;
+  display: none;
 }
 
-.pack-milestone-action {
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: var(--brand);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
+.pack-milestone-progress {
   flex-shrink: 0;
-  text-decoration: none;
+  color: var(--brand);
+  font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
-.pack-milestone-action:hover:not(:disabled) {
-  color: var(--brand-strong);
-  text-decoration: underline;
+/* Progress along the bottom edge, inside the box. */
+.pack-milestone-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--track);
 }
 
-.pack-milestone-action:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
+.pack-milestone-fill {
+  display: block;
+  height: 100%;
+  background: var(--brand);
 }
 
-.pack-milestone-action:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* The row (Scoring.css) is the container, so the thresholds follow the text size as well as the width. */
+@container card-guide (max-width: 20rem) {
+  .pack-milestone {
+    display: none;
+  }
 }
 
+@container card-guide (min-width: 38rem) {
+  .pack-milestone {
+    max-width: 40rem;
+  }
+  .pack-milestone-detail {
+    display: inline;
+  }
+}
+
+/* An announcement is in the row: it goes first, and the goal waits until it is dismissed. */
+.news-banner ~ .pack-milestone {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  .pack-milestone {
+    box-shadow: none;
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+  .pack-milestone-bar {
+    background: Canvas;
+    border-top: 1px solid CanvasText;
+  }
+  .pack-milestone-fill {
+    background: Highlight;
+  }
+  button.pack-milestone:focus-visible {
+    outline: 2px solid Highlight;
+  }
+}
+
+/* A phone on its side (the app's own short-screen cut-off, index.css) has no room for the pack as it is:
+   the goal waits for a taller screen rather than shrink it. */
 @media (max-width: 899px) and (max-height: 520px) {
   .pack-milestone {
-    padding: var(--space-1) var(--space-2);
-    gap: 2px;
+    display: none;
   }
 }

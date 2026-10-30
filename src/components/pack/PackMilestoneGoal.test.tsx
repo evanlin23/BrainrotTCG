@@ -20,79 +20,74 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const mockCosmeticGoal: NextMilestoneGoal = {
+const cosmetic: NextMilestoneGoal = {
   kind: 'cosmetic',
-  title: 'Next cosmetic unlock',
   targetName: 'Pack Rat (title)',
-  detail: 'Level 3 cosmetic (does not change odds)',
-  progressText: '50% to Level 3',
+  detail: 'Level 3 cosmetic: rarity and odds stay the same',
+  progressText: '50% to level 3',
   progressPct: 50,
-  actionText: 'Select rewards',
-  actionTarget: 'rewards',
-  previewBadge: 'Lvl 3',
+  action: { text: 'Select rewards', target: 'rewards' },
 };
 
-const mockSetGoal: NextMilestoneGoal = {
+const binder: NextMilestoneGoal = {
   kind: 'set-complete',
-  title: 'Set milestone',
-  targetName: 'Base Set Complete',
-  detail: '12/20 cards collected (8 to go)',
-  progressText: '60%',
+  targetName: 'Base Set complete',
+  detail: '12/20 cards, 8 to go',
+  progressText: '12/20',
   progressPct: 60,
-  actionText: 'View binder',
-  actionTarget: 'cards',
-  previewBadge: '12/20',
+  action: { text: 'View binder', target: 'cards' },
+};
+
+const done: NextMilestoneGoal = {
+  kind: 'done',
+  targetName: 'Base Set mastered',
+  detail: 'Every reward is unlocked',
+  progressText: 'Done',
+  progressPct: 100,
+};
+
+const render = (goal: NextMilestoneGoal, onNavigate = vi.fn(), disabled?: boolean) => {
+  act(() => root.render(<PackMilestoneGoal goal={goal} onNavigate={onNavigate} disabled={disabled} />));
+  return onNavigate;
 };
 
 describe('PackMilestoneGoal', () => {
-  it('renders cosmetic goal with disclaimer and navigates to rewards on click', () => {
-    const onNavigate = vi.fn();
-    act(() => {
-      root.render(<PackMilestoneGoal goal={mockCosmeticGoal} onNavigate={onNavigate} />);
-    });
-
-    expect(container.querySelector('.pack-milestone-kicker')!.textContent).toBe('Next cosmetic unlock');
+  it('is one button that names the goal, its progress and that odds do not change, and goes to the rewards', () => {
+    const onNavigate = render(cosmetic);
+    const button = container.querySelector<HTMLButtonElement>('button.pack-milestone')!;
+    expect(button.getAttribute('aria-label')).toBe(
+      'Next goal: Pack Rat (title), 50% to level 3. Level 3 cosmetic: rarity and odds stay the same. Select rewards.',
+    );
     expect(container.querySelector('.pack-milestone-target')!.textContent).toBe('Pack Rat (title)');
-    expect(container.querySelector('.pack-milestone-badge')!.textContent).toBe('Lvl 3');
-    expect(container.querySelector('.pack-milestone-detail')!.textContent).toContain('(does not change odds)');
-    expect(container.querySelector('.pack-milestone-progress-text')!.textContent).toBe('50% to Level 3');
-
-    const progressBar = container.querySelector('[role="progressbar"]')!;
-    expect(progressBar.getAttribute('aria-valuenow')).toBe('50');
-
-    const fill = container.querySelector<HTMLElement>('.pack-milestone-bar-fill')!;
-    expect(fill.style.width).toBe('50%');
-
-    const button = container.querySelector<HTMLButtonElement>('.pack-milestone-action')!;
-    expect(button.textContent).toContain('Select rewards');
+    expect(container.querySelector('.pack-milestone-progress')!.textContent).toBe('50% to level 3');
+    expect(container.querySelector<HTMLElement>('.pack-milestone-fill')!.style.width).toBe('50%');
+    // One control, nothing nested in it.
+    expect(container.querySelectorAll('button, a, [role="progressbar"]')).toHaveLength(1);
     act(() => button.click());
-    expect(onNavigate).toHaveBeenCalledWith('rewards');
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith('rewards');
   });
 
-  it('renders set completion goal and navigates to cards on click', () => {
-    const onNavigate = vi.fn();
-    act(() => {
-      root.render(<PackMilestoneGoal goal={mockSetGoal} onNavigate={onNavigate} />);
-    });
-
-    expect(container.querySelector('.pack-milestone-kicker')!.textContent).toBe('Set milestone');
-    expect(container.querySelector('.pack-milestone-target')!.textContent).toBe('Base Set Complete');
-    expect(container.querySelector('.pack-milestone-badge')!.textContent).toBe('12/20');
-    expect(container.querySelector('.pack-milestone-detail')!.textContent).toBe('12/20 cards collected (8 to go)');
-
-    const button = container.querySelector<HTMLButtonElement>('.pack-milestone-action')!;
-    expect(button.textContent).toContain('View binder');
-    act(() => button.click());
-    expect(onNavigate).toHaveBeenCalledWith('cards');
+  it('sends a set goal to the binder', () => {
+    const onNavigate = render(binder);
+    act(() => container.querySelector<HTMLButtonElement>('button.pack-milestone')!.click());
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith('cards');
   });
 
-  it('disables action button when disabled prop is true', () => {
-    const onNavigate = vi.fn();
-    act(() => {
-      root.render(<PackMilestoneGoal goal={mockCosmeticGoal} onNavigate={onNavigate} disabled={true} />);
-    });
+  it('is plain text with no button once everything is done', () => {
+    render(done);
+    expect(container.querySelector('button')).toBeNull();
+    const group = container.querySelector('.pack-milestone')!;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.getAttribute('aria-label')).toBe('Next goal: Base Set mastered, Done. Every reward is unlocked.');
+    expect(container.querySelector<HTMLElement>('.pack-milestone-fill')!.style.width).toBe('100%');
+  });
 
-    const button = container.querySelector<HTMLButtonElement>('.pack-milestone-action')!;
+  it('is disabled while a dialog is open, and keeps a progress outside 0-100 inside the bar', () => {
+    const onNavigate = render({ ...cosmetic, progressPct: 140 }, vi.fn(), true);
+    const button = container.querySelector<HTMLButtonElement>('button.pack-milestone')!;
     expect(button.disabled).toBe(true);
+    expect(container.querySelector<HTMLElement>('.pack-milestone-fill')!.style.width).toBe('100%');
+    act(() => button.click());
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 });

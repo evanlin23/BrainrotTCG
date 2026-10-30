@@ -3,7 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine';
 import { getCard } from '../data/cards';
 import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
-import { exportedCollectionRecovery, isArchive } from './collectionRecovery';
+import { exportedCollection, exportedCollectionRecovery, isArchive } from './collectionRecovery';
 import { isBestCardsStore, resetBestCards } from './bestCards';
 import { isLegacyPull, isStored, withReadableCache } from './history';
 import { exportPlayer, importPlayer, isCurrentPlayer, newPlayerRecord, newSaveStamp, parsePlayer, playerUnreadable, SAVE_STAMP_KEY, sameSave, saveMark, type SaveMark } from './player';
@@ -98,8 +98,8 @@ const SAVE_FIELDS = [
 /**
  * A raw storage value handed over by the old address (move.ts), held to the same rules as a file field,
  * except for what that address's own storage keeps on purpose: migrateV2 takes any first-format
- * collection entry (a missing card comes from its key) and any holoCards value, and stores a count it
- * can't read as NaN, which JSON writes as null and the app counts as 0. Before v3, best-pack cards
+ * collection entry (a missing card comes from its key) and any holoCards value, and repairs a count it
+ * can't read (negative, fractional or not a number) after keeping the original collection aside. Before v3, best-pack cards
  * are checked as their readers take them (olderBestCard). Hydration leaves out a later
  * entry it can't read, which collectionRecovery archives, or keeps in place when it can't. The old
  * address only redirects, so refusing those would leave the save with nowhere to go.
@@ -175,13 +175,15 @@ const IMPORT_BACKUP_KEY = 'brainrot-before-import-v1';
 
 /** Private backup: recovery payloads remain opaque, separate from the active identity/state. */
 export const exportSaveFile = (): string => JSON.stringify({
-  // History and stats as this app reads them, so the file imports again (#652, #1053): history's
-  // unreadable cached codes are dropped, and unreadable stats are rebuilt (their copy is kept aside,
-  // and goes in the file even while storage has no room for it).
+  // History, stats and collection as this app reads them, so the file imports again (#652, #1053, #1109):
+  // history's unreadable cached codes are dropped, unreadable stats are rebuilt (their copy is kept aside,
+  // and goes in the file even while storage has no room for it), and collection counts an import refuses
+  // are repaired (the stored bytes go in the file's kept-aside data when that changes what they mean).
   ...Object.fromEntries(SAVE_FIELDS.map(([field, key]) => [field,
     key === STORAGE_KEYS.HISTORY ? withReadableCache(localStorage.getItem(key))
       : key === STORAGE_KEYS.STATS ? exportedStats(localStorage.getItem(key))
-        : key === STORAGE_KEYS.COLLECTION_RECOVERY ? exportedCollectionRecovery(localStorage.getItem(key)) : localStorage.getItem(key)])),
+        : key === STORAGE_KEYS.COLLECTION ? exportedCollection(localStorage.getItem(key))
+          : key === STORAGE_KEYS.COLLECTION_RECOVERY ? exportedCollectionRecovery(localStorage.getItem(key)) : localStorage.getItem(key)])),
   player: exportPlayer(),
   exportedAt: new Date().toISOString(),
   version: 2,

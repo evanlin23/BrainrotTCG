@@ -1,121 +1,66 @@
-import type { SetDefinition } from '../engine';
-import type { CollectionItem } from '../types';
-import { isCardOwned } from './versions';
-import { nextReward } from './progression';
-import { xpForLevel } from '../engine/profile';
+import { levelForXp, xpForLevel, type ProfileStats, type SetDefinition } from '../engine';
+import { nextReward, setProgress } from './progression';
+
+/** What the goal reads: the same verified-pack stats a profile shows, so nothing here is counted twice. */
+export type MilestoneStats = Pick<ProfileStats, 'xp' | 'uniqueBySet' | 'holoUniqueBySet'>;
 
 export interface NextMilestoneGoal {
-  kind: 'cosmetic' | 'set-complete' | 'set-master';
-  title: string;
+  kind: 'cosmetic' | 'set-complete' | 'set-master' | 'done';
+  /** The one thing to chase, e.g. "Midnight (card back)". */
   targetName: string;
+  /** Why it is worth chasing, in a short phrase. Cosmetic goals say they change no odds. */
   detail: string;
   progressText: string;
+  /** Whole percent, never 100 until the goal is actually reached. */
   progressPct: number;
-  actionText: string;
-  actionTarget: 'rewards' | 'cards';
-  previewBadge?: string;
+  /** Where the goal's link goes; none once everything is done. */
+  action?: { text: string; target: 'rewards' | 'cards' };
 }
 
-export const getNextMilestone = (
-  level: number,
-  xp: number,
-  set: SetDefinition,
-  collection: Record<string, Pick<CollectionItem, 'normalCount' | 'holoCount'> | undefined>,
-): NextMilestoneGoal => {
-  const nextCosmetic = nextReward(level);
-  const cards = set.cards ?? [];
-  const ownedCards = cards.filter((c) => isCardOwned(collection[`${set.id}/${c.id}`])).length;
-  const holoOwned = cards.filter((c) => (collection[`${set.id}/${c.id}`]?.holoCount ?? 0) > 0).length;
-  const setCardsTotal = cards.length;
+const percent = (part: number, whole: number) => (whole > 0 ? Math.min(99, Math.max(0, Math.floor((part / whole) * 100))) : 0);
 
-  // Next cosmetic unlock if 1 level away
-  const cosmeticNextLevel = nextCosmetic && nextCosmetic.level <= level + 1;
-
-  if (cosmeticNextLevel && nextCosmetic) {
-    const currentLevelXp = xpForLevel(level);
-    const targetLevelXp = xpForLevel(nextCosmetic.level);
-    const pct = targetLevelXp > currentLevelXp
-      ? Math.min(100, Math.max(0, Math.round(((xp - currentLevelXp) / (targetLevelXp - currentLevelXp)) * 100)))
-      : 0;
-
+/**
+ * The next goal worth showing under a resting pack: a level cosmetic that is a level away, else the
+ * selected set's completion, then its mastery, else the next cosmetic further on. The rules (levels,
+ * rewards, what completed and mastered mean) are the ones the profile and binder use; this only picks one.
+ */
+export const getNextMilestone = (stats: MilestoneStats, set: SetDefinition): NextMilestoneGoal => {
+  const level = levelForXp(stats.xp);
+  const reward = nextReward(level);
+  const cosmetic = (): NextMilestoneGoal => {
+    const next = reward!;
+    const progressPct = percent(stats.xp - xpForLevel(level), xpForLevel(next.level) - xpForLevel(level));
     return {
       kind: 'cosmetic',
-      title: 'Next cosmetic unlock',
-      targetName: `${nextCosmetic.name} (${nextCosmetic.kind})`,
-      detail: `Level ${nextCosmetic.level} cosmetic (does not change odds)`,
-      progressText: `${pct}% to Level ${nextCosmetic.level}`,
-      progressPct: pct,
-      actionText: 'Select rewards',
-      actionTarget: 'rewards',
-      previewBadge: `Lvl ${nextCosmetic.level}`,
+      targetName: `${next.name} (${next.kind})`,
+      detail: `Level ${next.level} cosmetic: rarity and odds stay the same`,
+      progressText: `${progressPct}% to level ${next.level}`,
+      progressPct,
+      action: { text: next.kind === 'title' ? 'View rewards' : 'Select rewards', target: 'rewards' },
     };
-  }
+  };
+  if (reward && reward.level <= level + 1) return cosmetic();
 
-  // If active set is not yet complete
-  if (setCardsTotal > 0 && ownedCards < setCardsTotal) {
-    const pct = Math.round((ownedCards / setCardsTotal) * 100);
-    const remaining = setCardsTotal - ownedCards;
+  const size = set.cards.length;
+  const done = setProgress(stats.uniqueBySet[set.id] ?? 0, stats.holoUniqueBySet[set.id] ?? 0, size);
+  if (size > 0 && done !== 'master') {
+    const completing = done === null;
+    const counted = (completing ? stats.uniqueBySet : stats.holoUniqueBySet)[set.id] ?? 0;
     return {
-      kind: 'set-complete',
-      title: 'Set milestone',
-      targetName: `${set.name} Complete`,
-      detail: `${ownedCards}/${setCardsTotal} cards collected (${remaining} to go)`,
-      progressText: `${pct}%`,
-      progressPct: pct,
-      actionText: 'View binder',
-      actionTarget: 'cards',
-      previewBadge: `${ownedCards}/${setCardsTotal}`,
+      kind: completing ? 'set-complete' : 'set-master',
+      targetName: `${set.name} ${completing ? 'complete' : 'master set'}`,
+      detail: `${counted}/${size} ${completing ? 'cards' : 'as holos'}, ${size - counted} to go`,
+      progressText: `${counted}/${size}`,
+      progressPct: percent(counted, size),
+      action: { text: 'View binder', target: 'cards' },
     };
   }
-
-  // If active set is complete but not mastered
-  if (setCardsTotal > 0 && ownedCards >= setCardsTotal && holoOwned < setCardsTotal) {
-    const pct = Math.round((holoOwned / setCardsTotal) * 100);
-    const remaining = setCardsTotal - holoOwned;
-    return {
-      kind: 'set-master',
-      title: 'Set mastery',
-      targetName: `${set.name} Master`,
-      detail: `${holoOwned}/${setCardsTotal} holos collected (${remaining} to go)`,
-      progressText: `${pct}% holo`,
-      progressPct: pct,
-      actionText: 'View binder',
-      actionTarget: 'cards',
-      previewBadge: `${holoOwned}/${setCardsTotal}`,
-    };
-  }
-
-  // Fallback to remaining cosmetic rewards if any
-  if (nextCosmetic) {
-    const currentLevelXp = xpForLevel(level);
-    const targetLevelXp = xpForLevel(nextCosmetic.level);
-    const pct = targetLevelXp > currentLevelXp
-      ? Math.min(100, Math.max(0, Math.round(((xp - currentLevelXp) / (targetLevelXp - currentLevelXp)) * 100)))
-      : 0;
-
-    return {
-      kind: 'cosmetic',
-      title: 'Next cosmetic unlock',
-      targetName: `${nextCosmetic.name} (${nextCosmetic.kind})`,
-      detail: `Level ${nextCosmetic.level} cosmetic (does not change odds)`,
-      progressText: `${pct}% to Level ${nextCosmetic.level}`,
-      progressPct: pct,
-      actionText: 'Select rewards',
-      actionTarget: 'rewards',
-      previewBadge: `Lvl ${nextCosmetic.level}`,
-    };
-  }
-
-  // All cosmetics and active set mastered
+  if (reward) return cosmetic();
   return {
-    kind: 'set-master',
-    title: 'Milestone reached',
-    targetName: `${set.name} Mastered`,
-    detail: 'All cards and cosmetics unlocked! Keep opening for high scores.',
-    progressText: '100%',
+    kind: 'done',
+    targetName: size > 0 ? `${set.name} mastered` : 'Every reward unlocked',
+    detail: 'Every reward is unlocked',
+    progressText: 'Done',
     progressPct: 100,
-    actionText: 'View binder',
-    actionTarget: 'cards',
-    previewBadge: 'Master',
   };
 };

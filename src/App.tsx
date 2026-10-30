@@ -13,10 +13,10 @@ import { sheetLoader } from './components/ui/sheetEntry';
 import SetPicker from './components/sets/SetPicker';
 import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
+import { RANKINGS_HELP_ID } from './components/ui/rankingsRule';
 import CardGuideButton from './components/ui/CardGuideButton';
 import PackMilestoneGoal from './components/pack/PackMilestoneGoal';
 import { getNextMilestone } from './game/nextMilestone';
-import { xpForLevel } from './engine/profile';
 import { scoreCards } from './data/cards';
 import type { Achievement } from './data/achievements';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
@@ -50,6 +50,7 @@ import { useAchievementReconciler } from './hooks/useAchievementReconciler';
 import type { ProgressWriterHost } from './game/progressWriter';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
+import NewsBanner from './components/ui/NewsBanner';
 import { LOGO_MARK_PATH, LOGO_MARK_VIEWBOX } from './styles/logoMark';
 import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
 
@@ -238,18 +239,14 @@ function App() {
   // loaded, as last read: the new player's packs are no level-up here, and unlock no rewards.
   // samePlayer reads its latch ref here on purpose: the level must stop following storage once it does.
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/refs
-  const ownLevel = useMemo(() => (samePlayer() ? myStats()?.level ?? null : undefined), [stats.packsOpened, packCache, samePlayer]);
-  const [mountedLevel, setMountedLevel] = useState(ownLevel ?? null);
-  if (ownLevel !== undefined && ownLevel !== mountedLevel) setMountedLevel(ownLevel);
-  const level = ownLevel === undefined ? mountedLevel : ownLevel;
+  const ownStats = useMemo(() => (samePlayer() ? myStats() : undefined), [stats.packsOpened, packCache, samePlayer]);
+  const [mountedStats, setMountedStats] = useState(ownStats ?? null);
+  if (ownStats !== undefined && ownStats !== mountedStats) setMountedStats(ownStats);
+  const verifiedStats = ownStats === undefined ? mountedStats : ownStats;
+  const level = verifiedStats?.level ?? null;
   const rewardLevel = level ?? 1;
-  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/refs
-  const ownXp = useMemo(() => (samePlayer() ? myStats()?.xp ?? 0 : 0), [stats.packsOpened, packCache, samePlayer]);
-  const currentXp = ownXp || xpForLevel(rewardLevel);
-  const milestoneGoal = useMemo(
-    () => getNextMilestone(rewardLevel, currentXp, selectedSet, collection),
-    [rewardLevel, currentXp, selectedSet, collection],
-  );
+  // The next goal (#212) reads the same stats (a level, a set's cards), so it shows only once they are known.
+  const milestoneGoal = useMemo(() => (verifiedStats ? getNextMilestone(verifiedStats, selectedSet) : null), [verifiedStats, selectedSet]);
   // A level-up says so, with what it unlocked (otherwise it only shows if you open the profile).
   // Reading saved packs isn't a level-up: no toast until a known level rises.
   const shownLevel = useRef(level);
@@ -317,6 +314,9 @@ function App() {
     setSection(sectionId ? { id: sectionId, n: ++sectionRequests.current } : null);
     navigate(page);
   }, [navigate]);
+
+  /** "How Rankings work", opened and scrolled to, from the notes on why a pull has no Submit. */
+  const openRankingsHelp = useCallback(() => openPage('rankings', RANKINGS_HELP_ID), [openPage]);
 
   const handleSettingsChange = useCallback((newSettings: Settings) => {
     setSettings(newSettings);
@@ -474,6 +474,8 @@ function App() {
   const pagesUnlocked = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus);
   const showNav = pagesUnlocked || settings.showAllPages === true;
   const onPage = route !== 'open';
+  // Settings shows these problems in its own sections, so the banner leaves it.
+  const saveWarningShown = !!bannerWarning && route !== 'settings';
   const logoMark = (
     <svg className="app-logo-mark" viewBox={LOGO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
       <path fill="currentColor" d={LOGO_MARK_PATH} />
@@ -490,10 +492,10 @@ function App() {
   );
 
   return (
-    <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
+    <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`} data-toasts-ready={toastsLoaded || undefined}>
       {isStaging() && <p role="note" className="save-warning staging-banner">{STAGING_NOTE}</p>}
-      {bannerWarning && route !== 'settings' && (
-        <p role="alert" className="save-warning">
+      {saveWarningShown && (
+        <p role="alert" className="save-warning save-warning--capped">
           {bannerWarning}
           {staleSave && <button type="button" ref={reloadRef} className="link-btn save-warning-action quiet-focus" onClick={() => reloadPage()}>Reload</button>}
           {showRecoveryNote && (
@@ -577,6 +579,7 @@ function App() {
           openBlocked={staleSave}
           mountedSave={mountedSave}
           onOpenSave={() => openPage('settings', 'save-backup')}
+          onOpenRankingsHelp={openRankingsHelp}
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
@@ -588,16 +591,22 @@ function App() {
         />
         {/* A quiet way into the card guide once a first pack is saved (a new player sees only the pack); it steps aside with the chrome once a pack is torn. */}
         {showNav && !packFocus && !packBusy && (
-          <>
-            <PackMilestoneGoal
-              goal={milestoneGoal}
-              onNavigate={(target) => (target === 'rewards' ? openPage('profile', 'rewards') : openPage('cards'))}
-              disabled={isAnyModalOpen}
-            />
-            <div className="card-guide-entry">
-              <CardGuideButton set={selectedSet} />
-            </div>
-          </>
+          <div className="card-guide-entry">
+            <CardGuideButton set={selectedSet} />
+            {/* One line beside the guide link, in the row it already takes, so it can't move the pack, the nav or
+                the tear line, and dismissing it leaves them where they were. Nothing before the first pack is saved
+                (#58), so no news read either; it goes with the row once a pack is torn, and while a save warning
+                shows. Dismissing removes the focused button: focus goes to the logo, the page's heading here. */}
+            {pagesUnlocked && !saveWarningShown && <NewsBanner onDismiss={() => logoRef.current?.focus()} />}
+            {/* The next goal (#212) takes the same row after the news, which it yields to (PackMilestone.css). */}
+            {pagesUnlocked && !saveWarningShown && milestoneGoal && (
+              <PackMilestoneGoal
+                goal={milestoneGoal}
+                onNavigate={(target) => (target === 'rewards' ? openPage('profile', 'rewards') : openPage('cards'))}
+                disabled={isAnyModalOpen}
+              />
+            )}
+          </div>
         )}
       </main>
 
@@ -606,7 +615,7 @@ function App() {
       )}
 
       {route === 'rankings' && (
-        <AppPage load={loadHallOfFame} title="Rankings" skeleton="rows" onClose={closePage} autoFocus={routeMoved} screenProps={{}} />
+        <AppPage load={loadHallOfFame} title="Rankings" skeleton="rows" section={section} onClose={closePage} autoFocus={routeMoved} screenProps={{ section }} />
       )}
 
       {route === 'profile' && (
@@ -650,7 +659,7 @@ function App() {
         }} />
       )}
 
-      {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
+      {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null), onOpenRankingsHelp: openRankingsHelp }} />}
 
       {viewProof && <DeferredSheet key={viewProof} load={loadPull} title="Shared pull" screenProps={{
         proof: viewProof,

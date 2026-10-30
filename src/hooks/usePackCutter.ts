@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react
 import { flushSync } from 'react-dom';
 import { useSparks } from './useSparks';
 import { mapPackPointer, type PackLayout, type PackRect } from './packCutCoordinates';
+import { endIdleCue } from '../utils/endIdleCue';
 import { FAIRY_DUST_SRC, WOOSH_SRC, soundVolume } from '../constants/audio';
 
 // Pack cutting constants
@@ -253,6 +254,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   const completeCut = useCallback(() => {
     if (cutCompletedRef.current) return;
 
+    // Every way the pack opens (a swipe, its release, a click, a key) ends the idle cue first, so the tear's slide starts from rest.
+    endIdleCue(packRef.current);
     cancelFrame();
     cutCompletedRef.current = true;
     setIsCutting(false);

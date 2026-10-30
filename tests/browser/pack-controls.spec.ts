@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectDecoded, expectRecordedPack, fingerFor, holdTickets, monitor, releaseTickets, snapshot } from './support';
+import { expectDecoded, expectRecordedPack, fingerFor, holdTickets, monitor, releaseTickets, snapshot, tapSpace } from './support';
 
 /**
  * The pack's one control (#312 S4, #628): the pack itself is a button named "Open pack, {set}", and a
@@ -128,7 +128,7 @@ test('a keyboard alone goes from the page\'s load to the summary, and focus neve
   const live = page.locator('.sr-only[aria-live="polite"]');
   for (let n = 1; n <= 5; n++) {
     await expect(card).toHaveAttribute('aria-label', `Flip card ${n} of 5`, { timeout: 15000 });
-    await page.keyboard.press('Space');
+    await tapSpace(page);
     await expect(card).toHaveAttribute('aria-label', new RegExp(`Card ${n} of 5: `), { timeout: 10000 });
     // One polite region speaks for every stage.
     await expect(live).toHaveCount(1);
@@ -179,7 +179,7 @@ test('at 200% text on a 320x568 phone the dealt card keeps a usable stage', asyn
   // The rows under it scroll into reach, and nothing runs off the side.
   await expect(page.locator('button.reveal-skip')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
-  await page.keyboard.press('Space');
+  await tapSpace(page);
   await expect(card).toHaveAttribute('aria-label', /^Next card\. Card 1 of 5: /, { timeout: 10000 });
   expect(errors).toEqual([]);
 });
@@ -271,7 +271,7 @@ async function revealFirstCard(page: Page, baseURL: string, largeText: boolean) 
   await page.keyboard.press('Space');
   const card = page.locator('.reveal-card:focus');
   await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
-  await page.keyboard.press('Space');
+  await tapSpace(page);
   await expect(card).toHaveAttribute('aria-label', /^Next card\. Card 1 of 5: /, { timeout: 10000 });
   await expect(page.locator('.reveal-rarity > *').first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
@@ -354,11 +354,11 @@ test('the hint names the pack summary on the last card, and Space then opens it 
   for (let n = 1; n <= 5; n++) {
     await expect(card).toHaveAttribute('aria-label', `Flip card ${n} of 5`, { timeout: 15000 });
     await expect(hint).toHaveText(words.flip);
-    await page.keyboard.press('Space');
+    await tapSpace(page);
     await expect(card).toHaveAttribute('aria-label', new RegExp(`Card ${n} of 5: `), { timeout: 10000 });
     // A good pull holds the input for a moment ("Big pull!"); the hint then says what the press opens.
     await expect(hint).toHaveText(n < 5 ? words.next : words.summary, { timeout: 10000 });
-    await page.keyboard.press('Space');
+    await tapSpace(page);
   }
   await expect(page.locator('.summary-title')).toBeFocused({ timeout: 15000 });
   expect(errors).toEqual([]);
