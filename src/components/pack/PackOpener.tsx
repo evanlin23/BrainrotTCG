@@ -286,6 +286,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     };
   }, [isPackCut, isOpening]);
 
+  /** A swipe on a pack another tab holds the save for answers as a tap does (handleOpen, below). */
+  const handleOpenRef = useRef<() => void>(() => {});
+  const swipeBlocked = useCallback(() => handleOpenRef.current(), []);
+
   const handleCutComplete = useCallback(() => {
     if (leavingOpen) {
       landingRef.current.resetCutState();
@@ -331,9 +335,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     isPackCut: isPackCut && !leavingOpen,
     volume: leavingOpen ? 0 : effectsVolume,
     particlesEnabled: settings.particlesEnabled,
-    disabled: disabled || openBlocked,
+    disabled,
+    blocked: openBlocked,
     onMiss: nudgeMiss,
     onShortSwipe: nudgeShort,
+    onBlockedSwipe: swipeBlocked,
   });
 
   const resetCut = useCallback(() => {
@@ -382,6 +388,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     }
     completeCut();
   }, [disabled, isOpening, leavingOpen, isPackCut, openBlocked, completeCut, touchPack, send]);
+  useEffect(() => {
+    handleOpenRef.current = handleOpen;
+  });
 
   /** Set when the player goes back to the sealed pack, so the pack takes focus once it's there. */
   const focusOpenRef = useRef(false);

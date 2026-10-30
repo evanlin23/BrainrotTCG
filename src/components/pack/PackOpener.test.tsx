@@ -26,6 +26,8 @@ const cutter = vi.hoisted(() => ({
   volume: 1,
   tear: () => {},
   shortSwipe: () => {},
+  blockedSwipe: () => {},
+  blocked: false,
   endCutAttempt: vi.fn(),
   completeCut: vi.fn(),
   resetCutState: () => {},
@@ -35,6 +37,8 @@ vi.mock('../../hooks/usePackCutter', () => ({
   usePackCutter: ({
     onCutComplete,
     onShortSwipe,
+    onBlockedSwipe,
+    blocked = false,
     isPackCut = false,
     isOpening = false,
     disabled = false,
@@ -42,6 +46,8 @@ vi.mock('../../hooks/usePackCutter', () => ({
   }: {
     onCutComplete: () => void;
     onShortSwipe?: () => void;
+    onBlockedSwipe?: () => void;
+    blocked?: boolean;
     isPackCut?: boolean;
     isOpening?: boolean;
     disabled?: boolean;
@@ -51,11 +57,13 @@ vi.mock('../../hooks/usePackCutter', () => ({
     cutter.isOpening = isOpening;
     cutter.disabled = disabled;
     cutter.volume = volume;
+    cutter.blocked = blocked;
     cutter.tear = () => {
       if (cutter.isPackCut || cutter.isOpening || cutter.disabled) return;
       onCutComplete();
     };
     cutter.shortSwipe = onShortSwipe ?? (() => {});
+    cutter.blockedSwipe = onBlockedSwipe ?? (() => {});
     return {
       packRef: { current: null },
       isCutting: cutter.cutting,
@@ -426,6 +434,31 @@ describe('the controls under the pack (#312)', () => {
     expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
     expect(announced()).toBe(REFUSAL_COPY.blocked.message);
     expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    await pastTheTear();
+    expect(openPack).not.toHaveBeenCalled();
+  });
+
+  it('answers a swipe on a pack another tab holds the save for as a tap does, and opens nothing (#1277)', async () => {
+    await render(false, true);
+    // The cutter is told the save is held, not that a sheet covers the pack.
+    expect(cutter.blocked).toBe(true);
+    expect(cutter.disabled).toBe(false);
+    act(() => cutter.blockedSwipe());
+    expect(cutter.completeCut).not.toHaveBeenCalled();
+    expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
+    expect(announced()).toBe(REFUSAL_COPY.blocked.message);
+    expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    await pastTheTear();
+    expect(openPack).not.toHaveBeenCalled();
+  });
+
+  it.each([['Space', ' '], ['Enter', 'Enter']])('answers %s on a pack another tab holds the save for as a tap does (#1277)', async (code, key) => {
+    await render(false, true);
+    expect($('.pack-refusal-text')).toBeNull();
+    act(() => openButton()!.dispatchEvent(new KeyboardEvent('keydown', { code, key, bubbles: true })));
+    expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
+    expect(announced()).toBe(REFUSAL_COPY.blocked.message);
+    expect(cutter.completeCut).not.toHaveBeenCalled();
     await pastTheTear();
     expect(openPack).not.toHaveBeenCalled();
   });
