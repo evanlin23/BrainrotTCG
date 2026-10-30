@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardMatches, FINISH_CHOICES, isFiltering, NO_FILTERS, RARITY_CHOICES, type CollectionFilters } from './collectionFilter';
+import { cardMatches, FINISH_CHOICES, impossibleFilterReason, isFiltering, NO_FILTERS, RARITY_CHOICES, type CollectionFilters, type ShowFilter } from './collectionFilter';
 
 const card = { name: 'Bukangi Bombardino', rarity: 'RARE' } as const;
 const plain = { holoCount: 0 };
@@ -12,7 +12,8 @@ describe('isFiltering', () => {
   it('is off for the defaults and for a blank search, on for any one control', () => {
     expect(isFiltering(NO_FILTERS)).toBe(false);
     expect(isFiltering(f({ query: '  ' }))).toBe(false);
-    for (const change of [{ query: 'a' }, { rarity: 'RARE' }, { finish: 'ANY' }, { finish: 'GOLD' }, { holoOnly: true }, { missingOnly: true }, { ownedOnly: true }] as const) {
+    expect(isFiltering(f({ show: 'ALL' }))).toBe(false);
+    for (const change of [{ query: 'a' }, { rarity: 'RARE' }, { finish: 'ANY' }, { finish: 'GOLD' }, { holoOnly: true }, { show: 'OWNED' as ShowFilter }, { show: 'NOT_FOUND_YET' as ShowFilter }] as const) {
       expect(isFiltering(f(change))).toBe(true);
     }
   });
@@ -41,15 +42,24 @@ describe('cardMatches', () => {
     expect(cardMatches(card, undefined, f({ holoOnly: true }))).toBe(false);
   });
 
-  it('missing only needs no copy at all', () => {
-    expect(cardMatches(card, undefined, f({ missingOnly: true }))).toBe(true);
-    expect(cardMatches(card, plain, f({ missingOnly: true }))).toBe(false);
-  });
+  describe('show enum filter values (#756)', () => {
+    it('ALL matches both owned and unowned cards', () => {
+      expect(cardMatches(card, undefined, f({ show: 'ALL' }))).toBe(true);
+      expect(cardMatches(card, plain, f({ show: 'ALL' }))).toBe(true);
+      expect(cardMatches(card, holo, f({ show: 'ALL' }))).toBe(true);
+    });
 
-  it('owned only needs at least one copy', () => {
-    expect(cardMatches(card, plain, f({ ownedOnly: true }))).toBe(true);
-    expect(cardMatches(card, holo, f({ ownedOnly: true }))).toBe(true);
-    expect(cardMatches(card, undefined, f({ ownedOnly: true }))).toBe(false);
+    it('OWNED matches any card with at least one copy, but not unowned cards', () => {
+      expect(cardMatches(card, plain, f({ show: 'OWNED' }))).toBe(true);
+      expect(cardMatches(card, holo, f({ show: 'OWNED' }))).toBe(true);
+      expect(cardMatches(card, undefined, f({ show: 'OWNED' }))).toBe(false);
+    });
+
+    it('NOT_FOUND_YET matches unowned cards only', () => {
+      expect(cardMatches(card, undefined, f({ show: 'NOT_FOUND_YET' }))).toBe(true);
+      expect(cardMatches(card, plain, f({ show: 'NOT_FOUND_YET' }))).toBe(false);
+      expect(cardMatches(card, holo, f({ show: 'NOT_FOUND_YET' }))).toBe(false);
+    });
   });
 
   it('finish: any finish, one finish, and a finish tallied at zero', () => {
@@ -65,8 +75,40 @@ describe('cardMatches', () => {
   it('every filter must pass, and contradictory ones match nothing', () => {
     expect(cardMatches(card, silverHolo, f({ query: 'buk', rarity: 'RARE', finish: 'ANY', holoOnly: true }))).toBe(true);
     expect(cardMatches(card, silverHolo, f({ query: 'buk', rarity: 'RARE', finish: 'GOLD', holoOnly: true }))).toBe(false);
-    for (const counts of [undefined, plain, holo]) expect(cardMatches(card, counts, f({ holoOnly: true, missingOnly: true }))).toBe(false);
-    expect(cardMatches(card, undefined, f({ finish: 'ANY', missingOnly: true }))).toBe(false);
+    for (const counts of [undefined, plain, holo]) {
+      expect(cardMatches(card, counts, f({ holoOnly: true, show: 'NOT_FOUND_YET' }))).toBe(false);
+    }
+    expect(cardMatches(card, undefined, f({ finish: 'ANY', show: 'NOT_FOUND_YET' }))).toBe(false);
+  });
+});
+
+describe('impossibleFilterReason', () => {
+  it('returns reason when Holo only is combined with Not found yet', () => {
+    expect(impossibleFilterReason(f({ holoOnly: true, show: 'NOT_FOUND_YET' }))).toBe(
+      'Cards not found yet cannot be holo.',
+    );
+  });
+
+  it('returns reason when a finish is combined with Not found yet', () => {
+    expect(impossibleFilterReason(f({ finish: 'ANY', show: 'NOT_FOUND_YET' }))).toBe(
+      'Cards not found yet cannot have a finish.',
+    );
+    expect(impossibleFilterReason(f({ finish: 'SILVER', show: 'NOT_FOUND_YET' }))).toBe(
+      'Cards not found yet cannot have a finish.',
+    );
+  });
+
+  it('returns combined reason when both Holo only and finish are combined with Not found yet', () => {
+    expect(impossibleFilterReason(f({ holoOnly: true, finish: 'GOLD', show: 'NOT_FOUND_YET' }))).toBe(
+      'Cards not found yet cannot be holo or have a finish.',
+    );
+  });
+
+  it('returns null when filters can match in principle', () => {
+    expect(impossibleFilterReason(NO_FILTERS)).toBeNull();
+    expect(impossibleFilterReason(f({ holoOnly: true, show: 'OWNED' }))).toBeNull();
+    expect(impossibleFilterReason(f({ finish: 'GOLD', show: 'ALL' }))).toBeNull();
+    expect(impossibleFilterReason(f({ show: 'NOT_FOUND_YET', rarity: 'RARE' }))).toBeNull();
   });
 });
 

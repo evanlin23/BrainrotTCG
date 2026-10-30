@@ -500,46 +500,44 @@ describe('collection search and filters (#756)', () => {
     expect(status()).toBe('No cards match the active filters.');
   });
 
-  it('lists only missing cards as empty pockets with Missing only', () => {
+  it('lists only missing cards as empty pockets with Not found yet', () => {
     const { cards, collection } = mixed();
     render(collection);
     expect(slotCount()).toBe(cards.length - 4);
-    press('Missing only');
-    expect(toggle('Missing only').getAttribute('aria-pressed')).toBe('true');
+    choose('Show cards', 'NOT_FOUND_YET');
+    expect(select('Show cards').value).toBe('NOT_FOUND_YET');
     expect(tiles()).toHaveLength(0);
     expect(slotCount()).toBe(cards.length - 4);
     expect(status()).toMatch(new RegExp(`^Showing ${cards.length - 4} cards`));
   });
 
-  it('lists only owned cards with Owned only, hiding empty slots and mutually excluding Missing only', () => {
+  it('lists only owned cards with Show: Owned, hiding empty slots and resetting on Clear filters', () => {
     const { cards, collection } = mixed();
     render(collection);
     expect(tiles()).toHaveLength(4);
     expect(slotCount()).toBe(cards.length - 4);
 
-    press('Owned only');
-    expect(toggle('Owned only').getAttribute('aria-pressed')).toBe('true');
+    choose('Show cards', 'OWNED');
+    expect(select('Show cards').value).toBe('OWNED');
     expect(tiles()).toHaveLength(4);
     expect(slotCount()).toBe(0);
     expect(status()).toBe('Showing 4 cards');
 
-    // Turning on Missing only turns off Owned only
-    press('Missing only');
-    expect(toggle('Missing only').getAttribute('aria-pressed')).toBe('true');
-    expect(toggle('Owned only').getAttribute('aria-pressed')).toBe('false');
+    // Switching to Not found yet shows missing cards
+    choose('Show cards', 'NOT_FOUND_YET');
+    expect(select('Show cards').value).toBe('NOT_FOUND_YET');
     expect(tiles()).toHaveLength(0);
     expect(slotCount()).toBe(cards.length - 4);
 
-    // Turning on Owned only turns off Missing only
-    press('Owned only');
-    expect(toggle('Owned only').getAttribute('aria-pressed')).toBe('true');
-    expect(toggle('Missing only').getAttribute('aria-pressed')).toBe('false');
+    // Switching back to Owned shows owned cards
+    choose('Show cards', 'OWNED');
+    expect(select('Show cards').value).toBe('OWNED');
     expect(tiles()).toHaveLength(4);
     expect(slotCount()).toBe(0);
 
-    // Clear filters resets Owned only
+    // Clear filters resets Show to ALL
     act(() => clearFilters()!.click());
-    expect(toggle('Owned only').getAttribute('aria-pressed')).toBe('false');
+    expect(select('Show cards').value).toBe('ALL');
     expect(tiles()).toHaveLength(4);
     expect(slotCount()).toBe(cards.length - 4);
   });
@@ -553,7 +551,7 @@ describe('collection search and filters (#756)', () => {
     render(collection);
 
     // Filter to only owned cards
-    press('Owned only');
+    choose('Show cards', 'OWNED');
     const firstHeader = headerOf(first.name);
     const secondHeader = headerOf(second.name);
     expect(firstHeader.getAttribute('aria-expanded')).toBe('true');
@@ -659,10 +657,17 @@ describe('collection search and filters (#756)', () => {
     expect(tiles()).toHaveLength(0);
     typeSearch(cards[3].name);
     expect(names()).toEqual([cards[3].name]);
-    // Holo only and Missing only together can match nothing: a card can't be both.
-    press('Missing only');
+    // Holo only, finish and Not found yet together can match nothing: a card can't be both.
+    choose('Show cards', 'NOT_FOUND_YET');
     expect(tiles()).toHaveLength(0);
     expect(status()).toBe('No cards match the active filters.');
+    expect(page().querySelector('.collection-empty-filter')?.textContent).toContain('Cards not found yet cannot be holo or have a finish.');
+    expect(page().querySelector('.collection-empty-filter button')?.textContent).toBe('Clear filters');
+    // Clicking the empty state's Clear filters resets the filters
+    act(() => page().querySelector<HTMLButtonElement>('.collection-empty-filter button')?.click());
+    expect(select('Show cards').value).toBe('ALL');
+    expect(toggle('Holo only').getAttribute('aria-pressed')).toBe('false');
+    expect(tiles()).toHaveLength(4);
   });
 
   it('shows an empty result with a reset that restores the binder and moves focus to the search box', () => {
@@ -702,7 +707,7 @@ describe('collection search and filters (#756)', () => {
     expect(page().querySelector('.collection-grid .collection-label')!.textContent).toContain(numberOf(cards[3]));
     // A missing pocket keeps the number it has in the full binder, not one counted from the filtered list.
     typeSearch('');
-    press('Missing only');
+    choose('Show cards', 'NOT_FOUND_YET');
     const last = cards[cards.length - 1];
     expect([...page().querySelectorAll('.collection-grid > li')].map((li) => li.getAttribute('aria-label'))).toContain(
       `${numberOf(last)}, ${CARD_RARITIES[last.rarity].name}, not collected yet`,
@@ -839,13 +844,13 @@ describe('collection search and filters (#756)', () => {
       // Unfiltered: only the owned card of each.
       expect(tiles()).toHaveLength(2);
       expect(slotCount()).toBe(0);
-      press('Missing only');
+      choose('Show cards', 'NOT_FOUND_YET');
       expect(slotCount()).toBe(0);
       expect(tiles()).toHaveLength(0);
       expect(headers().map(nameOf)).not.toContain(archived.name);
       expect(headers().map(nameOf)).not.toContain(draft.name);
       expect(page().textContent).not.toContain('Draftcard');
-      press('Missing only');
+      choose('Show cards', 'ALL');
       expect(tiles()).toHaveLength(2);
       expect(slotCount()).toBe(0);
     });
@@ -864,10 +869,10 @@ describe('collection search and filters (#756)', () => {
       expect(status()).toBe('No cards match the active filters.');
     });
 
-    it('lists an era you have not started as a row with Missing only, and no pockets', () => {
+    it('lists an era you have not started as a row with Not found yet, and no pockets', () => {
       const set = SETS.find(isOpenable)!;
       render({});
-      press('Missing only');
+      choose('Show cards', 'NOT_FOUND_YET');
       expect(tiles()).toHaveLength(0);
       expect(slotCount()).toBe(0);
       const rows = [...page().querySelectorAll('.collection-later-name')].map((n) => n.textContent);
@@ -883,23 +888,29 @@ describe('collection search and filters (#756)', () => {
       expect(search.getAttribute('aria-label')).toBeTruthy();
       expect(searchInput().getAttribute('aria-label')).toBe('Search cards by name');
       expect(select('Sort cards').tagName).toBe('SELECT');
+      expect(select('Show cards').tagName).toBe('SELECT');
       expect(select('Filter by rarity').tagName).toBe('SELECT');
       expect(select('Filter by finish').tagName).toBe('SELECT');
-      for (const name of ['Holo only', 'Owned only', 'Missing only']) {
-        expect(toggle(name).tagName).toBe('BUTTON');
-        expect(toggle(name).getAttribute('type')).toBe('button');
-        expect(toggle(name).getAttribute('aria-pressed')).toBe('false');
-        expect(toggle(name).tabIndex).toBe(0);
-      }
+      expect(toggle('Holo only').tagName).toBe('BUTTON');
+      expect(toggle('Holo only').getAttribute('type')).toBe('button');
+      expect(toggle('Holo only').getAttribute('aria-pressed')).toBe('false');
+      expect(toggle('Holo only').tabIndex).toBe(0);
+
+      // Visible labels for Sort and Show
+      expect(search.querySelector('label[for="collection-sort"]')?.textContent).toBe('Sort');
+      expect(search.querySelector('label[for="collection-show"]')?.textContent).toBe('Show');
+
       const order = [...search.querySelectorAll<HTMLElement>('input, select, button')];
       expect(order.map((el) => el.getAttribute('aria-label') ?? el.textContent)).toEqual([
-        'Search cards by name', 'Sort cards', 'Filter by rarity', 'Filter by finish', 'Holo only', 'Owned only', 'Missing only',
+        'Search cards by name', 'Sort cards', 'Show cards', 'Filter by rarity', 'Filter by finish', 'Holo only',
       ]);
       expect(order.every((el) => el.tabIndex >= 0)).toBe(true);
     });
 
-    it('offers every rarity and finish by name, from the game data, and only those', () => {
+    it('offers every show, rarity and finish option by name, from the game data, and only those', () => {
       render(mixed().collection);
+      const showOptions = [...select('Show cards').options].map((o) => o.textContent);
+      expect(showOptions).toEqual(['All', 'Owned', 'Not found yet']);
       const rarities = [...select('Filter by rarity').options].map((o) => o.textContent);
       expect(rarities).toEqual(['All rarities', 'Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Brainrot']);
       const finishes = [...select('Filter by finish').options].map((o) => o.textContent);
@@ -938,6 +949,36 @@ describe('collection search and filters (#756)', () => {
       }
       act(() => tiles()[0].click());
       expect(document.body.textContent).toContain(cards[1].name);
+    });
+
+    it('ignores collection items with missing card rarity in score sum and ownership map (#756)', () => {
+      const { cards } = mixed();
+      const corruptItem = {
+        card: { key: 'corrupt/c1', name: 'No Rarity Card' },
+        count: 5,
+      } as unknown as CollectionItem;
+      render({
+        [cards[0].key]: { card: cards[0], normalCount: 1, holoCount: 0 },
+        'corrupt/c1': corruptItem,
+      });
+      expect(page().querySelector('.page-subtitle')?.textContent).toContain('cards');
+    });
+
+    it('explains why filters cannot match and offers Clear filters when impossible (#756)', () => {
+      const { collection } = mixed();
+      render(collection);
+      choose('Show cards', 'NOT_FOUND_YET');
+      choose('Filter by finish', 'SILVER');
+      expect(status()).toBe('No cards match the active filters.');
+      const empty = page().querySelector('.collection-empty-filter')!;
+      expect(empty.textContent).toContain('Cards not found yet cannot have a finish.');
+      const reset = empty.querySelector<HTMLButtonElement>('button')!;
+      expect(reset).not.toBeNull();
+      expect(reset.textContent).toBe('Clear filters');
+      act(() => reset.click());
+      expect(select('Show cards').value).toBe('ALL');
+      expect(select('Filter by finish').value).toBe('ALL');
+      expect(tiles()).toHaveLength(4);
     });
   });
 });

@@ -6,7 +6,7 @@ import SetBadge from '../sets/SetBadge';
 import { CARD_RARITIES, cardPoints, COLLECTIBLE_CARDS, getSetCards, type Card } from '../../data/cards';
 import { isOpenable, SETS } from '../../content/sets';
 import { FINISH_INFO, bestFinish } from '../../game/modifiers';
-import { cardMatches, FINISH_CHOICES, isFiltering, NO_FILTERS, RARITY_CHOICES, type CollectionFilters } from '../../game/collectionFilter';
+import { cardMatches, FINISH_CHOICES, impossibleFilterReason, isFiltering, NO_FILTERS, RARITY_CHOICES, type CollectionFilters, type ShowFilter } from '../../game/collectionFilter';
 import { setProgress } from '../../game/progression';
 import { isCardOwned, ownedVersions } from '../../game/versions';
 import { RARITIES_RAREST_FIRST, type Finish, type SetDefinition } from '../../engine';
@@ -203,12 +203,6 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
   const filtering = isFiltering(filters);
 
   const patchFilters = useCallback((change: Partial<CollectionFilters>) => setFilters((current) => ({ ...current, ...change })), []);
-  const toggleOwnedOnly = useCallback(() => {
-    patchFilters({ ownedOnly: !filters.ownedOnly, missingOnly: false });
-  }, [filters.ownedOnly, patchFilters]);
-  const toggleMissingOnly = useCallback(() => {
-    patchFilters({ missingOnly: !filters.missingOnly, ownedOnly: false });
-  }, [filters.missingOnly, patchFilters]);
 
   // Both buttons that call these unmount with the change, so focus goes to the search box, not to the page.
   const clearSearch = useCallback(() => {
@@ -224,7 +218,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
   const owned = useMemo(() => {
     const map = new Map<string, Owned>();
     for (const item of Object.values(collection)) {
-      if (!item?.card?.key || !isCardOwned(item)) continue;
+      if (!item?.card?.key || !item?.card?.rarity || !isCardOwned(item)) continue;
       const normalCount = item.normalCount || item.count || 0;
       const holoCount = item.holoCount || 0;
       const points = normalCount * cardPoints(item.card.rarity, false) + holoCount * cardPoints(item.card.rarity, true) + (item.modifierPoints ?? 0);
@@ -299,6 +293,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
     0,
   );
   const nothingMatches = filtering && visibleStarted.length === 0 && visibleNotStarted.length === 0;
+  const impossibleReason = nothingMatches ? impossibleFilterReason(filters) : null;
   const status = !filtering ? '' : nothingMatches ? 'No cards match the active filters.'
     : `Showing ${shownCards} ${shownCards === 1 ? 'card' : 'cards'}${visibleNotStarted.length > 0 ? `, and ${visibleNotStarted.length} ${visibleNotStarted.length === 1 ? 'era' : 'eras'} not started` : ''}`;
 
@@ -342,17 +337,39 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
           </div>
 
           <div className="collection-filter-row">
-            <select
-              className="collection-select"
-              value={sort}
-              onChange={(e) => setSort(e.target.value as CollectionSort)}
-              aria-label="Sort cards"
-            >
-              <option value="set">Set order</option>
-              <option value="rarity">Rarity</option>
-              <option value="count">Count</option>
-              <option value="points">Points</option>
-            </select>
+            <div className="collection-select-group">
+              <label className="collection-filter-label" htmlFor="collection-sort">
+                Sort
+              </label>
+              <select
+                id="collection-sort"
+                className="collection-select"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as CollectionSort)}
+                aria-label="Sort cards"
+              >
+                <option value="set">Set order</option>
+                <option value="rarity">Rarity</option>
+                <option value="count">Count</option>
+                <option value="points">Points</option>
+              </select>
+            </div>
+            <div className="collection-select-group">
+              <label className="collection-filter-label" htmlFor="collection-show">
+                Show
+              </label>
+              <select
+                id="collection-show"
+                className="collection-select"
+                value={filters.show}
+                onChange={(e) => patchFilters({ show: e.target.value as ShowFilter })}
+                aria-label="Show cards"
+              >
+                <option value="ALL">All</option>
+                <option value="OWNED">Owned</option>
+                <option value="NOT_FOUND_YET">Not found yet</option>
+              </select>
+            </div>
             <select
               className="collection-select"
               value={filters.rarity}
@@ -374,12 +391,6 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
             </select>
             <button type="button" className="collection-pill-btn" aria-pressed={filters.holoOnly} onClick={() => patchFilters({ holoOnly: !filters.holoOnly })}>
               Holo only
-            </button>
-            <button type="button" className="collection-pill-btn" aria-pressed={filters.ownedOnly} onClick={toggleOwnedOnly}>
-              Owned only
-            </button>
-            <button type="button" className="collection-pill-btn" aria-pressed={filters.missingOnly} onClick={toggleMissingOnly}>
-              Missing only
             </button>
             {filtering && (
               <button type="button" className="collection-reset-btn" onClick={resetFilters}>
@@ -425,7 +436,14 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
         )}
 
         {nothingMatches && (
-          <p className="collection-empty-filter">Try fewer filters, or a shorter name.</p>
+          <div className="collection-empty-filter">
+            <p>{impossibleReason ?? 'Try fewer filters, or a shorter name.'}</p>
+            {impossibleReason && (
+              <button type="button" className="collection-reset-btn" onClick={resetFilters}>
+                Clear filters
+              </button>
+            )}
+          </div>
         )}
 
         {!filtering && uniqueOwned === 0 && <p className="collection-empty">Open packs to start your collection.</p>}
