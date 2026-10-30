@@ -150,9 +150,11 @@ const PackCuttingUI = ({
           {/* Each half carries its foil with it when the wrapper tears. */}
           <div className="pack-half pack-half-bottom">
             <img src={packDesign} alt="" draggable="false" onLoad={packArtSettled} onError={packArtSettled} />
+            <span className="pack-foil" aria-hidden="true" />
           </div>
           <div className="pack-half pack-half-top" aria-hidden="true">
             <img src={packDesign} alt="" draggable="false" />
+            <span className="pack-foil" aria-hidden="true" />
           </div>
           {/* The top strip's loose piece: the pack art carries the set's name and its hero, and the open button's name says it again to a screen reader. */}
           <div className="pack-top-piece" />

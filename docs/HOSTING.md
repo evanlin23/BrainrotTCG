@@ -23,6 +23,10 @@ Either way, nothing on the free plans can charge you: there's no payment method 
   production, `https://brainrottcg.pages.dev/`, when it isn't set, which is also what `index.html`'s
   checked-in link-preview tags name (`scripts/crawler-files.ts`). Staging serves the same files, but
   its page asks not to be indexed and the sitemap names only production.
+- **Search Console:** `index.html` carries the owner's Google Search Console verification tag
+  (`google-site-verification`) for the `https://brainrottcg.pages.dev/` URL-prefix property.
+  Removing or changing it unverifies the property; `tests/search-console.test.ts` keeps it. Your own
+  domain needs its own property and tag.
 - **Headers:** there is no `_headers` file. GitHub Pages sends a short `max-age` on every file, and
   Cloudflare Pages revalidates every file by default, so neither can serve a stale `index.html`
   pointing at code that's gone. If a `_headers` file is added, it may mark only `<base>assets/*`
