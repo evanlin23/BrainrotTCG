@@ -7,9 +7,9 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { ALL_SET_VERSIONS, isOpenable, SETS } from '../src/content/sets/index.ts';
 import { RARITIES_RAREST_FIRST, type SetDefinition } from '../src/engine/index.ts';
 import { modifierText } from '../src/game/modifierLabels.ts';
-import { cardPreviewPath, MODIFIER_TOKENS, previewPath } from '../src/game/previewLinks.ts';
+import { cardPreviewPath, compareCardIds, MODIFIER_TOKENS, previewOf, previewPath } from '../src/game/previewLinks.ts';
 import { setIdFromHash } from '../src/game/route.ts';
-import { escape, generatePreviews, optionsFromEnv, page, PREVIEW_CACHE_VERSION, previewCacheContract, setStubs } from './preview-pages.ts';
+import { escape, generatePreviews, handsOf, optionsFromEnv, page, PREVIEW_CACHE_VERSION, previewCacheContract, setStubs } from './preview-pages.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const INDEX_HTML = readFileSync(`${ROOT}index.html`, 'utf8');
@@ -99,6 +99,31 @@ describe('setStubs', () => {
     const [stub] = setStubs([small]);
     expect(stub.description).toBe(`Small Set (${small.era}, 3 cards). Every pull is verifiable.`);
     expect([...stub.cardIds].sort()).toEqual(small.cards.map((c) => c.id).sort());
+  });
+});
+
+describe('handsOf', () => {
+  it('and previewOf agree on Two Pair card order where localeCompare differs (#1315)', () => {
+    const syntheticPairs = [
+      { id1: 'B', id2: 'a', expected: ['B', 'a'] },
+      { id1: 'a_b', id2: 'a-b', expected: ['a-b', 'a_b'] },
+    ];
+    for (const { id1, id2, expected } of syntheticPairs) {
+      const sortedIds = [id1, id2, 'kicker'].sort(compareCardIds);
+      const hands = handsOf('test-set', sortedIds);
+      const twoPair = hands.find((h) => h.hand === 'TWO_PAIR' && h.cardIds.includes(id1) && h.cardIds.includes(id2));
+      expect(twoPair?.cardIds).toEqual(expected);
+
+      const packCards = [
+        { key: `test-set/${id2}` },
+        { key: `test-set/${id2}` },
+        { key: `test-set/${id1}` },
+        { key: `test-set/${id1}` },
+        { key: 'test-set/kicker' },
+      ];
+      const preview = previewOf(packCards);
+      expect(preview?.cardIds).toEqual(twoPair?.cardIds);
+    }
   });
 });
 

@@ -1163,6 +1163,11 @@ class Served(unittest.TestCase):
         with self.assertRaises(dc.AccessRefused):
             dc.served(self.release, token_env, self.digest, self.base, get=get_access_redirect, pause=0, tries=1)
 
+        # Fails closed when workflow passes empty Access secrets ("no token set", #1315):
+        empty_token_env = {**ENV, 'CF_ACCESS_CLIENT_ID': '', 'CF_ACCESS_CLIENT_SECRET': ''}
+        with self.assertRaisesRegex(dc.AccessRefused, r'no Access service token is set'):
+            dc.served(self.release, empty_token_env, self.digest, self.base, get=get_access_redirect, pause=0, tries=1)
+
         # Fails when unknown path returns an Access login page as HTTP 200 (#1315):
         def get_access_200(u):
             if 'nonexistent' in u:

@@ -164,7 +164,7 @@ export const setStubs = (sets: readonly SetDefinition[] = SETS): SetStub[] =>
 const background = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="100%" height="100%" fill="#121114"/></svg>`);
 
 /** Every hand a set's cards can make, by the cards that make it. */
-const handsOf = (setId: string, ids: readonly string[]): Preview[] =>
+export const handsOf = (setId: string, ids: readonly string[]): Preview[] =>
   (Object.keys(POKER_HANDS) as HandKey[]).flatMap((hand): Preview[] => {
     if (hand === 'FULL_HOUSE') return ids.flatMap((a) => ids.filter((b) => b !== a).map((b) => ({ setId, cardIds: [a, b], hand })));
     if (hand === 'TWO_PAIR') return ids.flatMap((a, i) => ids.slice(i + 1).map((b) => ({ setId, cardIds: [a, b], hand })));
