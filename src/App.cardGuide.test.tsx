@@ -50,6 +50,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
+  // A test that opens the profile leaves its route in the address; the next mount would start there (#1122).
+  window.location.hash = '';
 });
 
 /** A new player has nothing saved: no tabs or set picker, only the pack. A returning one has a pack saved. */
