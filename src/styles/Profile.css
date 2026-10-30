@@ -217,11 +217,13 @@
 }
 
 .profile-drought-stats dd {
+  order: 1;
   font-family: var(--font-display);
   font-size: var(--text-lg);
 }
 
 .profile-drought-stats dt {
+  order: 2;
   font-size: var(--text-sm);
   font-weight: 600;
 }
