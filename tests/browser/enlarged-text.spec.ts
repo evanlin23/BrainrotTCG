@@ -74,7 +74,7 @@ for (const percent of [100, 200]) {
     await insidePage(page, cards, 320);
     await unclipped(controls);
     const heights = await controls.locator('input, select, button').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().height)));
-    expect(heights.length).toBe(7);
+    expect(heights.length).toBe(9);
     expect(Math.min(...heights)).toBeGreaterThanOrEqual(44);
     const clearWidths = await controls.getByRole('button', { name: 'Clear search' }).evaluate((el) => el.getBoundingClientRect().width);
     expect(clearWidths).toBeGreaterThanOrEqual(44);
