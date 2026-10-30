@@ -30,3 +30,35 @@ export const sitemapXml = (site: string): string =>
 ${SITEMAP_PAGES.map((page) => `  <url><loc>${xml(site + page)}</loc></url>`).join('\n')}
 </urlset>
 `;
+
+/**
+ * The 404 page (404.html) beside index.html (#1292).
+ * On Cloudflare Pages, a root 404.html serves a real HTTP 404 for missing assets and unknown paths
+ * instead of falling back to the 200 homepage SPA fallback. Links home to base.
+ */
+export const notFoundHtml = (base: string): string => `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Page not found · Brainrot TCG</title>
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#121114;color:#f2efe9;font:17px/1.5 system-ui,sans-serif;padding:24px;box-sizing:border-box}
+main{max-width:26rem;text-align:center}
+h1{font-size:1.6rem;margin:0 0 .5rem}
+p{color:#b6b0ba;margin:0 0 1.25rem}
+a{display:inline-block;padding:.75rem 1.5rem;background:#ffd23f;color:#121114;border-radius:10px;text-decoration:none;font-weight:600}
+a:hover,a:focus-visible{background:#ffe072}
+</style>
+</head>
+<body>
+<main>
+<h1>Page not found</h1>
+<p>This page doesn't exist, or has been moved.</p>
+<a href="${base}">Back to Brainrot TCG</a>
+</main>
+</body>
+</html>
+`;
+

@@ -10,6 +10,8 @@
  *   index.html has og:url;
  * - robots.txt and sitemap.xml are real (not the app's page) and name SITE_URL, and the sitemap lists
  *   the app and no share, set or #/ address (scripts/crawler-files.ts);
+ * - 404.html is there, has <meta name="robots" content="noindex">, and links to BASE_PATH (Cloudflare Pages
+ *   serves it with HTTP 404 for missing assets and unknown paths, preventing SPA fallback, #1292);
  * - every share and set page scripts/preview-pages.ts writes for the set registry is there and
  *   forwards to BASE_PATH (a set's page to #/set/<set id> there);
  * - the web app manifest (manifest.webmanifest) is there, and its start_url, scope and every icon,
@@ -205,6 +207,26 @@ export const checkCrawlerFiles = (site: string, robots: string | undefined, site
 };
 
 /**
+ * Problems with a build's 404 page (404.html, undefined when missing).
+ * On Cloudflare Pages, a root 404.html serves a real HTTP 404 for missing assets and unknown paths
+ * instead of falling back to the 200 homepage SPA fallback (#1292). Links home to base.
+ */
+export const check404Page = (html: string | undefined, base: string): AssetValidationError[] => {
+  const file = '404.html';
+  if (html === undefined) return [{ path: file, error: 'Missing' }];
+  const errors: AssetValidationError[] = [];
+  const meta = metaTags(html);
+  if (meta.get('robots') !== 'noindex') {
+    errors.push({ path: file, error: 'Has no <meta name="robots" content="noindex">' });
+  }
+  const links = [...html.matchAll(/\bhref="([^"]*)"/g)].map((m) => unescape(m[1]));
+  if (!links.includes(base)) {
+    errors.push({ path: file, error: `Does not link to home (${base})` });
+  }
+  return errors;
+};
+
+/**
  * Problems with a build's web app manifest (undefined when missing) at `base`. Its URLs are resolved
  * against the manifest's own address, as a browser does, so a root-absolute "/icon.png" that Vite
  * copied from public/ unchanged shows up as outside the base, and a relative one resolves under
@@ -322,9 +344,14 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     if (!present.has(target)) fail(from, `Links to ${link}, which isn't in the build (${target})`);
   };
 
+  const notFoundPath = path.join(outDir, '404.html');
+  const notFoundContent = existsSync(notFoundPath) ? readFileSync(notFoundPath, 'utf8') : undefined;
+  errors.push(...check404Page(notFoundContent, base));
+
   const images = new Map<string, AssetCheck>();
   const htmlPages = files.filter((file) => file.endsWith('.html'));
   for (const file of htmlPages) {
+    if (file === '404.html') continue;
     const html = readFileSync(path.join(outDir, file), 'utf8');
     for (const [, link] of html.matchAll(/\s(?:src|href)="([^"]*)"/g)) checkLink(file, unescape(link));
     // The page's own code and styles are hashed (the cache contract), and so come from this site's
