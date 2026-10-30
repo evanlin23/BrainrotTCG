@@ -222,8 +222,9 @@ it('waits for a pack to be put away: nothing is read or shown over the tear and 
     .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })));
   await app.until('the pack notice shows', () => expect(toastTexts().join()).toContain('Pack kept'));
   expect(newsToast()).toBeUndefined();
-  await app.until('the news was asked for once the pack was away', () => expect(mounted.newsLoads()).toBe(1));
+  // Sent away at once (not after waiting on the news): left up, the notice could time out and the dismissal would land on the news toast.
   await press(document.querySelector('.toast-dismiss'));
+  await app.until('the news was asked for once the pack was away', () => expect(mounted.newsLoads()).toBe(1));
   await app.until('the news toast follows', () => expect(toastTexts().join(' | ')).toContain('Open Card API'), 60_000);
   expect(document.querySelectorAll('.toast')).toHaveLength(1);
 });
