@@ -517,3 +517,108 @@ describe('provenanceText', () => {
     for (const via of [null, 7, '', 'Relay', 'nostr', {}]) expect(provenanceText({ githubUser: 'alice', submittedVia: via })).toBeNull();
   });
 });
+
+describe('loadPendingCached', () => {
+  const relayDown = { events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'connection failed' }] };
+  const relayUp = { events: [], perRelay: [{ relay: 'wss://a', count: 0 }] };
+  // The published list as loadHallOfFame hands it out: the same array until it is fetched again.
+  const listed: import('./hallOfFameList').HallOfFameEntry[] = [];
+
+  beforeEach(async () => {
+    vi.resetModules();
+    fetchEvents.mockReset();
+    fetchEvents.mockResolvedValue(relayUp);
+    vi.stubGlobal('fetch', vi.fn(async () => mockResponse([])));
+    // One pending pull for loadPending to find in the relay events.
+    const { secretKey, publicKey } = generateKeypair();
+    const proof = encodeProof(signProof({ setId: 'test-set', setVersion: 1, publicKey, nonce: 1, name: 'Alice' }, secretKey));
+    const { proofFromEvent } = await import('./nostrInbox');
+    const { checkPull } = await import('./pulls');
+    vi.mocked(proofFromEvent).mockReturnValue(proof);
+    vi.mocked(checkPull).mockResolvedValue({
+      set: { id: 'test-set', name: 'Test Set' },
+      score: { score: 10_000, hand: { name: 'Full House', multiplier: 150 } },
+      proof: { name: 'Alice' },
+      fingerprint: 'fp',
+      cards: [],
+    } as never);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const open = async (published = listed, signal = new AbortController().signal) => {
+    const { loadPendingCached } = await import('./hallOfFameList');
+    const onEntry = vi.fn();
+    const result = await loadPendingCached(published, onEntry, signal);
+    return { result, onEntry };
+  };
+
+  it('reads the relays once for two opens against the same list, and replays what the first found', async () => {
+    fetchEvents.mockResolvedValue({ events: [{ created_at: Math.floor(Date.now() / 1000) }], perRelay: [] });
+    const first = await open();
+    const second = await open();
+    expect(fetchEvents).toHaveBeenCalledTimes(1);
+    expect(first.onEntry).toHaveBeenCalledTimes(1);
+    expect(second.onEntry.mock.calls).toEqual(first.onEntry.mock.calls);
+    expect(second.result).toBe(true);
+  });
+
+  it('reads again once the list it was made against has been replaced', async () => {
+    await open();
+    await open([...listed]);
+    expect(fetchEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads again after the same five minutes the list is reused for', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+    await open();
+    vi.setSystemTime(new Date('2026-10-16T12:04:59Z'));
+    await open();
+    expect(fetchEvents).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(new Date('2026-10-16T12:05:01Z'));
+    await open();
+    expect(fetchEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not keep a read that no relay answered, so the next open tries again', async () => {
+    fetchEvents.mockResolvedValue(relayDown);
+    expect((await open()).result).toBe(false);
+    fetchEvents.mockResolvedValue(relayUp);
+    expect((await open()).result).toBe(true);
+    expect(fetchEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not keep a read that could not check the pulls it found', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async () => mockResponse(null, false, 404));
+    expect((await open()).result).toBe('unchecked');
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async () => mockResponse([]));
+    expect((await open()).result).toBe(true);
+    expect(fetchEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not keep a read that was stopped, and hands the stop to the relay read', async () => {
+    const controller = new AbortController();
+    fetchEvents.mockImplementation(async () => {
+      controller.abort();
+      return relayUp;
+    });
+    await open(listed, controller.signal);
+    expect(fetchEvents.mock.calls[0][5]).toBe(controller.signal);
+    fetchEvents.mockImplementation(async () => relayUp);
+    await open();
+    expect(fetchEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it('replays nothing to a caller that has already gone', async () => {
+    fetchEvents.mockResolvedValue({ events: [{ created_at: Math.floor(Date.now() / 1000) }], perRelay: [] });
+    await open();
+    const gone = new AbortController();
+    gone.abort();
+    const { onEntry } = await open(listed, gone.signal);
+    expect(onEntry).not.toHaveBeenCalled();
+    expect(fetchEvents).toHaveBeenCalledTimes(1);
+  });
+});

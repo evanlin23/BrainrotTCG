@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot, untilIdle, PLAYER_KEY_PREFIX } from './support';
 import { STORAGE_KEYS } from '../../src/constants/config';
+import { HOF_RELAYS } from '../../src/game/nostrInbox';
 
 /**
  * The pack summary (#182, #339): its actions stay stuck on screen while the rest scrolls, at 360x640
@@ -345,6 +346,39 @@ test('"How Rankings work" in the share sheet closes the sheet and opens that sec
 
 // On a 320px phone at 100% and 200% text, the pack's own Share still fits its row and nothing
 // scrolls sideways (#312, #472). Each card shares from its up-close view, not from the summary.
+// The share sheet reads recent pulls from the relays when it opens, which can cost up to ten ticket checks.
+// The relays are stand-ins that answer "nothing stored" and note each goodbye (CLOSE), so a read is known
+// to have ended once every relay has said it; nothing leaves the browser and nothing is submitted (#1317).
+test('opening the share sheet again reads recent pulls from the relays only once', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+  let withdrawnReads = 0;
+  await page.route('**/hall-of-fame-withdrawn.json', (route) => {
+    withdrawnReads += 1;
+    return route.fulfill({ json: [] });
+  });
+  let relayReads = 0;
+  await page.routeWebSocket(/.*/, (socket) => socket.onMessage((message) => {
+    const [type, subscription] = JSON.parse(String(message)) as [string, string];
+    if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
+    if (type === 'CLOSE') relayReads += 1;
+  }));
+  const { errors } = await openSummary(page, baseURL!, { history: 10 });
+  const sheet = page.getByRole('dialog', { name: 'Share your pull' });
+  const share = page.getByRole('button', { name: 'Share', exact: true });
+  // The summary's own line reads once, to the end.
+  await expect.poll(() => relayReads).toBe(HOF_RELAYS.length);
+  await share.click();
+  await expect(sheet.getByText('This makes Rankings')).toBeVisible();
+  await expect.poll(() => relayReads).toBe(2 * HOF_RELAYS.length);
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await share.click();
+  await expect(sheet.getByText('This makes Rankings')).toBeVisible();
+  expect({ withdrawnReads, relayReads }).toEqual({ withdrawnReads: 2, relayReads: 2 * HOF_RELAYS.length });
+  expect(errors).toEqual([]);
+});
+
 for (const [textZoom, viewport] of [[100, { width: 320, height: 640 }], [200, { width: 320, height: 568 }]] as const) test(`the pack's actions fit a 320px phone at ${textZoom}% text (#472)`, async ({ page, baseURL }) => {
   test.setTimeout(90000);
   const { errors } = await openSummary(page, baseURL!, { textZoom, viewport });

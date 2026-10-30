@@ -3,7 +3,7 @@ import { Crown, Info, ShieldCheck } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import type { PackScore } from '../../engine';
 import { decodeProof, pullId, qualifiesForHallOfFame, utcDay, wouldJoinHallOfFame } from '../../engine';
-import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
+import { loadHallOfFame, loadPendingCached, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { getLatestSet, getSet, setCode } from '../../content/sets';
 import { getPlayer } from '../../game/player';
 import { canShare, previewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
@@ -55,7 +55,7 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
       if (controller.signal.aborted) return;
       setPublished(res);
       if (res) {
-        loadPending(res, (entry) => {
+        loadPendingCached(res, (entry) => {
           if (!controller.signal.aborted) setPending((prev) => [...prev, entry]);
         }, controller.signal).catch(() => {});
       }
@@ -63,7 +63,9 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
     return () => controller.abort();
   }, [qualifies]);
   const list = useMemo(() => (published ? [...published, ...pending] : published), [published, pending]);
-  const listed = !!list?.some((e) => e.id === id);
+  // Published entries only: a pull still pending on the relays is the one you may have just sent, and
+  // that reads "Submitted" (submitState), not "in Rankings".
+  const listed = !!published?.some((e) => e.id === id);
   const wouldJoin = list ? wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list, utcDay(new Date().toISOString())) : null;
   const [submitState] = useHallOfFameSubmit(proof, id, target.score.score);
 
