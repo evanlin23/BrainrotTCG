@@ -273,6 +273,20 @@ describe('the dismiss control', () => {
     expect(dismissed).toEqual([['level-2']]);
   });
 
+  it("queues a What's new toast behind a level-up, one at a time, and its body opens the page", async () => {
+    const news: ToastItem = { id: 'news:update-1', name: 'Update 1', description: 'What changed.', kicker: "What's new", opens: 'news' };
+    act(() => root.render(<Harness initial={[levelUp, news]} />));
+    expect(toasts()).toEqual(['Level 2']);
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(toasts()).toEqual(['Update 1']);
+    expect(document.querySelector('.toast-kicker')?.textContent).toBe("What's new");
+    expect(document.querySelectorAll('.toast')).toHaveLength(1);
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
+    expect(opened).toEqual(['news']);
+    expect(dismissed).toEqual([['level-2'], ['news:update-1']]);
+  });
+
   it('does nothing on a toast already fading out', () => {
     act(() => root.render(<Harness initial={[kept, levelUp]} />));
     const button = dismissButton();

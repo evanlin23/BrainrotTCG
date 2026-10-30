@@ -28,16 +28,14 @@ from a 390 px wide screen.
    is ignored. If the player leaves early while that ticket is still pending, the pack appears sealed
    again, and a press, swipe, Space or Enter shows "Taking a moment…" (announcing "Opening the pack…")
    while hiding the swipe hint until the ticket lands (#1277). Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
-   from the tear until the pack is put away) opens the selected set's card guide. The latest unread
-   news shows as a one-line chip beside it in that row, adding no height: it hides on narrow rows,
-   landscape phones and at 200% text on a phone, gives way to a save warning, and is never marked
-   read by being hidden, only by its dismiss button. Once it is read, the next goal (#212) takes
+   from the tear until the pack is put away) opens the selected set's card guide. The row carries no
+   news: the latest unread entry arrives as a toast (see What's new, below). The next goal (#212) takes
    its place in the same row, to the right of the Card guide link, which stays centred under the pack
    with the goal or without it (the row is three columns, the guide alone in the middle): one two-line, 44px chip (a small card-back picture when the reward is a
    card back, the name, a percentage or count, and "Cosmetic, odds unchanged" or the cards still to
    go), a link to Profile rewards or the binder. It comes from the same verified-pack level and set
-   counts the profile shows, adds no height, never moves and has no animation, and hides in the
-   same landscape rows as the news and in a row of 20rem or less (a 320px phone, enlarged text), rather
+   counts the profile shows, adds no height, never moves and has no animation, and hides on a phone on its
+   side and in a row of 20rem or less (a 320px phone, enlarged text), rather
    than shift or squeeze the guide. In a row up to 34rem (every phone) the column beside the centred
    guide is small, so the chip shrinks to one line, the name (an ellipsis if long), the percentage and
    the progress bar; the picture and the cue line are not drawn there, but the cue stays in its accessible
@@ -367,8 +365,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   settings and the save file) shows the tabs and the pack picker at once, so no page or feature is
   gated behind a first pack. Once a pack or a card is saved the pages show on their own and Settings
   leaves the switch out (the stored choice is kept). The header's gear
-  ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
-  problem). On a phone (899 px or less) the wordmark sits flush at the left gutter and the gear at the
+  ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, What's new,
+  Report a problem). On a phone (899 px or less) the wordmark sits flush at the left gutter and the gear at the
   right edge, with the space between them (#803). The achievement toast lies over the header's left, so the
   gear must stay at the right edge, wherever the text size wraps it; before, the gear sat just after a
   wordmark set in from the left. A wide screen's header is unchanged. `visual-baselines` first-pack-narrow.png shows it.
@@ -450,7 +448,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   swipe that stops short springs back); Escape on the focused toast does the same without opening it. With
   reduced motion it only fades, wherever it is sent. A visible X at its right edge (a 44 px square, named
   "Dismiss") only sends it away, so a player who does not want to open what it names has a plain way to be
-  rid of it; the rest of the toast, the body, opens what it is about and dismisses it. The toast's code and styles are fetched when the first
+  rid of it; the rest of the toast, the body, opens what it is about (achievements, Profile rewards, Cards or
+  What's new) and dismisses it. The toast's code and styles are fetched when the first
   toast is due (a new player sees none before a first pack is saved), so the first screen carries neither; its
   live region is on the page from the start. A toast never takes room: the page is laid out the same
   with a toast up, after one and with none, so the pack's size and place never depend on one (#803). On a
@@ -467,6 +466,22 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   `tests/browser/toast-touch.spec.ts` checks the tap, the X, the swipe, the seen toast, the pack hold, the reduced
   motion fade, and the 44 px target, a tap and what the toast covers on the home screen and the summary at
   five phone sizes, in touch emulation.
+- **What's new** (`pages/NewsPage.tsx`, `#/news`, `src/content/news.json`): a public, deferred page that
+  lists every entry newest first, each with its date, a tag, its title, the whole summary and an optional
+  link (opened in a new tab and named as such). It works for a first-time visitor with no save and is
+  reached from the news toast, from Settings, Help ("What's new") or by its address. The page says what a
+  player sees, never an API path (those live in `docs/API.md`). It fits 320px and 200% text, its close and
+  link are 44 px targets, and nothing in it moves. The latest unread entry also arrives once as a toast in
+  the same queue as achievements and level-ups (kicker "What's new", the Newspaper icon). Only a pack being
+  put away in this visit asks for it: not on a page load, not on a route change, never before a first pack
+  is saved, never while a pack is torn, revealed or on its summary. It is queued behind the pack's own
+  toasts so only one is up at a time, and a toast that has not been shown when the next pack starts leaves
+  the queue and comes back after that pack is put away. Tapping it opens the page; its X, a timeout and
+  opening the page all read the entry. Read state is the one `DISMISSED_NEWS` key, as the old chip kept it
+  (opening `#/news` writes it too, even for a first-time visitor with no save); when storage refuses the
+  write, the entry stays read for the rest of the visit. `tests/browser/news-toast.spec.ts`
+  checks the toast over phone sizes and 200% text, the wide screen, the page, the quota failure and the
+  ordering.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
