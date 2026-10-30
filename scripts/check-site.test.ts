@@ -6,7 +6,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { buildCardsCatalog, buildSetsCatalog } from './build-api.ts';
-import { canonicalLink, checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkManifest, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { canonicalLink, checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkManifest, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, rootBootCopy, type SiteCheckOptions } from './check-site.ts';
 import { robotsTxt, sitemapXml } from './crawler-files.ts';
 import { generatePreviews } from './preview-pages.ts';
 
@@ -68,6 +68,7 @@ const build = async (host: Host) => {
   <head>
     <link rel="icon" type="image/svg+xml" href="${base}favicon.svg" />
     <link rel="canonical" href="${site}" />
+    <meta name="description" content="Rip open meme packs from every era of the internet." />
     <meta property="og:title" content="Brainrot TCG" />
     <meta property="og:url" content="${site}" />
     <meta property="og:image" content="${site}og-image.jpg" />
@@ -78,7 +79,7 @@ const build = async (host: Host) => {
     <script type="module" crossorigin src="${base}assets/index-AbCd1234.js"></script>
     <link rel="stylesheet" crossorigin href="${base}assets/index-AbCd1234.css">
   </head>
-  <body><div id="root"></div></body>
+  <body><div id="root"><div class="boot-status"><h1>Brainrot TCG</h1><p>Rip open meme packs from every era of the internet.</p><p role="status">Loading…</p></div></div></body>
 </html>
 `,
   );
@@ -124,6 +125,34 @@ describe('canonicalLink', () => {
   it('returns undefined when there is no canonical link', () => {
     expect(canonicalLink('<link rel="icon" href="/favicon.svg" />')).toBeUndefined();
     expect(canonicalLink('')).toBeUndefined();
+  });
+});
+
+describe('rootBootCopy', () => {
+  it('extracts h1 count, h1 text, and blurb text from #root', () => {
+    const html = `<div id="root"><div class="boot-status"><h1>Brainrot TCG</h1><p>Meme cards &amp; packs.</p><p role="status">Loading…</p></div></div>`;
+    expect(rootBootCopy(html)).toEqual({
+      h1Count: 1,
+      h1Text: 'Brainrot TCG',
+      blurb: 'Meme cards & packs.',
+    });
+  });
+
+  it('returns undefined when there is no #root', () => {
+    expect(rootBootCopy('<body><div>Hello</div></body>')).toBeUndefined();
+  });
+
+  it('detects multiple or missing h1 tags', () => {
+    expect(rootBootCopy('<div id="root"><p class="boot-status">Loading…</p></div>')).toEqual({
+      h1Count: 0,
+      h1Text: '',
+      blurb: '',
+    });
+    expect(rootBootCopy('<div id="root"><h1>One</h1><h1>Two</h1><p>Blurb</p></div>')).toEqual({
+      h1Count: 2,
+      h1Text: 'One',
+      blurb: 'Blurb',
+    });
   });
 });
 
@@ -260,6 +289,31 @@ describe('checkSite', () => {
     writeFileSync(file, original.replace(`href="${CLOUDFLARE.site}"`, 'href="https://wrong.test/"'));
     expect((await checkSite(options)).errors).toEqual([
       { path: 'index.html', error: `canonical is https://wrong.test/, not ${CLOUDFLARE.site}` },
+    ]);
+  });
+
+  it('fails a build whose index.html has no boot copy, multiple headings, or mismatched blurb', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    const file = `${outDir}index.html`;
+    const original = readFileSync(file, 'utf8');
+
+    // Reverting to the old bare loading line fails:
+    writeFileSync(file, original.replace(/<div id="root">[\s\S]*?<\/div>\s*<\/body>/, '<div id="root"><p class="boot-status">Loading…</p></div></body>'));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: '#root has 0 <h1> headings, not 1' },
+      { path: 'index.html', error: '#root has no blurb paragraph' },
+    ]);
+
+    // Multiple h1s fail:
+    writeFileSync(file, original.replace('<h1>Brainrot TCG</h1>', '<h1>Brainrot TCG</h1><h1>Duplicate</h1>'));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: '#root has 2 <h1> headings, not 1' },
+    ]);
+
+    // Blurb not matching meta description fails:
+    writeFileSync(file, original.replace('<meta name="description" content="Rip open meme packs from every era of the internet." />', '<meta name="description" content="Different description." />'));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: '#root blurb does not match <meta name="description">' },
     ]);
   });
 
