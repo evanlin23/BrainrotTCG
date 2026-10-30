@@ -96,90 +96,62 @@ test.describe('two tabs at once, emulated Chromium (not real devices)', () => {
     return true;
   }
 
-  test('concurrent opens claim different tickets and both packs are kept', async ({ context, baseURL }) => {
-    test.setTimeout(90000);
-    const a = await context.newPage();
-    const b = await context.newPage();
-    const errorsA = await openTab(a, baseURL!);
-    const errorsB = await openTab(b, baseURL!);
+  // The race runs from a fresh save and from one that already holds a stored pack, so the tabs claim
+  // past a recorded ticket and a write that lost the race must not drop what was already stored.
+  for (const stored of [0, 1]) {
+    test(`concurrent opens claim different tickets and both packs are kept, from ${stored ? `a save with ${stored} stored pack` : 'a fresh save'}`, async ({ context, baseURL }) => {
+      test.setTimeout(90000);
+      const a = await context.newPage();
+      const errorsA = await openTab(a, baseURL!);
+      for (let i = 0; i < stored; i++) {
+        await openPack(a).click();
+        await finishReveal(a);
+        await expect.poll(() => packNonces(a)).toEqual(Array.from({ length: i + 1 }, (_, n) => n));
+        await a.getByRole('button', { name: 'Next pack', exact: true }).click();
+        await expect(a.locator('.pack-shell')).toBeVisible();
+      }
+      const b = await context.newPage();
+      const errorsB = await openTab(b, baseURL!);
+      // The second tab loaded the stored progress, so it starts without a warning.
+      await expect(b.getByRole('alert')).toHaveCount(0);
+      const tickets = (count: number) => Array.from({ length: count }, (_, n) => n);
 
-    await Promise.all([openPack(a).click(), openPack(b).click()]);
-    // Each tab either opens its pack or, having heard the other store progress first, refuses and
-    // leaves its pack sealed without claiming a ticket. The first to store always opens.
-    const [openedA, openedB] = await Promise.all([settle(a), settle(b)]);
-    const opened = Number(openedA) + Number(openedB);
-    expect(opened).toBeGreaterThanOrEqual(1);
-    if (opened === 1) await expect(sealed(openedA ? b : a)).toHaveText(/^Your save changed in another tab, so this pack stayed sealed\./);
+      await Promise.all([openPack(a).click(), openPack(b).click()]);
+      // Each tab either opens its pack or, having heard the other store progress first, refuses and
+      // leaves its pack sealed without claiming a ticket. The first to store always opens.
+      const [openedA, openedB] = await Promise.all([settle(a), settle(b)]);
+      const opened = Number(openedA) + Number(openedB);
+      expect(opened).toBeGreaterThanOrEqual(1);
+      if (opened === 1) await expect(sealed(openedA ? b : a)).toHaveText(/^Your save changed in another tab, so this pack stayed sealed\./);
 
-    // After a reload nothing opened is lost: one ticket per pack, every pack counted, all its cards,
-    // and nothing left on the pending shelf.
-    await a.reload();
-    await expect(a.locator('.app-logo')).toBeVisible();
-    await expect.poll(async () => (await snapshot(a)).stats?.packsOpened, { timeout: 15000 }).toBe(opened);
-    const saved = await snapshot(a);
-    expect(await packNonces(a)).toEqual(opened === 2 ? [0, 1] : [0]);
-    expect(new Set(saved.history.map((entry) => entry.n)).size).toBe(saved.history.length);
-    expect(cardCount(saved.collection)).toBe(5 * opened);
-    expect((await player(a)).nextNonce).toBe(opened);
-    expect(await shelf(a)).toEqual([]);
+      // After a reload nothing opened is lost: one ticket per pack, every pack counted, all its cards,
+      // and nothing left on the pending shelf.
+      const total = stored + opened;
+      await a.reload();
+      await expect(a.locator('.app-logo')).toBeVisible();
+      await expect.poll(async () => (await snapshot(a)).stats?.packsOpened, { timeout: 15000 }).toBe(total);
+      const saved = await snapshot(a);
+      expect(await packNonces(a)).toEqual(tickets(total));
+      expect(new Set(saved.history.map((entry) => entry.n)).size).toBe(saved.history.length);
+      expect(cardCount(saved.collection)).toBe(5 * total);
+      expect((await player(a)).nextNonce).toBe(total);
+      expect(await shelf(a)).toEqual([]);
 
-    if (opened === 1) {
-      // The sealed tab claimed nothing, so the next open takes ticket 1, the one it left.
-      await b.reload();
-      await expect(b.locator('.pack-shell')).toBeVisible();
-      await openPack(b).click();
-      await finishReveal(b);
-      await expect.poll(() => packNonces(b)).toEqual([0, 1]);
-      expect((await player(b)).nextNonce).toBe(2);
-      expect((await snapshot(b)).stats.packsOpened).toBe(2);
-      expect(cardCount((await snapshot(b)).collection)).toBe(10);
-    }
-    expect(errorsA).toEqual([]);
-    expect(errorsB).toEqual([]);
-  });
-
-  test('concurrent opens on an existing save with progress claim different tickets without duplicates', async ({ context, baseURL }) => {
-    test.setTimeout(90000);
-    const a = await context.newPage();
-    const errorsA = await openTab(a, baseURL!);
-    // Open initial pack on tab A so the save has existing progress (ticket 0)
-    await openPack(a).click();
-    await finishReveal(a);
-    await expect.poll(() => packNonces(a)).toEqual([0]);
-    expect((await player(a)).nextNonce).toBe(1);
-    await a.getByRole('button', { name: 'Next pack', exact: true }).click();
-    await expect(a.locator('.pack-shell')).toBeVisible();
-
-    // Open tab B on the same context (same save, 1 pack opened)
-    const b = await context.newPage();
-    const errorsB = await openTab(b, baseURL!);
-    await expect(b.getByRole('alert')).toHaveCount(0);
-
-    // Both tabs race to open the next pack simultaneously
-    await Promise.all([openPack(a).click(), openPack(b).click()]);
-    const [openedA, openedB] = await Promise.all([settle(a), settle(b)]);
-    const openedNow = Number(openedA) + Number(openedB);
-    expect(openedNow).toBeGreaterThanOrEqual(1);
-    if (openedNow === 1) {
-      await expect(sealed(openedA ? b : a)).toHaveText(/^Your save changed in another tab, so this pack stayed sealed\./);
-    }
-
-    // Both tabs reload and check total packs and ticket sequence
-    await a.reload();
-    await expect(a.locator('.app-logo')).toBeVisible();
-    const totalPacks = 1 + openedNow;
-    await expect.poll(async () => (await snapshot(a)).stats?.packsOpened, { timeout: 15000 }).toBe(totalPacks);
-    const saved = await snapshot(a);
-    const expectedTickets = totalPacks === 3 ? [0, 1, 2] : [0, 1];
-    expect(await packNonces(a)).toEqual(expectedTickets);
-    expect(new Set(saved.history.map((entry) => entry.n)).size).toBe(saved.history.length);
-    expect(cardCount(saved.collection)).toBe(5 * totalPacks);
-    expect((await player(a)).nextNonce).toBe(totalPacks);
-    expect(await shelf(a)).toEqual([]);
-
-    expect(errorsA).toEqual([]);
-    expect(errorsB).toEqual([]);
-  });
+      if (opened === 1) {
+        // The sealed tab claimed nothing, so the next open takes the ticket it left.
+        await b.reload();
+        await expect(b.locator('.pack-shell')).toBeVisible();
+        await openPack(b).click();
+        await finishReveal(b);
+        await expect.poll(() => packNonces(b)).toEqual(tickets(total + 1));
+        expect((await player(b)).nextNonce).toBe(total + 1);
+        expect((await snapshot(b)).stats.packsOpened).toBe(total + 1);
+        expect(cardCount((await snapshot(b)).collection)).toBe(5 * (total + 1));
+      }
+      expect(errorsA).toEqual([]);
+      expect(errorsB).toEqual([]);
+    });
+  }
 
   test('a profile switch in one tab stops the other from recording into the new player', async ({ context, baseURL }) => {
     test.setTimeout(90000);
