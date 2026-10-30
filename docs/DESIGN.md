@@ -450,11 +450,14 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   reached from the news toast, from Settings, Help ("What's new") or by its address. The page says what a
   player sees, never an API path (those live in `docs/API.md`). It fits 320px and 200% text, its close and
   link are 44 px targets, and nothing in it moves. The latest unread entry also arrives once as a toast in
-  the same queue as achievements and level-ups (kicker "What's new", the Newspaper icon): never before a
-  first pack is saved, never while a pack is torn, revealed or on its summary, and queued behind the pack's
-  own toasts so only one is up at a time. Tapping it opens the page; its X, a timeout and opening the page
-  all read the entry. Read state is the one `DISMISSED_NEWS` key, as the old chip kept it; when storage
-  refuses the write, the entry stays read for the rest of the visit. `tests/browser/news-toast.spec.ts`
+  the same queue as achievements and level-ups (kicker "What's new", the Newspaper icon). Only a pack being
+  put away in this visit asks for it: not on a page load, not on a route change, never before a first pack
+  is saved, never while a pack is torn, revealed or on its summary. It is queued behind the pack's own
+  toasts so only one is up at a time, and a toast that has not been shown when the next pack starts leaves
+  the queue and comes back after that pack is put away. Tapping it opens the page; its X, a timeout and
+  opening the page all read the entry. Read state is the one `DISMISSED_NEWS` key, as the old chip kept it
+  (opening `#/news` writes it too, even for a first-time visitor with no save); when storage refuses the
+  write, the entry stays read for the rest of the visit. `tests/browser/news-toast.spec.ts`
   checks the toast over phone sizes and 200% text, the wide screen, the page, the quota failure and the
   ordering.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.

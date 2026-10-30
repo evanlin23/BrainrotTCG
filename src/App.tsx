@@ -430,9 +430,14 @@ function App() {
 
   // A collection write can fail, or be refused for a stale tab, after its pack's notice is queued: once
   // a save warning shows, the "Pack kept" notice would contradict it, so it never shows (neither clears).
+  // A news toast waits behind the save warning too: the toast region sits over the banner, so it would
+  // cover the warning and its buttons. It stays queued and comes in once the warning is gone.
   const visibleNotifications = useMemo(
-    () => (saveFailed || staleSave ? notificationQueue.filter((toast) => !toast.id.startsWith('pack-kept-')) : notificationQueue),
-    [saveFailed, staleSave, notificationQueue],
+    () => {
+      const warned = saveFailed || staleSave;
+      return warned || bannerWarning ? notificationQueue.filter((toast) => !(warned && toast.id.startsWith('pack-kept-')) && !isNewsToastId(toast.id)) : notificationQueue;
+    },
+    [saveFailed, staleSave, bannerWarning, notificationQueue],
   );
   const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
   // Any sheet at all (the summary's card close-up too): a toast over one covers its title or takes a tap meant for it (#803).
@@ -480,14 +485,14 @@ function App() {
   const onPage = route !== 'open';
   // Settings shows these problems in its own sections, so the banner leaves it.
   const saveWarningShown = !!bannerWarning && route !== 'settings';
-  // The latest unread announcement, once, as a toast behind the others: only when a returning player's pack screen is at rest.
+  // The latest unread announcement, once, as a toast behind the others: only after a pack is put away in this visit, and while the pack screen is at rest.
   const announceToast = useCallback((toast: ToastItem) => {
     setNotificationQueue((prev) => (prev.some((t) => t.id === toast.id) ? prev : [...prev, toast]));
   }, []);
   const withdrawNewsToast = useCallback(() => {
     setNotificationQueue((prev) => (prev.some((t) => isNewsToastId(t.id)) ? prev.filter((t) => !isNewsToastId(t.id)) : prev));
   }, []);
-  useNewsToast({ due: pagesUnlocked && !packBusy && !packFocus && route !== 'news', viewing: route === 'news', announce: announceToast, withdraw: withdrawNewsToast });
+  useNewsToast({ atRest: pagesUnlocked && route !== 'news', packOpen: packBusy || packFocus, viewing: route === 'news', announce: announceToast, withdraw: withdrawNewsToast });
   const logoMark = (
     <svg className="app-logo-mark" viewBox={LOGO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
       <path fill="currentColor" d={LOGO_MARK_PATH} />

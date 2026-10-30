@@ -25,6 +25,22 @@ const go = (hash: string) => app!.interact(() => { location.hash = hash; });
 const press = (el: Element | null | undefined) => app!.interact(() => (el as HTMLElement).click());
 const stored = () => localStorage.getItem(STORAGE_KEYS.DISMISSED_NEWS);
 
+/** Opens the pack and leaves it early: it is put away, its own notice first in the queue. */
+async function putPackAway() {
+  const sealed = () => $('[data-pack-open]');
+  await app!.interact(() => { sealed()!.focus(); sealed()!.click(); });
+  await app!.until('the pack is open', () => expect($('.card-wrapper')).not.toBeNull());
+  await app!.interact(() => (document.activeElement ?? document.body)
+    .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })));
+  await app!.until('the pack notice shows', () => expect(toastTexts().join()).toContain('Pack kept'));
+}
+/** A pack put away, its notice sent off, and the news toast that follows it on screen. */
+async function newsToastAfterAPack() {
+  await putPackAway();
+  await press(document.querySelector('.toast-dismiss'));
+  await app!.until('the news toast follows the pack notice', () => expect(newsToast()).toBeDefined(), 60_000);
+}
+
 it('shows no news toast before the first pack is saved, and does not read the news either (#58)', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET }, { news: NEWS });
   await app.mount();
@@ -43,22 +59,38 @@ it('still shows none to a new player who only turned on Show every page', async 
   expect(app.newsLoads()).toBe(0);
 });
 
-it('toasts the latest unread entry once the pack screen is at rest, and the pack row carries no chip', async () => {
+it('shows a returning player no toast on a plain load or a route change, and does not read the news: only a pack put away asks for it', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING }, { news: NEWS });
   await app.mount();
-  await app.until('the news toast shows', () => expect(newsToast()?.textContent).toContain('Open Card API'));
+  await app.settle(300);
+  expect(newsToast()).toBeUndefined();
+  expect(app.newsLoads()).toBe(0);
+  await go('#/cards');
+  await go('');
+  await go('#/settings');
+  await go('');
+  await app.settle(300);
+  expect(newsToast()).toBeUndefined();
+  expect(app.newsLoads()).toBe(0);
+  expect($('.news-banner')).toBeNull();
+});
+
+it('toasts the latest unread entry once a pack is put away, and the pack row carries no chip', async () => {
+  app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING }, { news: NEWS });
+  await app.mount();
+  await newsToastAfterAPack();
+  expect(newsToast()?.textContent).toContain('Open Card API');
   expect(app.newsLoads()).toBe(1);
   expect($('.news-banner')).toBeNull();
-  expect($('.card-guide-entry')?.querySelector('.news-banner')).toBeNull();
   expect($('.card-guide-entry .card-guide-link')?.textContent?.trim()).toBe('Card guide');
   // Only the newest entry is toasted.
   expect(toastTexts().join()).not.toContain('Player Profiles');
 });
 
-it('opens What\'s new from the toast, reads the entry, and does not toast it again after a reload', async () => {
+it('opens What\'s new from the toast, reads the entry, and does not toast it again after a reload and another pack', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING }, { news: NEWS });
   await app.mount();
-  await app.until('the news toast shows', () => expect(newsToast()).toBeDefined());
+  await newsToastAfterAPack();
   await press(newsToast()!.querySelector('.toast-open'));
   await app.until('the page opens', () => expect($('.news-entry')).not.toBeNull());
   expect(pageTitle()).toBe("What's new");
@@ -74,20 +106,23 @@ it('opens What\'s new from the toast, reads the entry, and does not toast it aga
   await app.settle(100);
   expect(pageTitle()).toBe("What's new");
   await go('');
-  await app.settle(100);
+  await app.settle(500);
+  await putPackAway();
+  await app.settle(300);
   expect(newsToast()).toBeUndefined();
 });
 
-it('dismissing the toast with its X reads it: it does not come back after another pack screen or a reload', async () => {
+it('dismissing the toast with its X reads it: it does not come back after another pack or a reload', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING }, { news: NEWS });
   await app.mount();
-  await app.until('the news toast shows', () => expect(newsToast()).toBeDefined());
+  await newsToastAfterAPack();
   await press(newsToast()!.querySelector('.toast-dismiss'));
   await app.until('the toast goes', () => expect(newsToast()).toBeUndefined());
   expect(stored()).toBe('news-a');
-  // Away to a page and back to the pack screen: the screen is at rest again, and still no toast.
+  // Away to a page and back, and another pack put away: still no toast.
   await go('#/cards');
   await go('');
+  await putPackAway();
   await app.settle(200);
   expect(newsToast()).toBeUndefined();
 
@@ -99,23 +134,26 @@ it('dismissing the toast with its X reads it: it does not come back after anothe
 it('a toast that timed out was seen, so it is read too', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING }, { news: NEWS });
   await app.mount();
-  await app.until('the news toast shows', () => expect(newsToast()).toBeDefined());
+  await newsToastAfterAPack();
   await app.until('it times out', () => expect(newsToast()).toBeUndefined(), 15_000);
   expect(stored()).toBe('news-a');
 });
 
-it('a player who already dismissed the entry is not toasted again', async () => {
-  app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING, [STORAGE_KEYS.DISMISSED_NEWS]: 'news-a' }, { news: NEWS });
+it('a player who already dismissed the entry is not toasted after a pack', async () => {
+  const mounted = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING, [STORAGE_KEYS.DISMISSED_NEWS]: 'news-a' }, { news: NEWS });
+  app = mounted;
   await app.mount();
+  await putPackAway();
+  await press(document.querySelector('.toast-dismiss'));
+  await app.until('the news was asked for', () => expect(mounted.newsLoads()).toBe(1));
   await app.settle(200);
-  expect(app.newsLoads()).toBe(1);
   expect(newsToast()).toBeUndefined();
 });
 
 it('holds for the visit when storage refuses the dismissal (a full or blocked store)', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING }, { news: NEWS });
   await app.mount();
-  await app.until('the news toast shows', () => expect(newsToast()).toBeDefined());
+  await newsToastAfterAPack();
   const write = Storage.prototype.setItem;
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
     if (key === STORAGE_KEYS.DISMISSED_NEWS) throw new DOMException('Injected quota failure', 'QuotaExceededError');
@@ -126,6 +164,7 @@ it('holds for the visit when storage refuses the dismissal (a full or blocked st
   expect(stored()).toBeNull();
   await go('#/cards');
   await go('');
+  await putPackAway();
   await app.settle(200);
   expect(newsToast()).toBeUndefined();
 });
@@ -133,7 +172,7 @@ it('holds for the visit when storage refuses the dismissal (a full or blocked st
 it('opening the page by its address reads the entry and takes a waiting toast out of the queue', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING }, { news: NEWS });
   await app.mount();
-  await app.until('the news toast shows', () => expect(newsToast()).toBeDefined());
+  await newsToastAfterAPack();
   await go('#/news');
   await app.until('the page opens', () => expect($('.news-entry')).not.toBeNull());
   await app.until('the toast is out of the queue', () => expect(newsToast()).toBeUndefined());
@@ -175,7 +214,7 @@ it('waits for a pack to be put away: nothing is read or shown over the tear and 
   const sealed = () => $('[data-pack-open]');
   await app.interact(() => { sealed()!.focus(); sealed()!.click(); });
   await app.until('the pack is open', () => expect($('.card-wrapper')).not.toBeNull());
-  expect(app.newsLoads()).toBe(0);
+  expect(mounted.newsLoads()).toBe(0);
   expect(newsToast()).toBeUndefined();
 
   // Leaving the reveal puts the pack away: its notice is first in the queue, the news behind it.

@@ -204,6 +204,33 @@ test('steps aside on a phone on its side, where the pack has no room to spare', 
   expect(errors).toEqual([]);
 });
 
+// Unread news used to hide the goal behind a chip (a yield rule in PackMilestone.css, until #1280): the news is a
+// toast now, so a returning player with an unread entry still sees the goal, level with the guide link, and can use it.
+for (const [project, size] of [['mobile-chromium', { width: 390, height: 844 }], ['desktop-chromium', { width: 1280, height: 800 }]] as const) {
+  test(`keeps the goal visible and usable while the latest news is unread, on a ${size.width} x ${size.height} screen`, async ({ page, baseURL }, testInfo) => {
+    test.skip(testInfo.project.name !== project, 'One layout per project.');
+    await page.setViewportSize(size);
+    const errors = await monitor(page, baseURL!, 1, { returning: true, unreadNews: true });
+    await page.goto('./');
+    await settled(page);
+    const goal = page.locator('.card-guide-entry .pack-milestone');
+    await expect(page.locator('.card-guide-link')).toBeVisible();
+    await expect(goal).toBeVisible();
+    await expect(page.locator('.news-banner')).toHaveCount(0);
+    // Level with the guide link, at a tappable size, and not under anything: a click lands on it.
+    const [box, guide] = [(await goal.boundingBox())!, (await page.locator('.card-guide-link').boundingBox())!];
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x).toBeGreaterThanOrEqual(guide.x + guide.width - 0.5);
+    expect(await goal.evaluate((el) => {
+      const { x, y, width, height } = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+    })).toBe(true);
+    await goal.click();
+    await expect(page).toHaveURL(/profile/);
+    expect(errors).toEqual([]);
+  });
+}
+
 test('on a desktop window it names the goal and goes to the rewards, and the pack stays where it was', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A desktop layout check.');
   const errors = await open(page, baseURL!, { width: 1280, height: 800 });
