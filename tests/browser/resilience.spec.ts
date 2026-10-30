@@ -584,6 +584,74 @@ test.describe('offline mid-session', () => {
       ...finishes,
     ].sort());
   });
+
+  test('a fresh player opens ticket 0 offline into an empty save, and the Cards page already loaded shows the pack', async ({ page, baseURL }) => {
+    const errors = await monitor(page, baseURL!);
+    let offline = false;
+    const cut: string[] = [];
+    await relaysAnswerEmpty(page, () => offline);
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+    await page.route('**/*', (route) => {
+      if (!offline) return route.fallback();
+      cut.push(route.request().url());
+      return route.abort('internetdisconnected');
+    });
+    // No seeded save: this player has never opened a pack, so the ticket opened offline is ticket 0.
+    await holdTickets(page);
+    const finishToastWarmup = await holdToastStyles(page);
+    const confettiLoaded = page.waitForResponse((response) => /\/confettiEffects-[^/]+\.js$/.test(response.url()));
+    await page.goto('./');
+    await packsScreen(page);
+    await confettiLoaded;
+    await finishToastWarmup();
+
+    // A fresh player has no navigation yet, and the Cards page is a lazy chunk that nothing prefetches: visit
+    // it online (an empty collection) so its script and stylesheet are in before the connection drops.
+    // (The chunk failing offline, and its Retry, is deferred-screens.spec.ts.)
+    await page.evaluate(() => { location.hash = '#/cards'; });
+    const cards = page.getByRole('main', { name: 'Cards', exact: true });
+    await expect(cards.locator('.collection-empty')).toHaveText('Open packs to start your collection.');
+    await page.evaluate(() => { location.hash = '#/'; });
+    await packsScreen(page);
+
+    offline = true;
+    await page.context().setOffline(true);
+    await releaseTickets(page);
+    await openOne(page);
+    expect(await tickets(page)).toEqual([0]);
+    expect(await nextNonce(page)).toBe(1);
+    const collection = (await snapshot(page)).collection!;
+    expect(cardCount(collection)).toBe(5);
+
+    // Cards, offline, reads the saved pack: one tile per distinct card, none of them the empty note.
+    await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+    await packsScreen(page);
+    // The first saved pack is also the first time the news chunk is asked for (a fresh player never loads it
+    // online): offline it gives no news, so there is no banner, and nothing else breaks.
+    const newsChunk = /\/news-[^/]+\.js$/;
+    await expect.poll(() => cut.some((url) => newsChunk.test(url))).toBe(true);
+    await expect(page.locator('.news-banner')).toHaveCount(0);
+    await nav(page).getByRole('button', { name: 'Cards', exact: true }).click();
+    await expect(cards.getByRole('alert')).toHaveCount(0);
+    await expect(cards.locator('.collection-empty')).toHaveCount(0);
+    const tiles = cards.locator('.collection-item');
+    await expect(tiles).toHaveCount(Object.keys(collection).length);
+    // Pictures are all that can't load: wait for the tiles' art to settle so every cut request is in `cut`.
+    for (const image of await tiles.locator('img').all()) await expect(image).toHaveAttribute('data-state', 'failed');
+
+    // Whole run, Cards step included: only pictures and the news chunk were cut, never the Cards chunk, a
+    // stylesheet or a font.
+    expect(cut.filter((url) => !/\.(webp|png|svg)$/.test(new URL(url).pathname) && !newsChunk.test(url))).toEqual([]);
+    const finishes = () => errors.filter((error) => error.startsWith('Could not render card finish '));
+    // Each cut request is reported after the fact: wait until all of them (and nothing else) have been.
+    const expected = () => [
+      ...cut.flatMap((url) => [`net::ERR_INTERNET_DISCONNECTED ${url}`, 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED']),
+      ...finishes(),
+    ].sort();
+    await expect.poll(() => JSON.stringify([...errors].sort()) === JSON.stringify(expected())).toBe(true);
+    for (const finish of finishes()) expect(cut.some((url) => finish.includes(new URL(url).pathname)), finish).toBe(true);
+    expect([...errors].sort()).toEqual(expected());
+  });
 });
 
 test.describe('Argon2 chunk fetched ahead (#776)', () => {
