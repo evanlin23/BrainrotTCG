@@ -1,7 +1,8 @@
 /**
  * The Brainrot TCG mark: nine squares on a grid turned 10.5 degrees anticlockwise, traced from the
  * owner's 400px artwork. This file is the mark's only source. The header and the share images draw
- * the path directly, and scripts/logo-icons.ts writes the SVG and PNG icons from it, so change the
+ * the path directly, and scripts/logo-icons.ts writes the SVG and PNG icons from it (the favicons,
+ * the apple-touch-icon, and the manifest's 192 and 512px icons, plain and maskable), so change the
  * mark here and rerun `npm run icons`, `npm run og-image` and `npm run cards`.
  */
 
@@ -29,9 +30,16 @@ const TILE = LOGO_MARK_SIZE + TILE_PAD * 2;
 
 /**
  * The tile: white squares on black, like the artwork. Rounded for the favicon; square for the
- * apple-touch-icon, which iOS rounds itself.
+ * apple-touch-icon, which iOS rounds itself, and for the manifest's icons (public/manifest.webmanifest).
+ * `pad` is the margin around the mark in mark units (TILE_PAD by default); the maskable icons pass a
+ * larger one so a launcher's mask crops only the background.
  */
-export const logoTileSvg = ({ rounded = true, size }: { rounded?: boolean; size?: number } = {}): string =>
-  `<svg xmlns="${SVG_NS}" viewBox="0 0 ${TILE} ${TILE}"${size ? ` width="${size}" height="${size}"` : ''}>` +
-  `<rect width="${TILE}" height="${TILE}"${rounded ? ' rx="24"' : ''} fill="#000"/>` +
-  `<path transform="translate(${TILE_PAD} ${TILE_PAD})" fill="#fff" d="${LOGO_MARK_PATH}"/></svg>\n`;
+export const logoTileSvg = ({ rounded = true, size, pad = TILE_PAD }: { rounded?: boolean; size?: number; pad?: number } = {}): string => {
+  const tile = LOGO_MARK_SIZE + pad * 2;
+  const rx = rounded ? Math.round(tile * (24 / TILE)) : 0;
+  return (
+    `<svg xmlns="${SVG_NS}" viewBox="0 0 ${tile} ${tile}"${size ? ` width="${size}" height="${size}"` : ''}>` +
+    `<rect width="${tile}" height="${tile}"${rounded ? ` rx="${rx}"` : ''} fill="#000"/>` +
+    `<path transform="translate(${pad} ${pad})" fill="#fff" d="${LOGO_MARK_PATH}"/></svg>\n`
+  );
+};

@@ -3,7 +3,13 @@
  *
  * - src/assets/images/logo-mark.svg, the bare mark in currentColor;
  * - public/favicon.svg, the rounded tile, and public/favicon-32.png from it;
- * - public/apple-touch-icon.png, the square tile at 180px (iOS rounds it).
+ * - public/apple-touch-icon.png, the square tile at 180px (iOS rounds it);
+ * - public/icon-192.png and icon-512.png, the square tile, and public/icon-maskable-192.png and
+ *   icon-maskable-512.png, the same with the mark inset (`pad` 28) so an Android launcher's mask
+ *   can crop the edges without touching it.
+ *
+ * public/manifest.webmanifest lists the SVG and every PNG here as its icons, with URLs relative to
+ * itself so they hold under any base; scripts/logo-icons.test.ts keeps the two in step.
  *
  *   npm run icons
  *
@@ -25,6 +31,10 @@ export const SVG_FILES: Record<string, string> = {
 export const PNG_FILES: Record<string, { svg: string; size: number; opaque?: boolean }> = {
   'public/favicon-32.png': { svg: logoTileSvg({ size: 32 }), size: 32 },
   'public/apple-touch-icon.png': { svg: logoTileSvg({ rounded: false, size: 180 }), size: 180, opaque: true },
+  'public/icon-192.png': { svg: logoTileSvg({ rounded: false, size: 192 }), size: 192, opaque: true },
+  'public/icon-512.png': { svg: logoTileSvg({ rounded: false, size: 512 }), size: 512, opaque: true },
+  'public/icon-maskable-192.png': { svg: logoTileSvg({ rounded: false, size: 192, pad: 28 }), size: 192, opaque: true },
+  'public/icon-maskable-512.png': { svg: logoTileSvg({ rounded: false, size: 512, pad: 28 }), size: 512, opaque: true },
 };
 
 /** One PNG icon as `npm run icons` writes it. */
