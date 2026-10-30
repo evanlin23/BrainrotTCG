@@ -39,6 +39,9 @@ beforeEach(async () => {
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   localStorage.clear();
+  // Every test starts on the packs screen: the one that opens the profile leaves its route in the address (#1122).
+  // replaceState adds no history entry and fires no hashchange, unlike assigning location.hash.
+  history.replaceState(null, '', '/BrainrotTCG/');
   mine.stats = undefined;
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);

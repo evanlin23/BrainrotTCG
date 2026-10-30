@@ -357,6 +357,22 @@ describe('the page', () => {
     expect(section!.textContent).toContain('Brainrot');
   });
 
+  it('shows Personal records before Achievements, and keeps the medal on the pack that set a best (#1287)', () => {
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    const pack = (nonce: number, score: number, setId = 'genesis') => ({ setId, setVersion: 1, nonce, key, cards: null, hand: 'Pair', score, openedAt: 1000 + nonce });
+    // Another identity's higher pack on this device doesn't count against this player's.
+    getHistory.mockReturnValue([pack(1, 900), pack(0, 400), { ...pack(2, 99_999), key: 'f'.repeat(16) }]);
+    render();
+    const headings = [...document.querySelectorAll('h2')].map((el) => el.textContent);
+    expect(headings.indexOf('Personal records')).toBeGreaterThan(-1);
+    expect(headings.indexOf('Personal records')).toBeLessThan(headings.indexOf('Achievements'));
+    const book = document.querySelector('.record-book')!;
+    expect(book.textContent).toContain('Best pack by set');
+    expect(book.textContent).toContain('previous 400');
+    const medalled = [...document.querySelectorAll('.pull-row')].filter((row) => row.querySelector('.pull-row-medal'));
+    expect(medalled.map((row) => row.querySelector('.pull-row-score')!.textContent)).toEqual(['900']);
+  });
+
   it('recounts the drought counters when a re-open run fills in a pack\'s cards', () => {
     const key = getPlayer().publicKeyHex.slice(0, 16);
     const set = getSet('genesis', 1)!;

@@ -949,7 +949,7 @@ coverage.
 
 `npm run audit:agent -- --task=opening --turns=12 --seconds=180` (tasks: `opening`, `sharing`,
 `results`, `recovery`; 30 to 180 seconds and 3 to 40 turns each, at most four, run one after
-another) lets a local Claude Code 2.1.302 reviewer try a newcomer task. It needs Unix, Node 22, a
+another) lets a local Claude Code 2.1.314 reviewer try a newcomer task. It needs Unix, Node 22, a
 git checkout, that CLI signed in and Playwright's Chromium; any other CLI version, a signed-out CLI
 or an instruction file a reviewer could load fails closed before any agent runs. Those files are a
 managed or user `CLAUDE.md`, `~/.claude/rules`, and `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md` or

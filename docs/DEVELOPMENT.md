@@ -204,9 +204,12 @@ The site check (`npm run check:site`, after a build, about 30 s) reads `dist/` w
 `BASE_PATH` and `SITE_URL`. Every page's local links and stylesheet `url()`s must stay under
 `BASE_PATH` and be in the build, every share and set page the set registry gets must be there and
 forward to `BASE_PATH`, and each page's `og:image` must be under `SITE_URL` and decode as a JPEG of
-its `og:image:width`x`og:image:height`. It also holds `index.html` and the code and styles it loads up
-front to `MAX_FIRST_LOAD_BYTES` gzipped (#776): what a first visit downloads before the pack can show.
-`scripts/check-site.test.ts` covers it offline with fixtures.
+its `og:image:width`x`og:image:height`. It checks that `index.html` defines a canonical link
+matching `SITE_URL` and semantic `#root` boot status copy (an `h1` and a blurb matching
+`<meta name="description">`), that the web app manifest (`manifest.webmanifest`)
+resolves within `BASE_PATH` and references existing icon assets, and holds `index.html` and the code
+and styles it loads up front to `MAX_FIRST_LOAD_BYTES` gzipped (#776): what a first visit downloads
+before the pack can show. `scripts/check-site.test.ts` covers it offline with fixtures.
 
 Three fixture suites in `npm run check` cover the hosting and Hall of Fame contracts without a build,
 a token or the network. `scripts/preview-pages.test.ts` writes the share pages (`p/`) and set pages
@@ -417,14 +420,14 @@ dimensions/input/motion/cache/network/CPU, tools/isolation limits, outcomes, cap
 boundary in docs/ARCHITECTURE.md) launches only Claude, one fresh reviewer per task, sequentially. Tasks are
 `opening`, `sharing`, `results` and `recovery`, each limited to 30 to 180 seconds, 3 to 40 turns
 (model responses) and 40 browser calls. It needs Unix, Node 22, Playwright's Chromium and Claude
-Code 2.1.302 signed in (`claude auth status`). Another version, a signed-out CLI or any
+Code 2.1.314 signed in (`claude auth status`). Another version, a signed-out CLI or any
 instruction file a reviewer could load stops it before any agent runs, since memory would coach the
 reviewer: a managed or user `CLAUDE.md` or `~/.claude/rules`, or a `CLAUDE.md`, `CLAUDE.local.md`,
 `AGENTS.md` or `.claude/` memory or rules in the temporary directory or above it. A task
 that hits a limit, is cancelled, or starts with missing or extra tools is recorded as unrun with
 the reason, never as passed. It is not part of `npm run check` or CI; unit tests use a fake CLI.
 
-Each reviewer is started with these flags, all listed by `claude --help` in 2.1.302 (`claudeArgs`
+Each reviewer is started with these flags, all listed by `claude --help` in 2.1.314 (`claudeArgs`
 in `scripts/agent-audit/claude.ts`): `-p --restricted --tools "" --strict-mcp-config --mcp-config
 <audit server> --allowed-tools <mcp__audit__ snapshot, click, press, wait> --permission-mode dontAsk
 --disable-slash-commands --no-chrome --no-session-persistence --output-format stream-json --verbose
@@ -433,7 +436,7 @@ Write, web or other built-in tools, no user, project or local settings files or 
 (managed settings still apply), no skills, slash commands or other MCP servers, and an empty
 temporary working directory. The task sentence from `contracts.ts` is the only user prompt: no
 source, docs, history or hints, since coaching would test the coach, not the page. The coordinator
-prompt in `contracts.ts` is separate and goes only into the report. 2.1.302 has no turn flag, so the
+prompt in `contracts.ts` is separate and goes only into the report. Claude Code 2.1.314 has no turn flag, so the
 runner counts responses and stops the process group when the cap is passed; it also stops if the
 session reports any tool outside the allowlist. To move the pin, re-check every flag in
 `claude --help` first, then update `claudeVersion`.

@@ -627,10 +627,10 @@ test.describe('offline mid-session', () => {
     await page.getByRole('button', { name: 'Next pack', exact: true }).click();
     await packsScreen(page);
     // The first saved pack is also the first time the news chunk is asked for (a fresh player never loads it
-    // online): offline it gives no news, so there is no banner, and nothing else breaks.
+    // online): offline it gives no news, so there is no news toast, and nothing else breaks.
     const newsChunk = /\/news-[^/]+\.js$/;
     await expect.poll(() => cut.some((url) => newsChunk.test(url))).toBe(true);
-    await expect(page.locator('.news-banner')).toHaveCount(0);
+    await expect(page.locator('.toast').filter({ hasText: "What's new" })).toHaveCount(0);
     await nav(page).getByRole('button', { name: 'Cards', exact: true }).click();
     await expect(cards.getByRole('alert')).toHaveCount(0);
     await expect(cards.locator('.collection-empty')).toHaveCount(0);
