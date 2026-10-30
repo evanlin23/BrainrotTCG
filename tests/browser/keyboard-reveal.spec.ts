@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { expectRecordedPack, monitor } from './support';
+import { expectRecordedPack, monitor, recordShownToasts, tapSpace } from './support';
 
 /**
  * A whole pack by keyboard alone (#12): Tab reaches the Open pack button, Space tears the pack, and the
@@ -99,7 +99,7 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
     const areaBefore = await area.ariaSnapshot();
     const liveBefore = await liveTexts(page);
 
-    await page.keyboard.press('Space');
+    await tapSpace(page);
     await expect(live).toHaveText(announced(n), { timeout: 10000 });
     const text = (await live.textContent())!;
     const name = text.match(announced(n))![1];
@@ -126,7 +126,7 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
       // The emulated screen-reader view of the reveal, for the PR (Chromium's accessibility tree).
       console.log(`--- face down, card 1 ---\n${areaBefore}\n--- face up, card 1 ---\n${await area.ariaSnapshot()}`);
     }
-    await page.keyboard.press('Space');
+    await tapSpace(page);
   }
 
   // The fixture's duplicate, so a repeated name always meets the checks above.
@@ -215,10 +215,10 @@ test('keeps the provenance line whole on a 320px phone, wrapping the set and num
   expect(faceDown.set).toMatch(/^\S.* 001\/\d{3}$/);
 
   // Flipped, the number shows in the space it kept; the line, and so the card, stay put. Same for the next card.
-  await page.keyboard.press('Space');
+  await tapSpace(page);
   await expect.poll(async () => (await provenance(page)).numberShown).toBe(true);
   expect(await provenance(page)).toEqual({ ...faceDown, numberShown: true });
-  await page.keyboard.press('Space');
+  await tapSpace(page);
   await expect(card).toHaveAttribute('aria-label', 'Flip card 2 of 5', { timeout: 10000 });
   const next = await provenance(page);
   expect(next).toEqual({ ...faceDown, set: next.set });
@@ -272,7 +272,7 @@ test('levels a tilted card as soon as reduced motion turns on mid-reveal, and ke
   await seedNonce21(page, baseURL!);
   const errors = await monitor(page, baseURL!);
   const card = await revealFirstCard(page);
-  await page.keyboard.press('Space');
+  await tapSpace(page);
   await expect(card).toHaveAttribute('aria-label', /^Next card/, { timeout: 10000 });
   const wrapper = card.locator('.card-wrapper');
   const transform = () => wrapper.evaluate((el) => (el as HTMLElement).style.transform);
@@ -365,6 +365,7 @@ for (const mode of MOTION_MODES) {
         localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0, ...(motion ? { motion } : {}) }));
       }, { origin: new URL(baseURL!).origin, motion: mode.motion });
       await logMotion(page);
+      const toastsShown = await recordShownToasts(page);
       const errors = await monitor(page, baseURL!);
       await page.goto('./');
       await expect(page.locator('.app-logo')).toBeVisible();
@@ -377,10 +378,15 @@ for (const mode of MOTION_MODES) {
       const labels: string[] = [];
       for (let n = 1; n <= 5; n++) {
         await expect(card).toHaveAttribute('aria-label', `Flip card ${n} of 5`, { timeout: 10000 });
-        await page.keyboard.press('Space');
+        await tapSpace(page);
         await expect(card).toHaveAttribute('aria-label', n < 5 ? /^Next card/ : /^See the pack summary/, { timeout: 10000 });
         labels.push((await card.getAttribute('aria-label'))!);
-        await page.keyboard.press('Space');
+        // The probe logs a loop as the browser starts it, which takes a frame with the holo face on screen. Turned
+        // on straight away, a loaded machine leaves the card before that frame, and the shimmer never starts.
+        if (!mode.calm && /, Holo /.test(labels[n - 1])) {
+          await expect.poll(() => page.evaluate(() => window.motionLog.some((entry) => entry.what === 'holoRainbowShimmer' && entry.target === 'card-face' && entry.iterations === Infinity)), { message: 'the holo shimmer started and loops' }).toBe(true);
+        }
+        await tapSpace(page);
       }
       await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 15000 });
       await expect(page.locator('.summary-card')).toHaveCount(5);
@@ -396,11 +402,13 @@ for (const mode of MOTION_MODES) {
       const saved = await expectRecordedPack(page, 21);
       expect({ cards: saved.history[0].c, score: saved.history[0].x, hand: saved.stats.highestPackHandName }).toEqual(SAVED_PACK);
 
-      // Settled: the first pack unlocks an achievement, and its toast fades in after the save. Wait for it, then
-      // let what is finite finish, including a fade that only starts while another ends; then nothing loops or
-      // runs on. The last look follows the check that found no finite animation in the same task, so nothing can
-      // start between them. The motion log is read only after this, so it holds everything that ran.
-      await expect(page.locator('.toast-region .toast')).toBeVisible();
+      // Settled: the first pack unlocks an achievement, and its toast fades in after the save. Wait until the page
+      // has shown one (its log, not a look at the screen: the toast leaves by its own timer, and the steps above can
+      // take longer than that on a loaded machine), then let what is finite finish, including a fade that only starts
+      // while another ends; then nothing loops or runs on. The last look follows the check that found no finite
+      // animation in the same task, so nothing can start between them. The motion log is read only after this, so it
+      // holds everything that ran.
+      await expect.poll(toastsShown, { message: 'the toasts shown so far' }).not.toEqual([]);
       const left = await page.evaluate(async () => {
         const timing = (a: Animation) => a.effect!.getComputedTiming();
         const finite = () => document.getAnimations().filter((a) => timing(a).iterations !== Infinity && a.playState === 'running');

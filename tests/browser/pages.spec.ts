@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { expectDecoded, expectPackDropped, expectRankingsChecked, fingerFor, monitor, snapshot, untilIdle } from './support';
+import { expectDecoded, expectPackDropped, expectRankingsChecked, fingerFor, monitor, recordShownToasts, snapshot, untilIdle } from './support';
 
 // Cards, Rankings, Profile and Settings are hash-routed pages over the packs screen (#312). Each one
 // is reached by its address, by its tab and by Back, at a phone and a desktop size; packs and shared
@@ -368,6 +368,8 @@ test('Back from a page opened over a pack returns to the pack, and the next Back
 
 test('a page reached from a toast over a pack summary hands focus back to the summary when it closes', async ({ page, baseURL }) => {
   test.setTimeout(60000);
+  // The toast is held by the page from the moment it shows, so a stall while the pack opens can't let it leave on its own timer.
+  await recordShownToasts(page, { hold: true });
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.goto('./');
   await expect(opener(page)).toBeEnabled();

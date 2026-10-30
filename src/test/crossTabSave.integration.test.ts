@@ -6,6 +6,7 @@ import { shelvedPacks } from './pendingShelf';
 import { STORAGE_KEYS } from '../constants/config';
 import { fromHex, publicKeyFromSecret, toHex } from '../engine';
 import { SAVE_STAMP_KEY } from '../game/player';
+import { SETS } from '../content/sets';
 import { getSetCards } from '../data/cards';
 import type { CollectionItem, Stats } from '../types';
 
@@ -69,7 +70,8 @@ async function pressOpen() {
 const expectKeptSealed = () => {
   expect(refusal()?.textContent).toContain('Your save changed in another tab, so this pack stayed sealed.');
   expect(button(refusal()!, 'Reload and try again')).toBeDefined();
-  expect(openButton()?.getAttribute('aria-label')).toBe('Open pack, ' + openButton()!.querySelector('.pack-set-name')!.textContent);
+  // Still the player's selected pack, named for a screen reader by the one open control.
+  expect(openButton()?.getAttribute('aria-label')).toBe(`Open pack, ${SETS.find((s) => s.id === SEED[STORAGE_KEYS.SELECTED_SET])!.name}`);
 };
 
 /** A drag along the tear line from edge to edge, as a finger or mouse cuts the pack open. */

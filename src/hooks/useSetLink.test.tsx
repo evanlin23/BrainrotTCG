@@ -126,11 +126,18 @@ describe('useSetLink with the route', () => {
     useEffect(() => { current = { route, chosen, choose }; }, [route, chosen]);
     return null;
   };
-  // jsdom moves through history a task later.
+  // jsdom moves through history a task later: popstate, then hashchange when the hash differs, back to back.
+  const nextNavigation = () => act(() => new Promise<void>((resolve) => {
+    const done = () => {
+      window.removeEventListener('popstate', done);
+      window.removeEventListener('hashchange', done);
+      resolve();
+    };
+    window.addEventListener('popstate', done);
+    window.addEventListener('hashchange', done);
+  }));
   const settle = async (check: () => boolean) => {
-    for (let i = 0; i < 50 && !check(); i += 1) {
-      await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
-    }
+    if (!check()) await nextNavigation();
     expect(check()).toBe(true);
   };
 
@@ -145,8 +152,7 @@ describe('useSetLink with the route', () => {
     await settle(() => current.route.route === 'cards');
     act(() => current.route.closePage());
     await settle(() => current.route.route === 'open' && location.hash === `#/set/${released.id}`);
-    // Let any hashchange from that step land before looking.
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    // That step's hashchange fired together with the popstate settled on above, and act has flushed it.
     expect(current.chosen).toBe(other.id);
   });
 });

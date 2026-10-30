@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { test, expect, type Page, type Locator, type Request, type TestInfo, type WebSocketRoute } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
@@ -639,6 +639,38 @@ export function untilIdle(page: Page) {
   }));
 }
 
+/**
+ * Call before the page loads. A toast leaves by its own timer (TOAST_MS, GROUPED_TOAST_MS), and a loaded
+ * machine can take longer than that between a step that shows one and the check for it, so a check that
+ * polls for a toast can come too late. This watches from inside the page instead: each new `.toast` element
+ * that was shown (it has a box and its visibility isn't hidden: what toBeVisible asks, so one still fading in
+ * counts) is logged with its kicker, and the returned reader gives that log, oldest first. It counts every
+ * element, so a toast that is held and comes back is a second entry, and so is one with the same text as the last.
+ * Poll the reader for what was shown; no clock, margin or wait is involved.
+ *
+ * With `hold`, each toast is also held from the moment it is shown, as a resting pointer would hold it, until
+ * it is dismissed or replaced, so a test that measures a toast or taps it can't lose it to a stall. Dismiss
+ * each one with its X, a tap or a swipe; none leaves on its own.
+ */
+export async function recordShownToasts(page: Page, { hold = false } = {}) {
+  await page.addInitScript((hold) => {
+    const log: string[] = [];
+    (window as unknown as { __shownToasts: string[] }).__shownToasts = log;
+    const seen = new WeakSet<Element>();
+    new MutationObserver(() => {
+      for (const toast of Array.from(document.querySelectorAll('.toast'))) {
+        if (seen.has(toast)) continue;
+        const box = toast.getBoundingClientRect();
+        if (box.width === 0 || box.height === 0 || getComputedStyle(toast).visibility === 'hidden') continue;
+        seen.add(toast);
+        log.push(toast.querySelector('.toast-kicker')?.textContent ?? '');
+        if (hold) toast.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
+      }
+    }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true });
+  }, hold);
+  return () => page.evaluate(() => (window as unknown as { __shownToasts: string[] }).__shownToasts.slice());
+}
+
 /** Scales the root font like a player's text-size setting, and waits for fonts to settle. */
 export async function scaleText(page: Page, percent: number) {
   await page.addStyleTag({ content: `html { font-size: ${percent}% !important; }` });
@@ -707,6 +739,24 @@ export const holdArt = (page: Page) => routeArt(page, 'hold');
 /** Errors other than the art that was meant to fail. */
 export const unexpectedArtErrors = (errors: string[]) =>
   errors.filter((error) => !namesArt.test(error) && error !== 'Failed to load resource: net::ERR_FAILED');
+
+/**
+ * Presses Space once, as a tap: the key goes down and up in one task of the page, so nothing runs between them.
+ * The app (useKeyboardControls) takes a Space held 400ms for a hold and runs on through the cards, so a single press
+ * that took longer would flip the card and then turn it too. Playwright's press, and key events sent over CDP,
+ * leave that gap to the machine (the up is sent only once the down has been handled), and on a loaded one the two
+ * have reached the page more than 400ms apart. Use it for a press on a card in the reveal; the press that opens
+ * the pack does one thing whenever its key comes up. The key goes to the focused element, as a real one does, but
+ * it is not a trusted event, so it has no default action of its own (the app prevents it anyway).
+ */
+export async function tapSpace(page: Page) {
+  await page.evaluate(() => {
+    const target = document.activeElement ?? document.body;
+    const init = { key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true, cancelable: true, composed: true };
+    target.dispatchEvent(new KeyboardEvent('keydown', init));
+    target.dispatchEvent(new KeyboardEvent('keyup', init));
+  });
+}
 
 /** Waits until the target's box holds still between two reads, 150ms apart (the pack drops in). */
 export async function expectStill(target: Locator, message: string) {
@@ -886,4 +936,14 @@ export async function fingerFor(page: Page, touch: boolean, { settled = false } 
       await send('touchEnd', []);
     },
   };
+}
+
+/**
+ * Marks the newest announcement the build ships (src/content/news.json) as read before the page loads, so a
+ * screen is measured the way a player who has dismissed it sees it: the Card guide row is then free for the
+ * next goal, which gives way to an unread announcement.
+ */
+export async function dismissShippedNews(page: Page) {
+  const [latest] = JSON.parse(readFileSync(new URL('../../src/content/news.json', import.meta.url), 'utf8')) as { id: string }[];
+  await page.addInitScript(([key, id]) => localStorage.setItem(key, id), [STORAGE_KEYS.DISMISSED_NEWS, latest.id] as const);
 }

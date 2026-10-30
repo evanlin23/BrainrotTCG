@@ -67,7 +67,8 @@ src/content/       Set data, art and registry; existing schemas use the existing
   sets/<set>/art/      source art (real images, full cards, or SVG placeholders)
   sets/<set>/cards/    built card images (npm run cards); committed
   sets/<set>/finish-thumbs/  small ready-made metallic finishes for the collection and the other small card views; committed
-  sets/<set>/pack.webp the set's booster pack wrapper, built from its colours and rarest cards
+  sets/<set>/pack.webp the set's booster pack wrapper: one of its own characters (scripts/cards/pack-heroes.json) and its name, in its colours
+  sets/<set>/stickers/ the pack hero's cutout: index.json and one mask (scripts/cards/cut-stickers.py, run by hand); committed, not bundled
   sets/index.ts        the registry: every version of every set (old versions and archived sets stay for old proofs)
   sets.lock.json       hash of each released set@version (npm run check:sets)
 
@@ -95,6 +96,7 @@ src/game/          Browser glue around the engine.
   move.ts            hands a save over from the site's old address, window to window (docs/HOSTING.md)
   saveFile.ts        save export and import: validate, back up, write, roll back on failure
   collectionRecovery.ts  keeps unreadable collection entries and stats aside instead of overwriting them
+                     (and a collection whose negative or fractional counts hydration repaired)
   statsRecovery.ts   rebuilds unreadable stats from what the save still proves, never from zero
   progressWriter.ts  stores committed progress field by field, behind both save guards, and owes
                      packs to the pending shelf until stored (App uses it via hooks/useProgressWriter.ts)
@@ -676,7 +678,11 @@ range and checks the claims. It cannot prove that the range includes all lifetim
 that no other keys were used, or when packs were opened.
 
 `src/game/profileVerification.ts` checks decoding/signature first, then derives highlights before the
-remaining tickets and validates XP/highlights. It imports no player, history, pack store or
+remaining tickets and validates XP/highlights. The shared-profile viewer asks for `highlightsOnly`
+by default: it re-opens only the best packs and pauses, so only those packs are verified; the rest
+are checked only when the viewer taps "Verify all N packs", and the profile counts as verified
+(claims checked) only when every pack is in. Whole-profile aggregates are not claimed from a
+highlights-only run. It imports no player, history, pack store or
 own-profile code (`myTickets.ts`, `packCache.ts`, `reopenJob.ts`, and `profiles.ts`, which
 re-exports it for older imports), so checking someone else's profile never reads or waits on your
 own save; it shares only the engine rules, `reopenCache.ts`,
@@ -932,7 +938,7 @@ or finishes regenerate their thumbnails while unchanged assets are skipped.
      file and leave the old one, and its check, in place.
 
 `npm run check` runs lint, types, all tests, set locks and card assets; `npm run build` packages the
-site and static previews. On every pull request and non-main push, CI runs both, the independent
+site and static previews. On every pull request and manual dispatch, CI runs both, the independent
 verifier (`python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json`), the
 browser smoke and actionlint, and pull requests also run `check:history`; deploys from main rerun
 the verifier, `npm run check` and `check:history`. These checks
@@ -1022,9 +1028,10 @@ No signed name bytes, released proof rules or generator versions change in this 
 ### Scalable-profile decision (#323)
 
 Status: decided. #323 closed on 2026-10-16 with production aggregate formats deferred; the feasibility
-prototype below is tracked in #490, which has no milestone.
+prototype below was tracked in #490, rejected by the owner on 2026-10-29 (see the zero-backend
+decision below).
 
-**Decision: defer production aggregate formats; proceed with one bounded feasibility prototype.**
+**Decision: defer production aggregate formats; the bounded feasibility prototype proposed here is not planned (#490 rejected, see below).**
 A minimal input ledger is interim provenance protection, not the owner's final history-free design.
 Current profile v1 signs assignments for tickets 0..N−1 as runs, XP and up to five best-pack claims
 (min(5, N)). The bounds below (N ≤ 100,000, at most 64 set entries) come from
@@ -1036,7 +1043,7 @@ unrecorded assignment stays unknown and blocks the profile link (see Profiles an
 | --- | --- | --- |
 | Minimal original-assignment ledger | O(N) worst-case assignments and cold regeneration; cards/images are caches | Near-term storage mitigation (a compact form of today's history), not scalable aggregate verification |
 | Recursive aggregate proof / IVC | Updatable proof/prover state plus current aggregates; succinct verification can avoid historical replay | Candidate long-term route; Argon2id proving/browser feasibility unmeasured |
-| Trusted verified checkpoint | Bounded job replays a range and signs aggregate state | Optional trusted service (#243), even if built on Actions/Workers |
+| Trusted verified checkpoint | Bounded job replays a range and signs aggregate state | Would need a project-run service, which #243 rejected |
 
 Six bits per assignment at 64 set entries gives 75,000 raw bytes for 100,000 tickets, excluding
 identity/table/encoding/database overhead; runs compress long sessions. This arithmetic bound is
@@ -1054,10 +1061,25 @@ establishes IVC/compression primitives, not practical browser proving for 32MiB/
 parameter/setup trust needs separate review. Checkpoints instead require named verifier key/rules,
 range commitment, budgets, availability, rollback/key-rotation and owner acceptance of service trust.
 
-Next prototype stays outside production builds/formats: one exact released derivation/aggregate
+A prototype, if the owner ever reopens it, would stay outside production builds/formats: one exact released derivation/aggregate
 step in one selected circuit/zkVM, engine fixture equality and altered-input rejection. Measure
 prover time/peak memory, parameters/download bytes, proof versus resumable-state bytes, verification,
 browser/WASM feasibility and export/restore/continue; all benchmarks are **unrun**. Compare bounded
-checkpoint replay budgets without deployment, then choose proceed/defer. The prototype's acceptance
-is tracked in #490. Neither route witnesses human play, animation completion, wall-clock time or
+checkpoint replay budgets without deployment, then choose proceed/defer. The prototype's tracking
+issue, #490, was rejected by the owner. Neither route witnesses human play, animation completion, wall-clock time or
 undeclared lifetime mining; self-signed totals/Merkle roots alone do not prove aggregate correctness.
+
+### Serverless and Zero-Backend Architecture Decision (#243, #85, #490)
+
+Status: decided. Owner decision, 2026-10-29: #243, #85 and #490 stay closed as rejected.
+
+1. **#243 (optional backend/accounts RFC)**: rejected. The project runs no server, database or
+   account service.
+2. **#85 (global profile leaderboard)** and **#490 (aggregate profile verification)**: rejected.
+3. **Proofs** stay re-derivable by anyone from the signed bytes.
+4. **Hosting and rankings**: GitHub Pages hosts the site (Cloudflare Pages when configured, see
+   Hosting). GitHub Issues and Actions build the Hall of Fame list and the Rankings files from
+   verified issues, not from Nostr relay feeds alone (see the Hall of Fame section above).
+
+Client-side profile verification (Profiles and levels) is a separate feature and is not part of this
+decision. The decision says nothing about Nostr submission or relay writes.

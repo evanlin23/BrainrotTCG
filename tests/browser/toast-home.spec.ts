@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectSummaryTakesClicks, monitor } from './support';
+import { dismissShippedNews, expectSummaryTakesClicks, monitor, recordShownToasts } from './support';
 
 /**
  * The achievement toast on the home screen (#803). The first visit back after a pack's summary still has
@@ -7,8 +7,9 @@ import { expectSummaryTakesClicks, monitor } from './support';
  * instead. It takes no room: on a phone it lies over the header (clear of the Settings button), on a wide
  * screen it sits in the free band at the right, so with it up nothing the player can press is under it,
  * the centre of each control still reaches that control, and the page is laid out the same with a toast,
- * after one and with none. A card close-up (any sheet) holds it. Held by focus (a focused toast never
- * expires), and sent away with its X rather than waited out (the timing is the unit tests' job: a jump
+ * after one and with none. A card close-up (any sheet) holds it. Each toast is held from the moment it
+ * shows (from inside the page, as a resting pointer would: a stall of any length between two steps can't
+ * let it go) and sent away with its X rather than waited out (the timing is the unit tests' job: a jump
  * of Playwright's clock leaves the exit animation behind the next toast's timer), so no step races a
  * timer and none waits 5 or 6 seconds.
  */
@@ -26,7 +27,7 @@ const VIEWPORTS = [
 ];
 
 /** Every control on the home screen, as the page lays it out. */
-const CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.app-utilities button', '.app-nav-item'];
+const CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.pack-milestone', '.app-utilities button', '.app-nav-item'];
 /** The touch targets the toast must never squeeze below 44 CSS px (the pack to open and the set steps). */
 const TARGETS = ['.set-step', '[data-pack-open]'];
 const TARGET = 44;
@@ -71,7 +72,10 @@ const placed = (page: Page) => page.evaluate((selectors) => selectors.flatMap((s
 
 /** A fresh player's first pack, opened and skipped to its summary; the toast for it is up. */
 async function toSummary(page: Page, baseURL: string) {
+  await recordShownToasts(page, { hold: true });
   const errors = await monitor(page, baseURL);
+  // The next goal gives way to an unread announcement: with it read, the goal is on screen wherever the row has room.
+  await dismissShippedNews(page);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   await page.getByRole('button', { name: /^Open pack/ }).focus();
@@ -81,15 +85,6 @@ async function toSummary(page: Page, baseURL: string) {
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
   return errors;
 }
-
-/**
- * Holds the toast with focus: a keystroke first, so the focus counts as the keyboard's (a pointer's does
- * not hold it, and a toast on its own timer would expire between steps).
- */
-const hold = async (page: Page) => {
-  await page.keyboard.press('Shift');
-  await page.locator('.toast-open').focus();
-};
 
 /** The toasts a fresh player's first pack makes, in order, and what each one's button is named. */
 const TOASTS = [
@@ -109,7 +104,6 @@ async function toHome(page: Page) {
   const toast = page.locator('.toast-open');
   await expect(toast).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.set-current')).toBeVisible();
-  await hold(page);
   return toast;
 }
 
@@ -123,11 +117,13 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
     const errors = await toSummary(page, baseURL!);
     const toast = await toHome(page);
+    // The goal is one of the controls checked below wherever the row shows it (not below 360px of row, nor on a short landscape phone).
+    const goal = page.locator('.card-guide-entry .pack-milestone');
+    if (viewport.width < 900 && viewport.height <= 520) await expect(goal).toBeHidden();
+    else await expect(goal, 'the goal is on screen, so the checks below cover it').toBeVisible();
 
     for (const { kicker, name } of TOASTS) {
       await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
-      // Held at once, so this toast's own timer can't expire while the checks run.
-      await hold(page);
       await expect.poll(() => blocked(page), { message: `no control is under the ${kicker} toast` }).toEqual([]);
       expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
       expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
@@ -150,7 +146,6 @@ test('at 200% text on a 360px phone both toasts leave every control uncovered an
 
   for (const { kicker, name } of TOASTS) {
     await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
-    await hold(page);
     await expect.poll(() => blocked(page), { message: `no control is under the ${kicker} toast` }).toEqual([]);
     expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
     await expect(toast).toHaveAccessibleName(name);
@@ -171,7 +166,6 @@ for (const viewport of VIEWPORTS) {
     // The taller level-up toast comes second; measure with it up.
     await dismiss(page);
     await expect(page.locator('.toast-kicker').filter({ hasText: /^Level up$/ })).toBeVisible({ timeout: 15000 });
-    await hold(page);
     const during = await placed(page);
 
     await dismiss(page);

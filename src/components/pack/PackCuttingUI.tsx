@@ -156,15 +156,8 @@ const PackCuttingUI = ({
             <img src={packDesign} alt="" draggable="false" />
             <span className="pack-foil" aria-hidden="true" />
           </div>
-          {/* The set tag is stuck on the top strip, so it tears away with it. */}
-          <div className="pack-top-piece">
-            <div
-              className="pack-set-ribbon"
-              style={{ '--set-a': set.palette?.[0] ?? '#ff3df2', '--set-b': set.palette?.[1] ?? '#29f0ff' } as React.CSSProperties}
-            >
-              <span className="pack-set-name">{set.name}</span>
-            </div>
-          </div>
+          {/* The top strip's loose piece: the pack art carries the set's name and its hero, and the open button's name says it again to a screen reader. */}
+          <div className="pack-top-piece" />
           <div className="tear-guide" />
           {/* The cue (DESIGN.md Flow 2): a finger drags a partial tear along the seam, at most twice, and stops at the first touch. Under reduced motion it is the same mark, still. */}
           {cue && !isPackCut && (

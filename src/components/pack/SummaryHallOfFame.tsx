@@ -3,7 +3,7 @@ import { allTimeRank, dailyRank, decodeProof, pullId, qualifiesForHallOfFame, ut
 import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { canShare, proofFor, type PullRef } from '../../game/pulls';
 import { useHallOfFameSubmit } from '../share/useHallOfFameSubmit';
-import { NOT_QUALIFYING } from '../ui/rankingsRule';
+import NotQualifyingNote from '../ui/NotQualifyingNote';
 
 /**
  * The results screen's Hall of Fame line: one tap sends a pull that would make the list, the same
@@ -15,7 +15,7 @@ import { NOT_QUALIFYING } from '../ui/rankingsRule';
  * the share sheet). A pull that qualifies keeps the line's height from the first paint, whatever it
  * ends up saying, so the cards below never move.
  */
-const SummaryHallOfFame = ({ pack, score }: { pack: PullRef; score: PackScore }) => {
+const SummaryHallOfFame = ({ pack, score, onOpenRankingsHelp }: { pack: PullRef; score: PackScore; onOpenRankingsHelp?: () => void }) => {
   const qualifies = qualifiesForHallOfFame(score);
   const proof = useMemo(() => (qualifies && canShare(pack) ? proofFor(pack) : ''), [qualifies, pack]);
   const id = useMemo(() => (proof ? pullId(decodeProof(proof)) : ''), [proof]);
@@ -51,7 +51,16 @@ const SummaryHallOfFame = ({ pack, score }: { pack: PullRef; score: PackScore })
   }
   const lineRef = useRef<HTMLParagraphElement>(null);
 
-  if (!qualifies) return <p className="summary-hof summary-hof--why">{NOT_QUALIFYING}</p>;
+  if (!qualifies) {
+    return (
+      <p className="summary-hof summary-hof--why">
+        {/* One flex item, so the sentence stays whole around its link. */}
+        <span>
+          <NotQualifyingNote onOpenHelp={onOpenRankingsHelp} />
+        </span>
+      </p>
+    );
+  }
   if (!proof) return null;
   const now = new Date().toISOString();
   const listed = !!list?.some((e) => e.id === id);

@@ -1,0 +1,24 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "strawberry-elephant": {
+      "art": "art/strawberry-elephant.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.398,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.675
+      },
+      "crop": [
+        41,
+        54,
+        626,
+        638
+      ],
+      "mask": "strawberry-elephant.png",
+      "source": "edf8b80e0e8f6961"
+    }
+  }
+}

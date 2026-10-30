@@ -178,6 +178,100 @@ describe('ProfileViewerPage', () => {
     expect(retry()).toBeUndefined();
   });
 
+  it('supports two-stage verification: marks highlights verified fast, offers full verification on demand', () => {
+    const cardPack = { ...pack(0), cards: toPulled([{ id: SETS[0].cards[0].id, holo: false }], SETS[0])! };
+    act(() => root.render(<ProfileViewerPage proof="proof" onClose={() => {}} />));
+    // Called initially with highlightsOnly: true
+    expect(verifyProfileLive).toHaveBeenCalledTimes(1);
+    expect(verifyProfileLive.mock.calls[0][3]).toEqual({ highlightsOnly: true });
+
+    // Stage 1 completes: highlights are in
+    act(() => reports[0]({ checked, packs: [cardPack], highlights: [cardPack], highlightsDone: true, done: false }));
+    expect(status().textContent).toContain('Best pulls re-opened in your browser');
+    expect(status().textContent).not.toContain('Checking: packs re-opened');
+    // Best pull row has Verified badge
+    const bestPullBadge = document.querySelector('.pulls-list .profile-verified');
+    expect(bestPullBadge).not.toBeNull();
+    expect(bestPullBadge?.textContent).toContain('Verified');
+
+    // Prompt/button to verify full profile is shown
+    const fullBtn = document.querySelector<HTMLButtonElement>('.profile-verify-full')!;
+    expect(fullBtn).not.toBeNull();
+    expect(fullBtn.textContent).toBe('Verify all 2 packs');
+
+    // Click to start Stage 2: focus lands on the status line, not on the page behind the dialog
+    act(() => fullBtn.click());
+    expect(document.activeElement).toBe(status());
+    expect(verifyProfileLive).toHaveBeenCalledTimes(2);
+    expect(verifyProfileLive.mock.calls[1][3]).toEqual({ highlightsOnly: false });
+
+    // Stage 2 completes: all packs verified
+    act(() => reports[1]({ checked, packs: [cardPack, pack(1)], highlights: [cardPack], highlightsDone: true, done: true }));
+    expect(status().textContent).toContain('This profile checks out: every pack re-opened in your browser');
+    expect(document.querySelector('.profile-verify-full')).toBeNull();
+  });
+
+  describe('once the best packs are re-opened and the check has paused', () => {
+    const best = () => ({ ...pack(0), cards: toPulled([{ id: SETS[0].cards[0].id, holo: false }], SETS[0])! });
+    const pause = () => {
+      const cardPack = best();
+      act(() => root.render(<ProfileViewerPage proof="proof" onClose={() => {}} />));
+      act(() => reports[0]({ checked, packs: [cardPack], highlights: [cardPack], highlightsDone: true, done: false }));
+      return cardPack;
+    };
+    const how = () => [...document.querySelectorAll<HTMLElement>('.profile-how')].find((d) => d.querySelector('summary')?.textContent === 'How do we know?')!.textContent ?? '';
+    const footnote = () => document.querySelector('.profile-footnote')?.textContent ?? '';
+
+    it('does not say work is running: no progress bar, no "so far", no "re-opening now"', () => {
+      pause();
+      expect(document.querySelector('.profile-verify .progress')).toBeNull();
+      expect(document.querySelector('.profile-verify .spin')).toBeNull();
+      expect(status().textContent).toContain('Only the best packs are re-opened. The rest are not checked');
+      expect(footnote()).toBe("* the pack count is the link's own; cards, holo and best score are from the 1 best pack only, and the rest of the packs are not checked");
+      expect(footnote()).not.toContain('so far');
+      expect(how()).toContain('re-opened the 1 best pack itself');
+      // The packs stat is the link's ticket count (2), not the one best pack re-opened.
+      expect(document.querySelector('.profile-stats dd')?.textContent).toBe('2');
+      expect(document.querySelector('.profile-stats dt')?.textContent).toBe('packs*');
+      expect(how()).toContain('they come out in the order the link lists');
+      expect(how()).not.toContain('match the link');
+      expect(how()).toContain('The rest of the packs are not checked until you ask');
+      expect(how()).not.toContain('re-opening those packs now');
+      expect(how()).not.toContain('so far');
+      // The check itself is not claimed: the badge is per pack, the profile is not verified.
+      expect(status().textContent).not.toContain('checks out');
+      expect(how()).toContain('the profile as a whole is not verified');
+    });
+
+    it('keeps the best packs\' Verified badge while the full check runs, with a progress bar again', () => {
+      const cardPack = pause();
+      act(() => document.querySelector<HTMLButtonElement>('.profile-verify-full')!.click());
+      // A fresh run has nothing yet, then the best packs come back from the cache.
+      expect(document.querySelector('.pulls-list .profile-verified')).toBeNull();
+      act(() => reports[1]({ checked, packs: [cardPack], highlights: [cardPack], done: false }));
+      expect(document.querySelector('.pulls-list .profile-verified')).not.toBeNull();
+      expect(document.querySelector('.profile-verify .progress')).not.toBeNull();
+      expect(footnote()).toBe('* so far, while the rest of the packs are re-opened');
+      expect(status().textContent).not.toContain('checks out');
+    });
+
+    it('keeps the mode on Try again: a highlights-only error retries highlights only, a full one retries the full check', () => {
+      act(() => root.render(<ProfileViewerPage proof="proof" onClose={() => {}} />));
+      act(() => reports[0]({ checked, packs: [], highlights: null, done: false, error: { message: OUT_OF_MEMORY } }));
+      act(() => retry()!.click());
+      expect(verifyProfileLive.mock.calls[1][3]).toEqual({ highlightsOnly: true });
+
+      const cardPack = best();
+      act(() => reports[1]({ checked, packs: [cardPack], highlights: [cardPack], highlightsDone: true, done: false }));
+      act(() => document.querySelector<HTMLButtonElement>('.profile-verify-full')!.click());
+      expect(verifyProfileLive.mock.calls[2][3]).toEqual({ highlightsOnly: false });
+      act(() => reports[2]({ checked, packs: [cardPack], highlights: [cardPack], done: false, error: { message: OUT_OF_MEMORY } }));
+      act(() => retry()!.click());
+      expect(verifyProfileLive).toHaveBeenCalledTimes(4);
+      expect(verifyProfileLive.mock.calls[3][3]).toEqual({ highlightsOnly: false });
+    });
+  });
+
   describe('moving from one shared profile to another', () => {
     // Two profiles whose best pulls come from different sets, so a leftover pack can't pass for the new one.
     const setA = getSet('right-now', 1)!;

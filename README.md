@@ -75,6 +75,16 @@ python3 spec/verify_pull.py 'https://brainrottcg.pages.dev/#/pull/...'
 
 CI runs both verifiers against the same test vectors, including forged and malformed proofs.
 
+## Open card database & fan-tool API
+
+Brainrot TCG publishes static canonical JSON endpoints so bots, community wikis, Discord bots, and pack simulators can build against official data without scraping HTML or bundling engine dependencies:
+
+- **`/api/sets.json`**: Sets catalog, pack sizes, exact odds, and deterministic card lists (including historical versions for verifiers).
+- **`/api/cards.json`**: Complete card catalog with card keys, names, rarities, base points, captions and flavor text (no image addresses).
+- **`/api/hall-of-fame.json`**: Top verified community pull records.
+
+Details, schemas and verification invariants: [docs/API.md](docs/API.md).
+
 ## Setup
 
 ```bash

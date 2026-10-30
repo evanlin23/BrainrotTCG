@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
@@ -30,17 +31,31 @@ describe('Claude reviewer arguments', () => {
 // A stand-in CLI: no provider, no credentials, just the stream-json shapes the runner reads.
 const fakeCli = String.raw`
 const { spawn } = require('node:child_process');
-const { writeFileSync } = require('node:fs');
-const [mode, pidFile] = process.argv.slice(1);
+const { connect } = require('node:net');
+const [mode, port] = process.argv.slice(1);
 const out = (message) => process.stdout.write(JSON.stringify(message) + '\n');
+// A descendant of the CLI. With a port, it holds a connection to the test open until it dies.
+const startAdapter = async (stdout) => {
+  const stdio = ['ignore', stdout, 'ignore'];
+  let link;
+  if (port) {
+    link = connect(Number(port), '127.0.0.1');
+    await new Promise((resolve, reject) => link.once('connect', resolve).once('error', reject));
+    stdio.push(link);
+  }
+  const adapter = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio });
+  // The adapter keeps its own copy of the connection; the CLI lets go of its copy.
+  link?.destroy();
+  return adapter;
+};
 const browser = ['mcp__audit__click', 'mcp__audit__press', 'mcp__audit__snapshot', 'mcp__audit__wait'];
 const tools = mode === 'extra' ? ['Bash', 'StructuredOutput', ...browser] : mode === 'nobrowser' ? ['StructuredOutput'] : ['StructuredOutput', ...browser];
+(async () => {
 if (mode !== 'noinit') out({ type: 'system', subtype: 'init', model: 'claude-test', tools });
 const report = { outcome: 'blocked', observations: 'Saw the heading' };
 if (mode === 'orphan') {
   // An adapter that outlives the CLI and keeps the CLI's output open.
-  const adapter = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'ignore'] });
-  writeFileSync(pidFile, String(adapter.pid));
+  const adapter = await startAdapter('inherit');
   adapter.unref();
 }
 if (['success', 'noreport', 'noinit', 'orphan'].includes(mode)) {
@@ -51,24 +66,33 @@ if (['success', 'noreport', 'noinit', 'orphan'].includes(mode)) {
 } else if (mode === 'error') out({ type: 'result', subtype: 'error_during_execution', is_error: true });
 else if (mode === 'exit') process.exit(3);
 else {
-  const adapter = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-  if (pidFile) writeFileSync(pidFile, String(adapter.pid));
-  let turn = 0;
-  if (mode === 'loop') setInterval(() => out({ type: 'assistant', message: { id: 'turn' + turn++, content: [] } }), 20);
-  else setInterval(() => {}, 1000);
+  await startAdapter('ignore');
+  // 'loop' goes one turn past the cap (3) and then carries on without ending, until the runner stops it.
+  // The turns are written at once, not on a timer: a runner starved by a loaded machine would otherwise read
+  // an unknown number of them before it stopped the group.
+  if (mode === 'loop') for (let turn = 0; turn < 4; turn++) out({ type: 'assistant', message: { id: 'turn' + turn, content: [] } });
+  setInterval(() => {}, 1000);
 }
+})();
 `;
 const scratch = mkdtempSync(join(tmpdir(), 'brainrot-claude-test-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
-const fake = (mode: string, options: { seconds?: number; maxTurns?: number; signal?: AbortSignal; pidFile?: string } = {}) =>
-  runClaude(process.execPath, ['-e', fakeCli, mode, options.pidFile ?? ''], { cwd: scratch, env: { PATH: process.env.PATH }, seconds: options.seconds ?? 10, maxTurns: options.maxTurns ?? 5, signal: options.signal ?? new AbortController().signal });
-async function gone(pid: number) {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try { process.kill(pid, 0); } catch { return true; }
-    try { if (readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.startsWith('Z')) return true; } catch { /* Not Linux. */ }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  return false;
+const fake = (mode: string, options: { seconds?: number; maxTurns?: number; signal?: AbortSignal; descendant?: Descendant } = {}) =>
+  runClaude(process.execPath, ['-e', fakeCli, mode, options.descendant?.port ?? ''], { cwd: scratch, env: { PATH: process.env.PATH }, seconds: options.seconds ?? 10, maxTurns: options.maxTurns ?? 5, signal: options.signal ?? new AbortController().signal });
+
+// What a fake CLI's descendant reports to: it holds a connection to this server open until it dies (the CLI
+// lets go of its own copy once the descendant has one), so that connection closing is the kernel saying the
+// whole group is gone. Waiting on it ends only when the group is cleared.
+type Descendant = { port: string; gone: () => Promise<void> };
+async function watchDescendant(): Promise<Descendant> {
+  const server = createServer();
+  const closed = new Promise<void>((resolve) => server.once('connection', (socket) => {
+    socket.on('error', () => {});
+    socket.once('close', () => resolve());
+    socket.resume();
+  }));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { port: String((server.address() as AddressInfo).port), gone: async () => { await closed; server.close(); } };
 }
 
 // Records every group kill (a negative pid) while still delivering it, so the real descendants die.
@@ -100,16 +124,16 @@ describe('Claude reviewer runs (mocked CLI)', () => {
   });
 
   it('stops the whole process group at the turn cap and keeps no report', async () => {
-    const pidFile = join(scratch, 'turns.pid');
-    const run = await fake('loop', { maxTurns: 3, pidFile });
+    const descendant = await watchDescendant();
+    const run = await fake('loop', { maxTurns: 3, descendant });
     expect(run).toEqual({ turns: 4, model: 'claude-test', reason: 'turn budget exhausted' });
-    expect(await gone(Number(readFileSync(pidFile, 'utf8')))).toBe(true);
+    await descendant.gone();
   });
 
   it('times out and cancels visibly, clearing the group', async () => {
-    const pidFile = join(scratch, 'time.pid');
-    expect((await fake('hang', { seconds: 0.5, pidFile })).reason).toBe('time budget exhausted');
-    expect(await gone(Number(readFileSync(pidFile, 'utf8')))).toBe(true);
+    const descendant = await watchDescendant();
+    expect((await fake('hang', { seconds: 0.5, descendant })).reason).toBe('time budget exhausted');
+    await descendant.gone();
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 300);
     expect((await fake('hang', { signal: controller.signal })).reason).toBe('cancelled');
@@ -119,9 +143,9 @@ describe('Claude reviewer runs (mocked CLI)', () => {
   });
 
   it('clears a descendant that outlives the CLI and holds its output open', async () => {
-    const pidFile = join(scratch, 'orphan.pid');
-    expect((await fake('orphan', { seconds: 3, pidFile })).report).toBe(JSON.stringify({ outcome: 'blocked', observations: 'Saw the heading' }));
-    expect(await gone(Number(readFileSync(pidFile, 'utf8')))).toBe(true);
+    const descendant = await watchDescendant();
+    expect((await fake('orphan', { seconds: 3, descendant })).report).toBe(JSON.stringify({ outcome: 'blocked', observations: 'Saw the heading' }));
+    await descendant.gone();
   });
 
   it('leaves unavailable tools and unfinished runs without a report', async () => {
@@ -137,17 +161,17 @@ describe('Claude reviewer runs (mocked CLI)', () => {
   });
 
   it('kills the group once across exit, stop and close, and still reaches a descendant that outlives the CLI', async () => {
-    const orphanPid = join(scratch, 'once-orphan.pid');
+    const orphan = await watchDescendant();
     let run: Awaited<ReturnType<typeof fake>> | undefined;
-    const exited = await groupKills(async () => { run = await fake('orphan', { seconds: 3, pidFile: orphanPid }); });
+    const exited = await groupKills(async () => { run = await fake('orphan', { seconds: 3, descendant: orphan }); });
     expect(run?.report).toBe(JSON.stringify({ outcome: 'blocked', observations: 'Saw the heading' }));
     expect(exited).toHaveLength(1);
-    expect(await gone(Number(readFileSync(orphanPid, 'utf8')))).toBe(true);
+    await orphan.gone();
 
-    const loopPid = join(scratch, 'once-loop.pid');
-    const stopped = await groupKills(async () => { run = await fake('loop', { maxTurns: 3, pidFile: loopPid }); });
+    const looping = await watchDescendant();
+    const stopped = await groupKills(async () => { run = await fake('loop', { maxTurns: 3, descendant: looping }); });
     expect(run?.reason).toBe('turn budget exhausted');
     expect(stopped).toHaveLength(1);
-    expect(await gone(Number(readFileSync(loopPid, 'utf8')))).toBe(true);
+    await looping.gone();
   });
 });

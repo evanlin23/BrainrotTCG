@@ -135,9 +135,11 @@ describe('the controls under the pack (#312)', () => {
     expect(shell).toContain(`aria-label="Open pack, ${SETS[0].name}"`);
     expect(shell).toContain('data-pack-open');
     expect(shell).not.toMatch(/aria-busy|aria-disabled/);
-    // No second Open pack button, no era label on the wrapper, and one image that carries no name of its own.
+    // No second Open pack button, no set name or era text drawn over the art (the art carries them, the label says them), and one image that carries no name of its own.
     expect(html).not.toContain('<button');
-    expect(html).not.toContain('pack-set-era');
+    expect(html).not.toContain('pack-set-');
+    expect(html).toContain('<div class="pack-top-piece"></div>');
+    expect(html.replace(/<[^>]*>/g, '')).not.toContain(SETS[0].name);
     expect(html).not.toContain('Brainrot TCG booster pack wrapper');
     expect(tags(html).filter((tag) => /role="button"|tabindex=/i.test(tag))).toHaveLength(1);
   });

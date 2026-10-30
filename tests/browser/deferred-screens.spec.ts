@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { expectPackDropped, expectRankingsChecked, monitor } from './support';
+import { expectPackDropped, expectRankingsChecked, monitor, sameStorage, storageOf } from './support';
 
 // Every screen loaded on demand, not just the shared pull (deferred-chunk.spec.ts), survives a slow or
 // failed chunk (#340): the four pages hold a skeleton, then offer Reload and Retry; the share sheets and
@@ -33,7 +33,10 @@ const PAGES = [
  * link and the import). Pointing at a tab prefetches its chunk too, so repeats are expected.
  */
 async function failChunk(page: Page, name: string) {
-  const chunk = { failing: true, failed: 0, served: 0, url: '' };
+  const chunk = { failing: true, failed: 0, served: 0, succeeded: 0, url: '' };
+  page.on('response', (response) => {
+    if (chunkOf(name).test(response.url()) && response.ok()) chunk.succeeded++;
+  });
   await page.route(chunkOf(name), (route) => {
     chunk.url = route.request().url();
     if (chunk.failing) {
@@ -75,8 +78,21 @@ async function expectFocusTrapped(page: Page, dialog: Locator) {
   }
 }
 
-const profilePage = async (page: Page) => {
-  await page.goto('./#/profile');
+/** A cached failed module graph can require Reload after one online Retry (#664). */
+async function retryOrReload(page: Page, sheet: Locator, loaded: Locator) {
+  await sheet.getByRole('button', { name: 'Retry', exact: true }).click();
+  const reloadOnly = sheet.getByRole('alert').filter({ hasText: "Retrying didn't fix it" });
+  await expect(loaded.or(reloadOnly)).toBeVisible({ timeout: 15000 });
+  if (await loaded.isVisible()) return false;
+  await expect(sheet.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+  await expect(sheet.getByRole('button', { name: 'Reload', exact: true })).toBeVisible();
+  await expectFocusTrapped(page, sheet);
+  await sheet.getByRole('button', { name: 'Reload', exact: true }).click();
+  return true;
+}
+
+const profilePage = async (page: Page, navigate = true) => {
+  if (navigate) await page.goto('./#/profile');
   const main = page.getByRole('main', { name: 'Profile', exact: true });
   await expect(main.getByText(/^Player ID #/)).toBeVisible();
   return main;
@@ -148,14 +164,14 @@ test.describe('pages', () => {
 const SHEETS: {
   title: string;
   chunk: string;
-  open: (page: Page) => Promise<Locator | null>;
+  open: (page: Page, navigate?: boolean) => Promise<Locator | null>;
   loaded: (page: Page) => Locator;
 }[] = [
   {
     title: 'Share your pull',
     chunk: 'ShareSheet',
-    open: async (page) => {
-      const main = await profilePage(page);
+    open: async (page, navigate) => {
+      const main = await profilePage(page, navigate);
       const row = main.locator('.pulls-history .pull-row').first();
       await row.click();
       return row;
@@ -165,9 +181,9 @@ const SHEETS: {
   {
     title: 'Share Bukangi',
     chunk: 'CardShareSheet',
-    open: async (page) => {
+    open: async (page, navigate) => {
       // A card of the player's own pack, from My pulls: its share sheet loads on demand.
-      const main = await profilePage(page);
+      const main = await profilePage(page, navigate);
       await main.locator('.pulls-history .pull-row').first().click();
       const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
       await pull.getByText('Share an individual card', { exact: true }).click();
@@ -187,29 +203,45 @@ const SHEETS: {
     },
     // The viewer then verifies the profile's tickets, which is slow on a cold mobile run: its own sheet
     // replacing the placeholder is the chunk's part.
-    loaded: (page) => page.getByRole('dialog').filter({ hasNot: page.locator('.sheet--deferred') }),
+    loaded: (page) => page.getByRole('dialog').and(page.locator('.profile-viewer')),
   },
 ];
 
 test.describe('sheets', () => {
   for (const { title, chunk: chunkName, open, loaded } of SHEETS) {
-    test(`${title}: a failed chunk keeps focus in its sheet, Retry loads it, Escape closes it`, async ({ page, baseURL }) => {
+    test(`${title}: a failed chunk keeps focus in its sheet, recovers, Escape closes it`, async ({ page, baseURL }) => {
       test.setTimeout(60000);
       const errors = await monitor(page, baseURL!, 1, { returning: true });
       const chunk = await failChunk(page, chunkName);
-      const opener = await open(page);
+      let opener = await open(page);
       const sheet = page.getByRole('dialog', { name: title, exact: true });
       await expect(sheet.getByRole('alert')).toContainText(`Couldn't load ${title}.`);
       await expect(sheet.getByRole('button', { name: 'Reload', exact: true })).toBeVisible();
       await expectFocusTrapped(page, sheet);
+      const url = page.url();
+      // Distinguish the saved identity from monitor's initial seed, so reseeding after data loss fails.
+      await page.evaluate(() => {
+        const player = JSON.parse(localStorage.getItem('brainrot-player-v1')!);
+        localStorage.setItem('brainrot-player-v1', JSON.stringify({ ...player, name: 'Recovery fixture' }));
+      });
+      const saved = await storageOf(page);
+      const dialogsBefore = await page.getByRole('dialog').count();
       chunk.failing = false;
-      await sheet.getByRole('button', { name: 'Retry', exact: true }).click();
+      const reloaded = await retryOrReload(page, sheet, loaded(page));
+      await expect(page).toHaveURL(url);
+      // A shared-profile route reopens itself. Other shares are transient overlays: after Reload,
+      // reopen through the Profile UI, rebuilding the stack and using the new opener for Escape.
+      if (reloaded && opener) opener = await open(page, false);
       await expect(page.locator('.sheet--deferred')).toHaveCount(0);
       await expect(loaded(page)).toBeVisible({ timeout: 15000 });
+      await expect(page).toHaveURL(url);
+      expect(sameStorage(saved, await storageOf(page)), 'recovery preserves saved data').toBe(true);
       expect(chunk.served).toBeGreaterThan(0);
+      expect(chunk.succeeded).toBeGreaterThan(0);
       // The loaded screen keeps the same trap, and Escape closes it back to its opener. A card's share sheet
       // sits over the card viewer and the pull, so count dialogs: `.last()` would re-resolve to the viewer.
       const dialogs = page.getByRole('dialog');
+      await expect(dialogs).toHaveCount(dialogsBefore);
       const shown = await dialogs.count();
       await expectFocusTrapped(page, dialogs.last());
       await page.keyboard.press('Escape');

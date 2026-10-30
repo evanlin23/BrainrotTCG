@@ -1,0 +1,24 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "skeleton-banging-shield": {
+      "art": "art/skeleton-banging-shield.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.407,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.544
+      },
+      "crop": [
+        70,
+        59,
+        540,
+        661
+      ],
+      "mask": "skeleton-banging-shield.png",
+      "source": "b0b8eb7f6fa1d5bf"
+    }
+  }
+}

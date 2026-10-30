@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Lock } from 'lucide-react';
-import cardBackImage from '../../assets/images/card_back.webp';
+import CardBackSwatch from '../ui/CardBackSwatch';
 import { CARD_BACKS, PACK_FOILS, nextReward, usable, type Reward } from '../../game/progression';
 import type { Settings } from '../../types';
 import '../../styles/Profile.css';
@@ -33,11 +33,7 @@ const RewardsPanel = ({ level, settings, onSettingsChange, packImage }: RewardsP
         chosen={usable(CARD_BACKS, settings.cardBack, level)}
         level={level}
         onChoose={(cardBack) => onSettingsChange({ ...settings, cardBack })}
-        preview={(r) => (
-          <span className={`back-swatch back-${r.id}`}>
-            <img src={cardBackImage} alt="" className="card-back-image" draggable="false" />
-          </span>
-        )}
+        preview={(r) => <CardBackSwatch id={r.id} />}
       />
       <RewardPicker
         label="Pack foil"

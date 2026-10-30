@@ -156,7 +156,9 @@ const openShows = () => expect(document.querySelector<HTMLElement>('main.app-mai
 it('keeps actual App pages working without changing the selected pack', async () => {
   app = await mountedApp({ ...PLAYER('Pages fixture'), ...RETURNING });
   await app.mount();
-  const pack = document.querySelector('.pack-set-name')?.textContent;
+  const packName = () => document.querySelector('[data-pack-open]')?.getAttribute('aria-label');
+  const pack = packName();
+  expect(pack).toMatch(/^Open pack, .+/);
   for (const [target, content] of [['Cards', '.collection'], ['Profile', '#player'], ['Settings', '.settings-group']]) {
     await app.interact(() => { button(target).focus(); button(target).click(); });
     await app.until(`${target} loads its production controls`, () => {
@@ -167,7 +169,7 @@ it('keeps actual App pages working without changing the selected pack', async ()
     await app.interact(() => button(`Close ${target}`).click());
     await app.until(`${target} closes to Open`, openShows);
     expect(document.activeElement).toBe(document.querySelector('.app-logo'));
-    expect(document.querySelector('.pack-set-name')?.textContent).toBe(pack);
+    expect(packName()).toBe(pack);
   }
 });
 
