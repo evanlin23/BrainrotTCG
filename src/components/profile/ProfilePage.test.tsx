@@ -619,6 +619,20 @@ describe('Best pack highlight', () => {
     expect(text).toContain(`Level 4 needs ${xpForLevel(4).toLocaleString()} XP.`);
     for (const word of ['packs', 'cards', 'holo', 'best score', 'Collection score']) expect(text).toContain(word);
   });
+
+  it('places <dt> before <dd> in every .profile-stats pair so screen readers announce label before count (#1275)', () => {
+    act(() => root.render(<ProfileSummary stats={statsWith([five])} />));
+    const pairs = container.querySelectorAll('.profile-stats > div');
+    expect(pairs.length).toBe(4);
+    pairs.forEach((pair) => {
+      const dt = pair.querySelector('dt');
+      const dd = pair.querySelector('dd');
+      expect(dt).not.toBeNull();
+      expect(dd).not.toBeNull();
+      expect(pair.firstElementChild).toBe(dt);
+      expect(dt?.nextElementSibling).toBe(dd);
+    });
+  });
 });
 
 describe('Best card place while the Best cards are weighed', () => {
