@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot, untilIdle } from './support';
+import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot, untilIdle, PLAYER_KEY_PREFIX } from './support';
+import { STORAGE_KEYS } from '../../src/constants/config';
 
 /**
  * The pack summary (#182, #339): its actions stay stuck on screen while the rest scrolls, at 360x640
@@ -19,8 +20,22 @@ const isPhone = () => test.info().project.name.startsWith('mobile');
  * Opens the fixture player's first pack and skips to its summary. `history` seeds that many synthetic
  * packs first, so the pack opened is the fixture's ticket with that nonce.
  */
-async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewport = isPhone() ? PHONE : DESKTOP, history = 0 } = {}) {
-  const errors = await monitor(page, baseURL, history);
+/** Earlier packs to seed in place of the synthetic ones, as [set, version, score] by ticket, and the set the next pack opens from. */
+interface RecordSeed {
+  setId: string;
+  packs: [setId: string, version: number, score: number][];
+}
+
+async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewport = isPhone() ? PHONE : DESKTOP, history = 0, seed }: { textZoom?: number; viewport?: { width: number; height: number }; history?: number; seed?: RecordSeed } = {}) {
+  const errors = await monitor(page, baseURL, seed ? seed.packs.length : history);
+  // Runs after monitor's seeding, on the first load only: this player's earlier packs (no cards, so only
+  // their scores count) and the selected set, so the pack opened next lands on ticket packs.length.
+  if (seed) await page.addInitScript(({ keys, prefix, seed }) => {
+    if (sessionStorage.getItem('records-seeded')) return;
+    sessionStorage.setItem('records-seeded', '1');
+    localStorage.setItem(keys.SELECTED_SET, seed.setId);
+    localStorage.setItem(keys.HISTORY, JSON.stringify(seed.packs.map(([s, v, x], n) => ({ s, v, n, k: prefix, h: 'Pair', x, t: 1_000 + n })).reverse()));
+  }, { keys: STORAGE_KEYS, prefix: PLAYER_KEY_PREFIX, seed });
   await page.setViewportSize(viewport);
   if (isPhone()) {
     const cdp = await page.context().newCDPSession(page);
@@ -226,6 +241,8 @@ for (const textZoom of [200]) {
 for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }]) test(`shows the headline, score, every card and both actions without scrolling at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const { errors } = await openSummary(page, baseURL!, { viewport });
+  // The fixture's first pack has no earlier best to beat (#1287).
+  await expect(page.locator('.pack-headline-record')).toHaveCount(0);
   expect(await page.locator('.summary-content').evaluate((list) => list.scrollTop)).toBe(0);
   // The cards are the last content: the summary has nothing left to scroll to.
   expect(await page.locator('.summary-content').evaluate((list) => list.scrollHeight - list.clientHeight)).toBeLessThanOrEqual(0);
@@ -435,11 +452,21 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
 });
 
 // The fixture's ticket 10 is a Two Pair worth 20,900, over the Hall of Fame's score bar. The list is an
-// empty stand-in, so it makes today's Rankings; the relays stay blocked and nothing is submitted.
+// empty stand-in, so it makes today's Rankings; the relays stay blocked and nothing is submitted. It also
+// beats the fixture's ten 1,020-point packs, so its heading leads with NEW BEST (#1287), all still in view.
 for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }]) test(`a pull that makes today's Rankings says so above the fold with the actions at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
   test.setTimeout(60000);
   await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
   const { errors } = await openSummary(page, baseURL!, { viewport, history: 10 });
+  await expect(page.locator('.summary-title')).toContainText('NEW BEST');
+  await expect(page.locator('.pack-headline-previous')).toHaveText('previous best 1,020 · +1,949%');
+  for (const locator of [page.locator('.summary-title'), page.locator('.pack-headline-previous')]) await expect(locator).toBeInViewport({ ratio: 1 });
+  // The tallest headline (NEW BEST and the Rankings line) still leaves the last card clear of the stuck
+  // actions, which sit in the same scroller (so being in the viewport isn't enough), and at 390x844 the
+  // summary has nothing to scroll (docs/DESIGN.md, one-screen summary rule).
+  const fit = await layout(page);
+  expect(fit.lastCard.bottom, JSON.stringify(fit)).toBeLessThanOrEqual(Math.min(...fit.buttons.map((button) => button.top)));
+  if (viewport.height === 844) expect(fit.scrollable, JSON.stringify(fit)).toBeLessThanOrEqual(0);
   const line = page.locator('.summary-hof');
   await expect(line).toContainText("Makes today's Rankings");
   await expect(line.getByRole('button', { name: 'Submit to Rankings' })).toBeVisible();
@@ -583,5 +610,63 @@ test('the pack leaving never takes a tap meant for the reveal', async ({ page, b
   const { frames, hittable } = await covered;
   expect(frames).toBeGreaterThan(0);
   expect(hittable).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+// The record lines a NEW BEST doesn't cover (#1287). A set best in the released set with the longest name:
+// an earlier pack of another set scores far above anything a pack can, and the set's own earlier pack 0,
+// so whatever the fixture's ticket scores, it is a set best and not an all-time one. A #2 pack: one far
+// above it and one at 0 before it.
+const SET_BEST: RecordSeed = { setId: 'italian-brainrot-deep-cuts', packs: [['genesis', 1, 1e12], ['italian-brainrot-deep-cuts', 2, 0]] };
+const SECOND: RecordSeed = { setId: 'right-now', packs: [['genesis', 1, 1e12], ['genesis', 1, 0]] };
+
+for (const [name, seed, line] of [['a set best', SET_BEST, '.pack-headline-record--set'], ['a #2 pack', SECOND, '.pack-headline-rank']] as const) {
+  for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }]) test(`${name} keeps the last card clear of the actions at ${viewport.width}x${viewport.height} (#1287)`, async ({ page, baseURL }) => {
+    test.setTimeout(60000);
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+    const { errors } = await openSummary(page, baseURL!, { viewport, seed });
+    await expect(page.locator(line)).toHaveCount(1);
+    await expect(page.locator(line)).toBeInViewport({ ratio: 1 });
+    if (seed === SET_BEST) {
+      await expect(page.locator('.summary-title')).toContainText('Best in Italian Brainrot Deep Cuts');
+      await expect(page.locator('.pack-headline-previous')).toContainText('previous set best 0');
+    } else {
+      await expect(page.locator(line)).toHaveText('your #2 pack ever');
+      await expect(page.locator('.pack-headline-record')).toHaveCount(0);
+    }
+    const fit = await layout(page);
+    expect(fit.lastCard.bottom, JSON.stringify(fit)).toBeLessThanOrEqual(Math.min(...fit.buttons.map((button) => button.top)));
+    if (viewport.height === 844) expect(fit.scrollable, JSON.stringify(fit)).toBeLessThanOrEqual(0);
+    expect(fit.pageOverflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
+    expect(errors).toEqual([]);
+  });
+}
+
+// At 200% text the long set name can't fit one line: it is cut short inside the heading, which stays
+// inside the summary instead of growing past both edges (the summary clips sideways overflow).
+for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }]) test(`a set best's long name is cut short inside the summary at ${viewport.width} px and 200% text (#1287)`, async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+  const { errors } = await openSummary(page, baseURL!, { viewport, seed: SET_BEST, textZoom: 200 });
+  const boxes = await page.evaluate(() => {
+    const box = (selector: string) => {
+      const { left, right } = document.querySelector(selector)!.getBoundingClientRect();
+      return { left: Math.round(left), right: Math.round(right) };
+    };
+    const name = document.querySelector('.pack-headline-record-name')!;
+    return {
+      content: box('.summary-content'),
+      heading: box('.summary-title'),
+      score: box('.summary-title .tabular'),
+      name: { scroll: name.scrollWidth, client: name.clientWidth, text: name.textContent },
+    };
+  });
+  for (const part of [boxes.heading, boxes.score]) {
+    expect(part.left, JSON.stringify(boxes)).toBeGreaterThanOrEqual(boxes.content.left);
+    expect(part.right, JSON.stringify(boxes)).toBeLessThanOrEqual(boxes.content.right);
+  }
+  // Cut short on screen; the whole name is still in the heading for a screen reader.
+  expect(boxes.name.scroll, JSON.stringify(boxes)).toBeGreaterThan(boxes.name.client);
+  expect(boxes.name.text).toBe('Best in Italian Brainrot Deep Cuts');
   expect(errors).toEqual([]);
 });
