@@ -68,4 +68,21 @@ describe('PackHeadline on the results screen', () => {
     results([meta(pick('RARE', 0), 1), meta(pick('RARE', 1), 2), meta(common, 3), meta(pick('UNCOMMON'), 4), meta(pick('COMMON', 1), 5)]);
     expect(lines().slice(1)).toEqual(['No Matches ×1']);
   });
+
+  it('leads a NEW BEST with the record and gives the previous best under the combo (#1287)', () => {
+    act(() => root.render(<PackHeadline cards={pair} headingRef={() => {}} newBest={{ score: 9_800_000, previous: 4_515_000 }} />));
+    const heading = container.querySelector('h2')!;
+    expect(heading.querySelector('.pack-headline-record')!.textContent).toBe('NEW BEST:');
+    expect(heading.querySelector('.pack-headline-record svg')!.getAttribute('aria-hidden')).toBe('true');
+    expect(lines().slice(-1)).toEqual(['previous best 4,515,000 · +117%']);
+  });
+
+  it('shows no record line without a new best, or off the results screen', () => {
+    act(() => root.render(<PackHeadline cards={pair} headingRef={() => {}} newBest={null} />));
+    expect(container.querySelector('.pack-headline-record, .pack-headline-previous')).toBeNull();
+    expect(container.textContent).not.toContain('NEW BEST');
+    act(() => root.render(<PackHeadline cards={pair} newBest={{ score: 9_800_000, previous: 4_515_000 }} />));
+    expect(container.textContent).not.toContain('NEW BEST');
+    expect(container.textContent).not.toContain('previous best');
+  });
 });
