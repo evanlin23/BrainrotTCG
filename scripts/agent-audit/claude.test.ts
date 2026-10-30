@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { claudeArgs, reviewerTools, runClaude, stopGroup } from './claude';
+import { claudeArgs, claudeVersion, reviewerTools, runClaude, stopGroup } from './claude';
 import { tasks } from './contracts';
 
 // Flags checked against `claude --help` for the pinned release (see docs/DEVELOPMENT.md).
@@ -101,6 +101,20 @@ async function groupKills(run: () => Promise<unknown>) {
   const spy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => kill(pid, signal));
   try { await run(); return spy.mock.calls.filter(([pid]) => pid < 0).map(([pid, signal]) => [pid, signal]); } finally { spy.mockRestore(); }
 }
+
+describe('Claude reviewer version pin', () => {
+  it('is one exact release, and every Claude Code release the docs and notes name is that one', () => {
+    expect(claudeVersion).toMatch(/^\d+\.\d+\.\d+ \(Claude Code\)$/);
+    const pinned = claudeVersion.split(' ')[0];
+    // Only versions in a Claude context count; other tools' versions in these files are ignored.
+    const release = /Claude\s+Code\s+\**(\d+\.\d+\.\d+)|`claude --help` in (\d+\.\d+\.\d+)|\b[Ii]n (\d+\.\d+\.\d+) --restricted|(\d+\.\d+\.\d+) \(Claude Code\)/g;
+    for (const file of ['docs/DEVELOPMENT.md', 'docs/ARCHITECTURE.md', '.claude/skills/qa/SKILL.md', 'scripts/agent-audit/claude.ts', 'scripts/agent-audit/contracts.ts']) {
+      const text = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
+      const named = [...text.matchAll(release)].map((match) => match.slice(1).find(Boolean));
+      expect({ file, named: [...new Set(named)] }).toEqual({ file, named: [pinned] });
+    }
+  });
+});
 
 describe('Claude reviewer group kill', () => {
   it('signals a child group at most once and never one without a pid', () => {
