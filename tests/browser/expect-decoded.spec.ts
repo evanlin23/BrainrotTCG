@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { expectDecoded } from './support';
 
 test.describe('expectDecoded (#1314)', () => {
-  test('resolves when img.decode() hangs but element is complete with naturalWidth > 0', async ({ page }) => {
+  test('resolves on timeout fallback when img.decode() hangs but element is complete', async ({ page }) => {
     await page.setContent(`
       <div id="container">
         <img data-state="ready" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'></svg>" />
@@ -15,15 +15,31 @@ test.describe('expectDecoded (#1314)', () => {
       img.decode = () => new Promise(() => {}); // never resolves
     });
 
-    const start = Date.now();
-    await expectDecoded(page.locator('#container img'), 1, { timeout: 500 });
-    const elapsed = Date.now() - start;
+    await expectDecoded(page.locator('#container img'), 1, { timeout: 300 });
 
-    // Resolves via fallback within the bounded limit instead of hanging until test timeout
-    expect(elapsed).toBeLessThan(2500);
+    // Verifies the timeout fallback fired and logged an annotation
+    expect(test.info().annotations.some((a) => a.type === 'img-decode-timeout')).toBe(true);
   });
 
-  test('fails fast when decode hangs and fallback check fails', async ({ page }) => {
+  test('rethrows when img.decode() rejects with an error', async ({ page }) => {
+    await page.setContent(`
+      <div id="container">
+        <img data-state="ready" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'></svg>" />
+      </div>
+    `);
+
+    // Allow poll to pass, then simulate decode rejection
+    await page.evaluate(() => {
+      const img = document.querySelector('img')!;
+      img.decode = () => Promise.reject(new DOMException('Corrupt image bytes', 'EncodingError'));
+    });
+
+    await expect(
+      expectDecoded(page.locator('#container img'), 1, { timeout: 300 }),
+    ).rejects.toThrow(/Image decode failed: Corrupt image bytes.*data: placeholder/);
+  });
+
+  test('fails when decode times out and fallback check fails', async ({ page }) => {
     await page.setContent(`
       <div id="container">
         <img data-state="ready" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'></svg>" />
@@ -40,7 +56,7 @@ test.describe('expectDecoded (#1314)', () => {
     });
 
     await expect(
-      expectDecoded(page.locator('#container img'), 1, { timeout: 500 }),
+      expectDecoded(page.locator('#container img'), 1, { timeout: 300 }),
     ).rejects.toThrow(/Image decode failed/);
   });
 });

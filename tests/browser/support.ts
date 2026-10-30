@@ -621,14 +621,21 @@ export async function releaseTickets(page: Page) {
   await page.evaluate(() => (window as unknown as { __releaseTickets: () => void }).__releaseTickets());
 }
 
+/** Maximum time expectDecoded waits for img.decode() before falling back to complete && naturalWidth > 0 (#1314). */
+export const EXPECT_DECODED_CAP_MS = 2000;
+
 /**
  * Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. A wait that
  * runs out names what the image last showed: its state, whether it had loaded, its size and its address.
  * Pass a longer `timeout` where the image waits on work the page does first, such as a full-size render.
+ *
+ * In WebKit, img.decode() can stall indefinitely even when the image is already complete in DOM (#1314).
+ * We bound decode() with a timeout (at most EXPECT_DECODED_CAP_MS or the poll timeout) and fall back
+ * to asserting complete && naturalWidth > 0 on timeout. Decode rejections (e.g. EncodingError) rethrow.
  */
 export async function expectDecoded(images: Locator, count: number, { timeout }: { timeout?: number } = {}) {
   await expect(images).toHaveCount(count, { timeout });
-  const decodeLimit = Math.min(timeout ?? 2000, 2000);
+  const decodeLimit = Math.min(timeout ?? EXPECT_DECODED_CAP_MS, EXPECT_DECODED_CAP_MS);
   for (const image of await images.all()) {
     await expect.poll(() => image.evaluate((element: HTMLImageElement) => {
       const state = element.dataset.state ?? 'ready';
@@ -639,29 +646,53 @@ export async function expectDecoded(images: Locator, count: number, { timeout }:
     }), { timeout }).toBe('ready');
 
     const result = await image.evaluate(async (element: HTMLImageElement, limit: number) => {
-      const describeImage = () => {
+      const describe = () => {
         const state = element.dataset.state ?? 'ready';
         const src = element.getAttribute('src') ?? '';
         const address = src.startsWith('data:') ? 'data: placeholder' : src.startsWith('blob:') ? 'blob: render' : new URL(src, document.baseURI).pathname;
         return `${state}, ${element.complete ? 'complete' : 'not complete'}, ${element.naturalWidth}x${element.naturalHeight}, ${address}`;
       };
 
+      let timerId: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<'timed_out'>((resolve) => {
+        timerId = setTimeout(() => resolve('timed_out'), limit);
+      });
+
+      let outcome: 'decoded' | 'timed_out';
       try {
-        const decoded = await Promise.race([
-          element.decode().then(() => true as const),
-          new Promise<false>((resolve) => setTimeout(() => resolve(false), limit)),
+        outcome = await Promise.race([
+          element.decode().then(() => 'decoded' as const),
+          timeoutPromise,
         ]);
-        if (decoded) return { ok: true };
-      } catch {
-        // decode() rejected
+      } catch (error) {
+        // A rejected decode() must NOT fall back to complete (#1314): rethrow with state and address
+        const message = error instanceof Error ? error.message || error.name : String(error);
+        return { ok: false, error: message, details: describe() };
+      } finally {
+        if (timerId !== undefined) clearTimeout(timerId);
       }
 
-      // Timed out or rejected: fall back to checking complete && naturalWidth > 0 (#1314)
+      if (outcome === 'decoded') {
+        return { ok: true, timedOut: false, details: describe() };
+      }
+
+      // Timed out: fall back only on timeout (#1314)
       const ok = element.complete && element.naturalWidth > 0;
-      return { ok, details: describeImage() };
+      return { ok, timedOut: true, details: describe() };
     }, decodeLimit);
 
-    expect(result.ok, `Image decode failed (${result.details})`).toBe(true);
+    if (result.timedOut && result.ok) {
+      try {
+        test.info().annotations.push({
+          type: 'img-decode-timeout',
+          description: `img.decode() stalled on WebKit; fell back to complete (${result.details})`,
+        });
+      } catch {
+        // Outside active test runner
+      }
+    }
+
+    expect(result.ok, `Image decode failed${result.error ? `: ${result.error}` : ''} (${result.details})`).toBe(true);
   }
 }
 
