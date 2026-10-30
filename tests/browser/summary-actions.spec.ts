@@ -226,6 +226,8 @@ for (const textZoom of [200]) {
 for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }]) test(`shows the headline, score, every card and both actions without scrolling at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const { errors } = await openSummary(page, baseURL!, { viewport });
+  // The fixture's first pack has no earlier best to beat (#1287).
+  await expect(page.locator('.pack-headline-record')).toHaveCount(0);
   expect(await page.locator('.summary-content').evaluate((list) => list.scrollTop)).toBe(0);
   // The cards are the last content: the summary has nothing left to scroll to.
   expect(await page.locator('.summary-content').evaluate((list) => list.scrollHeight - list.clientHeight)).toBeLessThanOrEqual(0);
@@ -435,11 +437,15 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
 });
 
 // The fixture's ticket 10 is a Two Pair worth 20,900, over the Hall of Fame's score bar. The list is an
-// empty stand-in, so it makes today's Rankings; the relays stay blocked and nothing is submitted.
+// empty stand-in, so it makes today's Rankings; the relays stay blocked and nothing is submitted. It also
+// beats the fixture's ten 1,020-point packs, so its heading leads with NEW BEST (#1287), all still in view.
 for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }]) test(`a pull that makes today's Rankings says so above the fold with the actions at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
   test.setTimeout(60000);
   await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
   const { errors } = await openSummary(page, baseURL!, { viewport, history: 10 });
+  await expect(page.locator('.summary-title')).toContainText('NEW BEST');
+  await expect(page.locator('.pack-headline-previous')).toHaveText('previous best 1,020 · +1,949%');
+  for (const locator of [page.locator('.summary-title'), page.locator('.pack-headline-previous'), page.locator('.summary-card').last()]) await expect(locator).toBeInViewport({ ratio: 1 });
   const line = page.locator('.summary-hof');
   await expect(line).toContainText("Makes today's Rankings");
   await expect(line.getByRole('button', { name: 'Submit to Rankings' })).toBeVisible();

@@ -25,6 +25,31 @@
   overflow-wrap: anywhere;
 }
 
+/* NEW BEST (#1287): a kicker on its own line above the score, inside the heading, and the previous best
+   under the combo. Both are known at the first paint and never animate, so nothing moves. */
+.pack-summary .pack-headline-record {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  color: var(--brand);
+  font-size: var(--text-sm);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.pack-summary .pack-headline-record svg {
+  width: 1.1em;
+  height: 1.1em;
+  flex: none;
+}
+
+.pack-summary .pack-headline-previous {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
 /* Only for a pull that makes today's Rankings: "🏆 Makes today's Rankings · Submit", with the
    public-name notice under it. */
 .pack-summary .summary-hof {

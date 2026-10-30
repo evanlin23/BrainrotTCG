@@ -561,7 +561,7 @@ it explains the formula, not pull excitement. The one exception is a shared pull
 names a real combo, so `PackCardViewer` drops the headline there (`titled`), and only when the multiplier is
 above 1; a No Matches pull keeps its line.
 
-(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. Then the Rankings line: Submit when the pull
+(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. A pack that strictly beats the player's best before it (all sets, their own key, one record per ticket; a first pack or a tie is no record, #1287) leads the heading with a small **NEW BEST** line and adds **previous best [score] · +[n]%** under the combo, both static and known at the first paint (`src/game/personalRecords.ts`). Then the Rankings line: Submit when the pull
 qualifies, or the one-sentence reason there is none when it doesn't (#1004). The Card guide (one tap, no fold) has
 points per rarity, the holo, finish and misprint bonuses, the combo multipliers (with a note that a combo counts copies of the same card, and worked
 examples), and Score = card points added up × combo multiplier. There is no per-pack breakdown.
