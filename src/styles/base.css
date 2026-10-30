@@ -60,6 +60,48 @@ textarea {
   color: inherit;
 }
 
+/* Dropdown selects: consistent dark/light chevron with reserved right padding (#owner feedback). */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  color-scheme: dark;
+  cursor: pointer;
+  max-width: 100%;
+  min-height: var(--touch-target);
+  padding: 0 calc(var(--space-3) + 16px + var(--space-2)) 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background-color: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-base);
+  background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%23b6b0ba" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  background-size: 16px 16px;
+}
+
+select:focus-visible {
+  border-color: var(--brand);
+  outline: var(--focus-outline);
+}
+
+@media (prefers-color-scheme: light) {
+  select {
+    color-scheme: light;
+    background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%234a454e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>');
+  }
+}
+
+@media (forced-colors: active) {
+  select {
+    appearance: auto;
+    -webkit-appearance: auto;
+    background-image: none;
+    padding-right: var(--space-3);
+  }
+}
+
 /* iOS zooms the page when a focused field's text is under 16 px, so on phones and touch screens every
    field is at least 16 px. The one shared rule for that: the doubled :root (0,2,1) outranks a component's
    `.block textarea` (0,1,1), so it wins without !important. */

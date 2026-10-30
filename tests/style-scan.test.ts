@@ -212,3 +212,15 @@ it('keeps the canvas palette in step with tokens.css', () => {
   expect(same(tokens['--foil'])).toBe(
     'linear-gradient(var(--foil-angle),var(--foil-pink),var(--brand)30%,var(--foil-mint)55%,var(--foil-blue)80%,var(--foil-violet))');
 });
+
+it('styles select dropdowns with appearance none, reserved padding, and native fallback for forced-colors', () => {
+  const selectRule = rule('styles/base.css', 'select');
+  expect(selectRule).toMatch(/appearance:\s*none/);
+  expect(selectRule).toMatch(/padding:\s*0\s+calc\(var\(--space-3\)\s*\+\s*16px\s*\+\s*var\(--space-2\)\)\s*0\s*var\(--space-3\)/);
+  expect(selectRule).toMatch(/color-scheme:\s*dark/);
+  expect(selectRule).toMatch(/background-image:\s*url\(/);
+
+  // Forced colors restore native dropdown
+  const css = sheets.find((s) => s.path === 'styles/base.css')!.css;
+  expect(css).toMatch(/@media\s*\(forced-colors:\s*active\)\s*\{[\s\S]*?select\s*\{[\s\S]*?appearance:\s*auto/);
+});
