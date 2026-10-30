@@ -485,6 +485,38 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }
   expect(errors).toEqual([]);
 });
 
+// A pull that qualifies for Rankings but cannot beat the lowest score on the list says why (#1072).
+// The line fits one screen at 360x740 and 390x844 with no scroll, and keeps the cards at the same position.
+for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+  test(`a pull that qualifies but would not make the list says why in view at ${viewport.width}x${viewport.height} (#1072)`, async ({ page, baseURL }) => {
+    test.setTimeout(60000);
+    await page.clock.setFixedTime('2026-10-30T12:00:00.000Z');
+    const fullBoard = [
+      ...Array.from({ length: 100 }, (_, i) => ({ id: `alltime-${i}`, setId: 'set-1', hand: 'Royal Rot', multiplier: 50, score: 50000 + i, submittedAt: '2026-10-01T00:00:00.000Z' })),
+      ...Array.from({ length: 50 }, (_, i) => ({ id: `daily-${i}`, setId: 'set-1', hand: 'Royal Rot', multiplier: 50, score: 30000 + i, submittedAt: '2026-10-30T12:00:00.000Z' })),
+    ];
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: fullBoard }));
+    const { errors } = await openSummary(page, baseURL!, { viewport, history: 10 });
+    const line = page.locator('.summary-hof');
+    await expect(line).toContainText("Qualifies, but wouldn't beat the lowest listed score.");
+    await expect(line).toContainText('See How Rankings work.');
+    await expect(line.getByRole('button', { name: 'Submit to Rankings' })).toHaveCount(0);
+    await expect(line.getByRole('button', { name: 'How Rankings work' })).toBeVisible();
+    await expect(line).toBeInViewport({ ratio: 1 });
+    const { fits, lines } = await line.locator('span').first().evaluate((el) => ({
+      fits: el.scrollWidth <= el.clientWidth,
+      lines: Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)),
+    }));
+    expect(fits).toBe(true);
+    expect(lines).toBeLessThanOrEqual(3);
+    if (viewport.width !== 320) {
+      expect(await page.evaluate(() => document.querySelector('.summary-content')!.scrollTop)).toBe(0);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+    expect(errors).toEqual([]);
+  });
+}
+
 // The line keeps one height while the list loads and in every state after, so the cards below never
 // move. The relays are stand-ins on this page: a socket asking for pending sends closes, and a send
 // either fails (the socket closes) or waits for the test to accept it. Nothing leaves the browser.
@@ -530,6 +562,42 @@ test('the Hall of Fame line never moves the cards below it', async ({ page, base
   expect(tops, JSON.stringify(tops)).toEqual(Object.fromEntries(Object.keys(tops).map((state) => [state, tops.loading])));
   expect(errors).toEqual([]);
 });
+
+for (const textZoom of [100, 200]) {
+  test(`the Hall of Fame line never moves the cards below it when the pull would not make the list at 320x568 at ${textZoom}% text (#1072)`, async ({ page, baseURL }) => {
+    test.setTimeout(60000);
+    await page.clock.setFixedTime('2026-10-30T12:00:00.000Z');
+    let release = () => {};
+    const listLoads = new Promise<void>((resolve) => (release = resolve));
+    const fullBoard = [
+      ...Array.from({ length: 100 }, (_, i) => ({ id: `alltime-${i}`, setId: 'set-1', hand: 'Royal Rot', multiplier: 50, score: 50000 + i, submittedAt: '2026-10-01T00:00:00.000Z' })),
+      ...Array.from({ length: 50 }, (_, i) => ({ id: `daily-${i}`, setId: 'set-1', hand: 'Royal Rot', multiplier: 50, score: 30000 + i, submittedAt: '2026-10-30T12:00:00.000Z' })),
+    ];
+    await page.route('**/hall-of-fame.json', async (route) => {
+      await listLoads;
+      await route.fulfill({ json: fullBoard });
+    });
+    const { errors } = await openSummary(page, baseURL!, { viewport: { width: 320, height: 568 }, textZoom, history: 10 });
+    const line = page.locator('.summary-hof');
+    const cardsTop = () => page.locator('.summary-cards').evaluate((cards) => cards.getBoundingClientRect().top);
+    const tops: Record<string, number> = {};
+
+    await expect(line).toHaveAttribute('aria-hidden', 'true');
+    tops.loading = await cardsTop();
+    release();
+    await expect(line).toContainText("Qualifies, but wouldn't beat the lowest listed score.");
+    tops.notListed = await cardsTop();
+
+    if (textZoom === 100) {
+      const { lines } = await line.locator('span').first().evaluate((el) => ({
+        lines: Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)),
+      }));
+      expect(lines).toBeLessThanOrEqual(3);
+    }
+    expect(tops.notListed).toBe(tops.loading);
+    expect(errors).toEqual([]);
+  });
+}
 
 // The pack leaves for a quarter second over the reveal that fades in under it. A tap in that time is
 // aimed at the reveal's Skip, and the pack must not be what answers it.
