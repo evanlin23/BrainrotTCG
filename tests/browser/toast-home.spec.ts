@@ -37,9 +37,9 @@ const VIEWPORTS = [
 const WIDE = VIEWPORTS.filter(({ width }) => width >= 900);
 
 /** Every control on the home screen, as the page lays it out. */
-const CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.app-utilities button', '.app-nav-item'];
-/** Every control on the home screen of a wide screen: the phone's list, the wordmark and the announcement's link and close. */
-const DESKTOP_CONTROLS = [...CONTROLS, '.app-logo', '.news-banner-link', '.news-banner-dismiss'];
+const CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.pack-milestone', '.app-utilities button', '.app-nav-item'];
+/** Every control on the home screen of a wide screen: the phone's list and the wordmark. */
+const DESKTOP_CONTROLS = [...CONTROLS, '.app-logo'];
 /** Every control on the pack's summary (the screen the toast is first up on), the header's Settings button included; its tabs are hidden in focus mode. */
 const SUMMARY_CONTROLS = ['.app-logo', '.app-utilities button', '.pack-close', '.summary-card', '.pack-summary .link-btn', '.pack-summary .btn', '.card-guide-link'];
 /** The touch targets the toast must never squeeze below 44 CSS px (the pack to open and the set steps). */
@@ -144,6 +144,10 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
     const errors = await toSummary(page, baseURL!);
     const toast = await toHome(page);
+    // The goal is one of the controls checked below wherever the row shows it (not below 360px of row, nor on a short landscape phone).
+    const goal = page.locator('.card-guide-entry .pack-milestone');
+    if (viewport.width < 900 && viewport.height <= 520) await expect(goal).toBeHidden();
+    else await expect(goal, 'the goal is on screen, so the checks below cover it').toBeVisible();
 
     const controls = viewport.width < 900 ? CONTROLS : DESKTOP_CONTROLS;
     for (const { kicker, name } of TOASTS) {

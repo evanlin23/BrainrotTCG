@@ -38,37 +38,37 @@ const DroughtCountersStrip = ({ stats }: DroughtCountersStripProps) => {
 
       <dl className="profile-drought-stats">
         <div>
+          <dt style={{ color: RARITY_COLORS.BRAINROT }}>Brainrot</dt>
           <dd className="tabular" aria-label={formatDroughtAccessible(stats.brainrot, 'Brainrot')}>
             {formatDroughtStreak(stats.brainrot)}
           </dd>
-          <dt style={{ color: RARITY_COLORS.BRAINROT }}>Brainrot</dt>
         </div>
         <div>
+          <dt style={{ color: RARITY_COLORS.LEGENDARY }}>Legendary+</dt>
           <dd
             className="tabular"
             aria-label={formatDroughtAccessible(stats.legendaryPlus, 'Legendary or better')}
           >
             {formatDroughtStreak(stats.legendaryPlus)}
           </dd>
-          <dt style={{ color: RARITY_COLORS.LEGENDARY }}>Legendary+</dt>
         </div>
         <div>
+          <dt style={{ color: RARITY_COLORS.EPIC }}>Epic+</dt>
           <dd
             className="tabular"
             aria-label={formatDroughtAccessible(stats.epicPlus, 'Epic or better')}
           >
             {formatDroughtStreak(stats.epicPlus)}
           </dd>
-          <dt style={{ color: RARITY_COLORS.EPIC }}>Epic+</dt>
         </div>
         <div>
+          <dt>Rankings</dt>
           <dd
             className="tabular"
             aria-label={formatDroughtAccessible(stats.rankingsQualifier, 'Rankings qualifier')}
           >
             {formatDroughtStreak(stats.rankingsQualifier)}
           </dd>
-          <dt>Rankings</dt>
         </div>
       </dl>
 

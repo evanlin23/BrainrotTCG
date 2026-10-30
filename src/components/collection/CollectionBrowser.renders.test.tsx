@@ -2,9 +2,11 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getSetCards } from '../../data/cards';
+import { cardPoints, getSetCards } from '../../data/cards';
 import { isOpenable, SETS } from '../../content/sets';
 import type { CollectionItem } from '../../types';
+import { getAccountValue } from '../../utils/achievementChecks';
+import { hydrateCollection } from '../../utils/migrations';
 import CollectionBrowser from './CollectionBrowser';
 
 const { tileRenders } = vi.hoisted(() => ({ tileRenders: [] as string[] }));
@@ -98,5 +100,22 @@ describe('CollectionBrowser renders', () => {
     act(() => container.querySelector<HTMLButtonElement>('.collection-item')!.click());
 
     expect(tileRenders).toEqual([]);
+  });
+});
+
+describe('CollectionBrowser after loading a save with bad counts (#1109)', () => {
+  it('shows the repaired copies, and its score matches the achievement score', () => {
+    const [card, other] = getSetCards(ERAS[0].id);
+    const loaded = hydrateCollection(JSON.parse(JSON.stringify({
+      [card.key]: { card: { id: card.id, key: card.key }, normalCount: -3, holoCount: 2 },
+      [other.key]: { card: { id: other.id, key: other.key }, normalCount: -3, holoCount: -1 },
+    }))) as Record<string, CollectionItem>;
+    act(() => root.render(<CollectionBrowser collection={loaded} recentSetId={ERAS[0].id} />));
+
+    const tiles = [...container.querySelectorAll<HTMLButtonElement>('.collection-item')];
+    expect(tiles.map((tile) => tile.querySelector('.collection-count')?.textContent)).toEqual(['×2']);
+    const score = getAccountValue(loaded);
+    expect(score).toBe(2 * cardPoints(card.rarity, true));
+    expect(container.textContent).toContain(`${score.toLocaleString()} total card points`);
   });
 });

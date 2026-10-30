@@ -213,7 +213,7 @@ const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
           partial={!done}
           partialNote={
             paused
-              ? `* from the ${bestPacks} only; the rest of the packs are not checked`
+              ? `* the pack count is the link's own; cards, holo and best score are from the ${bestPacks} only, and the rest of the packs are not checked`
               : interrupted
                 ? unfinished
                   ? `* from the ${reopened.toLocaleString()} of ${total.toLocaleString()} packs re-opened before the check stopped`
@@ -245,7 +245,7 @@ const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
           {fake
             ? "The packs your device re-opened don't match what the link claims, so this isn't a real profile and nothing about it counts as verified."
             : paused
-              ? `Your device re-opened the ${bestPacks} itself, and they match the link. The rest of the packs are not checked until you ask, so the level is only what the link claims, the totals above come from those best packs only, and the profile as a whole is not verified.`
+              ? `Your device re-opened the ${bestPacks} itself, and they come out in the order the link lists. The rest of the packs are not checked until you ask, so the level and pack count are only what the link claims, the cards, holo and best score above come from those best packs only, and the profile as a whole is not verified.`
               : done
               ? "Your device re-opened each of those packs itself, and the claims match: the level, cards and best pulls above are what those tickets actually hold, so they can't be edited, and bad packs can't be left out."
               : interrupted

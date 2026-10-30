@@ -35,6 +35,15 @@ function Harness({ initial, paused = false, held = false }: { initial: ToastItem
 
 const kept: ToastItem = { id: 'pack-kept-1', name: 'Pack kept', description: 'Its cards are in Cards', kicker: 'Pack kept', opens: 'collection' };
 const levelUp: ToastItem = { id: 'level-2', name: 'Level 2', description: 'New back unlocked', kicker: 'Level up', opens: 'profile' };
+// Says whether the focus the test gives a button counts as the keyboard's. jsdom 27+ (which swapped nwsapi for
+// @asamuzakjp/dom-selector) works :focus-visible out from the last key or mouse event and the last focus, so a
+// click made on the button or an earlier test's click decides it; jsdom 26 matched any focused element.
+const focusVisibleIs = (visible: boolean) => {
+  const matches = HTMLElement.prototype.matches;
+  vi.spyOn(HTMLElement.prototype, 'matches').mockImplementation(function (this: HTMLElement, selector: string) {
+    return selector === ':focus-visible' ? visible : matches.call(this, selector);
+  });
+};
 const toasts = () => [...document.querySelectorAll('.toast')].map((el) => el.querySelector('.toast-title')?.textContent);
 
 let root: Root;
@@ -197,6 +206,7 @@ describe('where the focus goes when the keyboard dismisses a toast', () => {
   };
 
   it('hands it back to the element that had it before the toast took it, from its X', () => {
+    focusVisibleIs(true);
     const origin = before();
     act(() => root.render(<Harness initial={[kept, levelUp]} />));
     act(() => dismissButton().focus());
@@ -261,6 +271,20 @@ describe('the dismiss control', () => {
     act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
     expect(opened).toEqual(['profile']);
     expect(dismissed).toEqual([['level-2']]);
+  });
+
+  it("queues a What's new toast behind a level-up, one at a time, and its body opens the page", async () => {
+    const news: ToastItem = { id: 'news:update-1', name: 'Update 1', description: 'What changed.', kicker: "What's new", opens: 'news' };
+    act(() => root.render(<Harness initial={[levelUp, news]} />));
+    expect(toasts()).toEqual(['Level 2']);
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(toasts()).toEqual(['Update 1']);
+    expect(document.querySelector('.toast-kicker')?.textContent).toBe("What's new");
+    expect(document.querySelectorAll('.toast')).toHaveLength(1);
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
+    expect(opened).toEqual(['news']);
+    expect(dismissed).toEqual([['level-2'], ['news:update-1']]);
   });
 
   it('does nothing on a toast already fading out', () => {
@@ -373,6 +397,7 @@ describe('how long a toast stays up (#718)', () => {
   });
 
   it('waits while it has keyboard focus, and not after focus leaves', async () => {
+    focusVisibleIs(true);
     act(() => root.render(<Harness initial={[levelUp]} />));
     act(() => document.querySelector<HTMLElement>('.toast-open')!.focus());
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS * 3));
@@ -384,10 +409,7 @@ describe('how long a toast stays up (#718)', () => {
 
   it('is not held by focus a tap or swipe left on it, only by focus from the keyboard', async () => {
     // Focus a pointer gives the button does not match :focus-visible.
-    const matches = HTMLElement.prototype.matches;
-    vi.spyOn(HTMLElement.prototype, 'matches').mockImplementation(function (this: HTMLElement, selector: string) {
-      return selector === ':focus-visible' ? false : matches.call(this, selector);
-    });
+    focusVisibleIs(false);
     act(() => root.render(<Harness initial={[levelUp]} />));
     act(() => document.querySelector<HTMLElement>('.toast-open')!.focus());
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));

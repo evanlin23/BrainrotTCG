@@ -68,4 +68,38 @@ describe('PackHeadline on the results screen', () => {
     results([meta(pick('RARE', 0), 1), meta(pick('RARE', 1), 2), meta(common, 3), meta(pick('UNCOMMON'), 4), meta(pick('COMMON', 1), 5)]);
     expect(lines().slice(1)).toEqual(['No Matches ×1']);
   });
+
+  it('leads a NEW BEST with the record and gives the previous best under the combo (#1287)', () => {
+    act(() => root.render(<PackHeadline cards={pair} headingRef={() => {}} record={{ kind: 'best', score: 9_800_000, previous: 4_515_000 }} />));
+    const heading = container.querySelector('h2')!;
+    expect(heading.querySelector('.pack-headline-record')!.textContent).toBe('NEW BEST:');
+    expect(heading.querySelector('.pack-headline-record svg')!.getAttribute('aria-hidden')).toBe('true');
+    expect(lines().slice(-1)).toEqual(['previous best 4,515,000 · +117%']);
+  });
+
+  it("leads a set best with an outlined medal and the set's name, and gives the previous set best (#1287)", () => {
+    act(() => root.render(<PackHeadline cards={pair} headingRef={() => {}} record={{ kind: 'set-best', setId: 'right-now', score: 900, previous: 400 }} />));
+    const heading = container.querySelector('h2')!;
+    expect(heading.querySelector('.pack-headline-record--set')!.textContent).toBe('Best in Summer of Slop:');
+    expect(heading.querySelector('.pack-headline-record svg')!.getAttribute('aria-hidden')).toBe('true');
+    expect(heading.textContent).not.toContain('NEW BEST');
+    expect(lines().slice(-1)).toEqual(['previous set best 400 · +125%']);
+  });
+
+  it('gives a #2 or #3 pack one quiet line and no heading record (#1287)', () => {
+    act(() => root.render(<PackHeadline cards={pair} headingRef={() => {}} record={{ kind: 'top', rank: 2 }} />));
+    expect(container.querySelector('.pack-headline-record')).toBeNull();
+    expect(lines().slice(-1)).toEqual(['your #2 pack ever']);
+    act(() => root.render(<PackHeadline cards={pair} record={{ kind: 'top', rank: 3 }} />));
+    expect(container.textContent).not.toContain('pack ever');
+  });
+
+  it('shows no record line without a new best, or off the results screen', () => {
+    act(() => root.render(<PackHeadline cards={pair} headingRef={() => {}} record={null} />));
+    expect(container.querySelector('.pack-headline-record, .pack-headline-previous')).toBeNull();
+    expect(container.textContent).not.toContain('NEW BEST');
+    act(() => root.render(<PackHeadline cards={pair} record={{ kind: 'best', score: 9_800_000, previous: 4_515_000 }} />));
+    expect(container.textContent).not.toContain('NEW BEST');
+    expect(container.textContent).not.toContain('previous best');
+  });
 });

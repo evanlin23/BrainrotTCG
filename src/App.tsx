@@ -15,6 +15,8 @@ import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
 import { RANKINGS_HELP_ID } from './components/ui/rankingsRule';
 import CardGuideButton from './components/ui/CardGuideButton';
+import PackMilestoneGoal from './components/pack/PackMilestoneGoal';
+import { getNextMilestone } from './game/nextMilestone';
 import { scoreCards } from './data/cards';
 import type { Achievement } from './data/achievements';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
@@ -37,10 +39,12 @@ import { historyAchievementsReady, watchMyPacks } from './game/packCache';
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { playerUnreadable, sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
+import { isNewsToastId, readNewsToasts } from './game/news';
 import { reloadPage } from './game/reload';
 import { flushReopenCache } from './game/reopenCache';
 import { isStaging, STAGING_NOTE } from './game/staging';
 import { PAGE_TITLES, type Page } from './game/route';
+import { useNewsToast } from './hooks/useNewsToast';
 import { useRoute } from './hooks/useRoute';
 import { linkedSetAtLoad, useSetLink } from './hooks/useSetLink';
 import { useProgressWriter } from './hooks/useProgressWriter';
@@ -48,7 +52,6 @@ import { useAchievementReconciler } from './hooks/useAchievementReconciler';
 import type { ProgressWriterHost } from './game/progressWriter';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
-import NewsBanner from './components/ui/NewsBanner';
 import { LOGO_MARK_PATH, LOGO_MARK_VIEWBOX } from './styles/logoMark';
 import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
 
@@ -62,6 +65,7 @@ const loadProfilePage = sheetLoader(() => import('./components/profile/ProfilePa
 const loadPublicProfile = sheetLoader(() => import('./components/profile/ProfileViewerPage'));
 const loadHallOfFame = sheetLoader(() => import('./components/pages/HallOfFamePage'));
 const loadSettings = sheetLoader(() => import('./components/pages/SettingsPage'));
+const loadNewsPage = sheetLoader(() => import('./components/pages/NewsPage'));
 const loadCollection = sheetLoader(() => import('./components/collection/CollectionBrowser'));
 const loadShare = sheetLoader(() => import('./components/share/ShareSheet'));
 const loadPull = sheetLoader(() => import('./components/share/PullViewerPage'));
@@ -237,11 +241,14 @@ function App() {
   // loaded, as last read: the new player's packs are no level-up here, and unlock no rewards.
   // samePlayer reads its latch ref here on purpose: the level must stop following storage once it does.
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/refs
-  const ownLevel = useMemo(() => (samePlayer() ? myStats()?.level ?? null : undefined), [stats.packsOpened, packCache, samePlayer]);
-  const [mountedLevel, setMountedLevel] = useState(ownLevel ?? null);
-  if (ownLevel !== undefined && ownLevel !== mountedLevel) setMountedLevel(ownLevel);
-  const level = ownLevel === undefined ? mountedLevel : ownLevel;
+  const ownStats = useMemo(() => (samePlayer() ? myStats() : undefined), [stats.packsOpened, packCache, samePlayer]);
+  const [mountedStats, setMountedStats] = useState(ownStats ?? null);
+  if (ownStats !== undefined && ownStats !== mountedStats) setMountedStats(ownStats);
+  const verifiedStats = ownStats === undefined ? mountedStats : ownStats;
+  const level = verifiedStats?.level ?? null;
   const rewardLevel = level ?? 1;
+  // The next goal (#212) reads the same stats (a level, a set's cards), so it shows only once they are known.
+  const milestoneGoal = useMemo(() => (verifiedStats ? getNextMilestone(verifiedStats, selectedSet) : null), [verifiedStats, selectedSet]);
   // A level-up says so, with what it unlocked (otherwise it only shows if you open the profile).
   // Reading saved packs isn't a level-up: no toast until a known level rises.
   const shownLevel = useRef(level);
@@ -295,6 +302,8 @@ function App() {
   }, []);
 
   const dismissNotifications = useCallback((ids: string[]) => {
+    // A news toast that was shown or opened is read, whichever way it left (its own timer, X, swipe, tap).
+    readNewsToasts(ids);
     setNotificationQueue(prev => prev.filter(a => !ids.includes(a.id)));
   }, []);
 
@@ -421,9 +430,14 @@ function App() {
 
   // A collection write can fail, or be refused for a stale tab, after its pack's notice is queued: once
   // a save warning shows, the "Pack kept" notice would contradict it, so it never shows (neither clears).
+  // A news toast waits behind the save warning too: the toast region sits over the banner, so it would
+  // cover the warning and its buttons. It stays queued and comes in once the warning is gone.
   const visibleNotifications = useMemo(
-    () => (saveFailed || staleSave ? notificationQueue.filter((toast) => !toast.id.startsWith('pack-kept-')) : notificationQueue),
-    [saveFailed, staleSave, notificationQueue],
+    () => {
+      const warned = saveFailed || staleSave;
+      return warned || bannerWarning ? notificationQueue.filter((toast) => !(warned && toast.id.startsWith('pack-kept-')) && !isNewsToastId(toast.id)) : notificationQueue;
+    },
+    [saveFailed, staleSave, bannerWarning, notificationQueue],
   );
   const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
   // Any sheet at all (the summary's card close-up too): a toast over one covers its title or takes a tap meant for it (#803).
@@ -471,6 +485,14 @@ function App() {
   const onPage = route !== 'open';
   // Settings shows these problems in its own sections, so the banner leaves it.
   const saveWarningShown = !!bannerWarning && route !== 'settings';
+  // The latest unread announcement, once, as a toast behind the others: only after a pack is put away in this visit, and while the pack screen is at rest.
+  const announceToast = useCallback((toast: ToastItem) => {
+    setNotificationQueue((prev) => (prev.some((t) => t.id === toast.id) ? prev : [...prev, toast]));
+  }, []);
+  const withdrawNewsToast = useCallback(() => {
+    setNotificationQueue((prev) => (prev.some((t) => isNewsToastId(t.id)) ? prev.filter((t) => !isNewsToastId(t.id)) : prev));
+  }, []);
+  useNewsToast({ atRest: pagesUnlocked && route !== 'news', packOpen: packBusy || packFocus, viewing: route === 'news', announce: announceToast, withdraw: withdrawNewsToast });
   const logoMark = (
     <svg className="app-logo-mark" viewBox={LOGO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
       <path fill="currentColor" d={LOGO_MARK_PATH} />
@@ -551,7 +573,7 @@ function App() {
           <AchievementToasts
             queue={visibleNotifications}
             onDismiss={dismissNotifications}
-            onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
+            onOpen={(target) => (target === 'collection' ? openPage('cards') : target === 'news' ? openPage('news') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
             paused={isAnyModalOpen || onPage || anySheetOpen || packBusy}
             held={packShowcase}
             reduced={reducedMotion}
@@ -588,11 +610,14 @@ function App() {
         {showNav && !packFocus && !packBusy && (
           <div className="card-guide-entry">
             <CardGuideButton set={selectedSet} />
-            {/* One line beside the guide link, in the row it already takes, so it can't move the pack, the nav or
-                the tear line, and dismissing it leaves them where they were. Nothing before the first pack is saved
-                (#58), so no news read either; it goes with the row once a pack is torn, and while a save warning
-                shows. Dismissing removes the focused button: focus goes to the logo, the page's heading here. */}
-            {pagesUnlocked && !saveWarningShown && <NewsBanner onDismiss={() => logoRef.current?.focus()} />}
+            {/* The next goal (#212) takes the row beside the guide link. */}
+            {pagesUnlocked && !saveWarningShown && milestoneGoal && (
+              <PackMilestoneGoal
+                goal={milestoneGoal}
+                onNavigate={(target) => (target === 'rewards' ? openPage('profile', 'rewards') : openPage('cards'))}
+                disabled={isAnyModalOpen}
+              />
+            )}
           </div>
         )}
       </main>
@@ -643,8 +668,11 @@ function App() {
           onStartNewPlayer: handleStartNewPlayer,
           guideSet: selectedSet,
           pagesUnlocked,
+          onOpenNews: () => openPage('news'),
         }} />
       )}
+
+      {route === 'news' && <AppPage load={loadNewsPage} title="What's new" width="md" onClose={closePage} autoFocus={routeMoved} screenProps={{}} />}
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null), onOpenRankingsHelp: openRankingsHelp }} />}
 

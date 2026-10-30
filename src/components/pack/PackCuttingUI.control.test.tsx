@@ -5,6 +5,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SETS } from '../../content/sets';
 import PackCuttingUI, { TAP_SLOP_PX } from './PackCuttingUI';
 
+// A browser has AnimationEvent, so React listens for animationend. jsdom 27+ has no AnimationEvent but its
+// cssstyle (5) now has WebkitAnimation, which makes React listen for webkitAnimationEnd instead; jsdom 26
+// had neither. This runs before react-dom reads the window (the imports below are hoisted after it).
+vi.hoisted(() => {
+  Object.defineProperty(window, 'AnimationEvent', { value: class AnimationEvent extends Event {}, configurable: true });
+});
+
 let root: Root;
 let container: HTMLDivElement;
 const onOpen = vi.fn();

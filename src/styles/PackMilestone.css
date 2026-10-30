@@ -1,0 +1,211 @@
+/* The next goal (#212): one chip to the right of the Card guide link, in the row the guide already takes under
+   the pack (App.tsx), with the guide kept centred under the pack (see the grid below). It adds no height of
+   its own, so it can't change the pack's size or place, the nav's, or cover the pack, its tear line or the
+   toast. Opening the pack stays the biggest thing on screen. It is exactly the row's height (a 44px target):
+   two short lines and a small picture of the reward when it has one (one line, no picture on a phone, where
+   the column beside the centred guide is narrow), and nothing in it moves, so there is no motion to turn
+   off. A row too narrow even for that (a 320px phone, enlarged text) and a short landscape screen show
+   nothing rather than squeeze the guide link. */
+.pack-milestone {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 28rem;
+  height: var(--touch-target);
+  box-sizing: border-box;
+  /* Its own container, to ask below how much height the text has left (it is a fixed 44px, the text is not). */
+  container: pack-milestone / size;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 0 var(--space-3);
+  padding: 0 var(--space-3);
+  overflow: hidden;
+  background: var(--surface-2);
+  /* A shadow, not a border, so the box stays the row's height. */
+  box-shadow: inset 0 0 0 1px var(--border);
+  border: 0;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+  color: var(--text);
+  text-align: left;
+}
+
+button.pack-milestone {
+  cursor: pointer;
+}
+
+button.pack-milestone:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+button.pack-milestone:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+button.pack-milestone:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A reward with a picture (a card back) shows it small, at the start; its size is the row's, not the text's. */
+.pack-milestone .back-swatch {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  height: 28px;
+  /* Its width follows from the height: Profile.css gives every swatch a width of its own, which would win
+     over the aspect ratio (and crop the art) once that stylesheet has loaded. */
+  width: auto;
+  min-width: 0;
+  aspect-ratio: var(--card-aspect);
+  isolation: isolate;
+}
+
+.pack-milestone .card-back-image {
+  border-radius: var(--radius-sm);
+  /* The Prismatic back cycles its colours elsewhere; a still one here keeps the row calm. */
+  animation: none;
+}
+
+.pack-milestone-lines {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pack-milestone-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The name comes first and the kind after it, so a narrow row clips the kind and keeps the name whole. */
+.pack-milestone-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.pack-milestone-target {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pack-milestone-progress {
+  flex-shrink: 0;
+  color: var(--brand);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* Always shown: on a phone it is the line that says a cosmetic changes nothing about rarity or odds. */
+.pack-milestone-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+/* Progress along the bottom edge, inside the box. */
+.pack-milestone-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--track);
+}
+
+.pack-milestone-fill {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+}
+
+/* Two lines of text need about 2.2rem with room for the bar: past roughly 125% text they no longer fit in 44px,
+   so the cue line gives way and the name and progress stay on one line. The row keeps its height. */
+@container pack-milestone (max-height: 2.2rem) {
+  .pack-milestone-detail {
+    display: none;
+  }
+}
+
+/* The Card guide link stays centred under the pack, with the goal or without it (the owner's call on #212): the row
+   is three columns, the guide alone in the middle one and the goal in the one after it, so the goal can't push the
+   guide aside. The left column stays empty. */
+.card-guide-entry:has(> .pack-milestone) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.card-guide-entry:has(> .pack-milestone) > :not(.pack-milestone) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+/* The goal fills its column up to a cap, so on a wide screen it stays near the pack and the row reads as balanced
+   around it instead of running to the screen's edge. */
+.card-guide-entry > .pack-milestone {
+  grid-column: 3;
+  grid-row: 1;
+  max-width: 18rem;
+}
+
+/* The row (Scoring.css) is the container, so the thresholds follow the text size as well as the width. A row this
+   narrow (a 320px phone, enlarged text) shows no goal rather than shift or squeeze the guide. */
+@container card-guide (max-width: 20rem) {
+  .pack-milestone {
+    display: none;
+  }
+}
+
+/* Beside a centred guide a phone's column is about 6rem to 12rem: the goal shrinks to its name, how far along it is
+   and the progress bar. The picture and the "Cosmetic, odds unchanged" line give way here only to the eye: that
+   text stays in the chip's accessible name and its tooltip, so the cosmetic-versus-odds distinction is not lost.
+   From 34rem the column holds the whole chip. */
+@container card-guide (max-width: 34rem) {
+  .card-guide-entry > .pack-milestone {
+    margin-left: var(--space-2);
+    padding: 0 var(--space-2);
+  }
+  .card-guide-entry > .pack-milestone .back-swatch,
+  .card-guide-entry > .pack-milestone .pack-milestone-detail {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .pack-milestone {
+    box-shadow: none;
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+  .pack-milestone-bar {
+    background: Canvas;
+    border-top: 1px solid CanvasText;
+  }
+  .pack-milestone-fill {
+    background: Highlight;
+  }
+  button.pack-milestone:focus-visible {
+    outline: 2px solid Highlight;
+  }
+}
+
+/* A phone on its side (the app's own short-screen cut-off, index.css) has no room for the pack as it is:
+   the goal waits for a taller screen rather than shrink it. */
+@media (max-width: 899px) and (max-height: 520px) {
+  .pack-milestone {
+    display: none;
+  }
+}
