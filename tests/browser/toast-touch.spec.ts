@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { dismissShippedNews, expectSummaryTakesClicks, fingerFor, monitor, recordShownToasts } from './support';
+import { expectSummaryTakesClicks, fingerFor, monitor, recordShownToasts } from './support';
 
 /**
  * Achievement toasts under a thumb (phone feedback on #803: it blocks things, will not go away, and a
@@ -43,8 +43,6 @@ async function toSummaryWithToast(page: Page, baseURL: string, { clock = false }
   if (clock) await page.clock.install();
   await recordShownToasts(page, { hold: true });
   const errors = await monitor(page, baseURL);
-  // The next goal gives way to an unread announcement: with it read, the goal is on screen wherever the row has room.
-  await dismissShippedNews(page);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   await page.getByRole('button', { name: /^Open pack/ }).focus();

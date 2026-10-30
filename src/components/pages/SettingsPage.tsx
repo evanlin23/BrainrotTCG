@@ -39,10 +39,12 @@ interface SettingsPageProps {
     guideSet?: SetDefinition;
     /** The tabs and pack picker already show on their own (a saved pack or a collected card): "Show every page" would change nothing, so it is left out. */
     pagesUnlocked?: boolean;
+    /** Opens the What's new page (#/news). Help's button for it is left out without this. */
+    onOpenNews?: () => void;
 }
 
-/** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, playerUnreadable = false, onStartNewPlayer, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
+/** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, What's new, report a problem). */
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, playerUnreadable = false, onStartNewPlayer, guideSet, pagesUnlocked = false, onOpenNews }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     // Null until Export is used: then what the file holds is said for the record as it is now.
     const [exportNote, setExportNote] = useState<string | null>(null);
@@ -482,6 +484,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                 <h2 id="settings-help" className="section-title">Help</h2>
                 <div className="settings-help-actions">
                     {guideSet && <CardGuideButton set={guideSet} className="btn btn--secondary" />}
+                    {onOpenNews && <button type="button" className="btn btn--secondary" onClick={onOpenNews}>What's new</button>}
                     <button type="button" className="btn btn--secondary" onClick={() => setReporting(true)}>Report a problem</button>
                 </div>
             </section>

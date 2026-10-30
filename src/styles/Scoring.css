@@ -122,7 +122,7 @@
   justify-content: center;
   align-items: center;
   padding: 0 var(--space-4);
-  /* The news banner (News.css) shares this row and fits itself to the width it has left. */
+  /* The next goal (PackMilestone.css) shares this row and fits itself to the width it has left. */
   container: card-guide / inline-size;
 }
 
