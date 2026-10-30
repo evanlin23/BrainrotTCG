@@ -3,8 +3,8 @@ import { expectStill, monitor } from './support';
 
 /**
  * The Card guide link stays centred under the pack whether or not the next goal (#212) is in its row (the owner's
- * call): the goal takes the space to the right of the centred link, and a row without room for it on that side
- * shows no goal rather than shift or squeeze the guide.
+ * call): the goal takes the space to the right of the centred link (compact on a phone), capped so it stays near
+ * the pack on a wide screen, and a row without room for it shows no goal rather than shift or squeeze the guide.
  */
 
 async function open(page: Page, baseURL: string, size: { width: number; height: number }) {
@@ -32,7 +32,9 @@ const measure = (page: Page) => page.evaluate(() => {
 const centre = (box: { x: number; width: number }) => box.x + box.width / 2;
 
 const SIZES = [
-  { name: 'a Pixel 5 phone', project: 'mobile-chromium', width: 393, height: 851, goal: false },
+  { name: 'a Pixel 5 phone', project: 'mobile-chromium', width: 393, height: 851, goal: true },
+  { name: 'a 360px phone', project: 'mobile-chromium', width: 360, height: 640, goal: true },
+  { name: 'a 320px phone', project: 'mobile-chromium', width: 320, height: 568, goal: false },
   { name: 'a 768px tablet', project: 'desktop-chromium', width: 768, height: 1024, goal: true },
   { name: 'a 1280 x 800 desktop', project: 'desktop-chromium', width: 1280, height: 800, goal: true },
 ] as const;
@@ -40,7 +42,7 @@ const SIZES = [
 for (const size of SIZES) {
   test(`keeps the guide centred under the pack with and without the goal on ${size.name}`, async ({ page, baseURL }, testInfo) => {
     test.skip(testInfo.project.name !== size.project, 'One project per width.');
-    const errors = await open(page, baseURL!, size.name === 'a Pixel 5 phone' ? { width: size.width, height: size.height } : size);
+    const errors = await open(page, baseURL!, { width: size.width, height: size.height });
     const withGoal = await measure(page);
     expect(await page.locator('.pack-milestone').count(), 'the goal is in the row').toBe(1);
     if (size.goal) {
@@ -50,8 +52,11 @@ for (const size of SIZES) {
       expect(withGoal.goal!.x + withGoal.goal!.width).toBeLessThanOrEqual(size.width);
       expect(withGoal.goal!.y).toBeGreaterThanOrEqual(withGoal.pack.y + withGoal.pack.height - 0.5);
       expect(withGoal.goal!.height).toBeLessThanOrEqual(withGoal.row.height + 0.5);
+      // On a wide screen it stays near the pack: at most 18rem wide, not out to the screen's edge.
+      const rem = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+      expect(withGoal.goal!.width).toBeLessThanOrEqual(18 * rem + 0.5);
     } else {
-      expect(withGoal.goal, 'a row too narrow for the goal beside a centred guide shows none').toBeNull();
+      expect(withGoal.goal, 'a row too narrow even for the compact goal shows none').toBeNull();
     }
     expect(Math.abs(centre(withGoal.guide) - centre(withGoal.pack)), 'guide centre vs pack centre, with the goal').toBeLessThanOrEqual(1);
 
