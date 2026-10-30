@@ -10,7 +10,8 @@
  * they change no odds, derivation, or engine logic.
  */
 import { getSet } from '../content/sets';
-import { decodeCards } from './cardCode';
+import type { SetDefinition } from '../engine';
+import { decodeCards, type StoredCard } from './cardCode';
 import { firstOpened, isHallOfFameWorthy, isKeysEntry, type HistoryEntry } from './history';
 import { getStoredPack } from './packStore';
 
@@ -48,8 +49,67 @@ export interface DroughtOptions {
   playerKeyHex?: string;
 }
 
+/** A pack's cards and set, as these counters read them. */
+export interface ReadablePack {
+  set: SetDefinition;
+  cards: readonly StoredCard[];
+}
+
+/**
+ * A pack's cards: its cached codes, else the pack this device re-opened. Null when they can't be read:
+ * not on this device, or a set version this build doesn't know (it has no rarities to read).
+ */
+export const readablePack = (entry: HistoryEntry): ReadablePack | null => {
+  const set = getSet(entry.setId, entry.setVersion);
+  if (!set) return null;
+  const cards =
+    entry.cards ??
+    (() => {
+      const reopened = getStoredPack(`${entry.setId}@${entry.setVersion}`, entry.key, entry.nonce);
+      return reopened ? decodeCards(reopened) : null;
+    })();
+  return cards ? { set, cards } : null;
+};
+
+/** Whether a pack holds each top tier: null for a tier it missed that a card id its set doesn't list leaves unknown. */
+export interface PackTiers {
+  brainrot: boolean | null;
+  legendaryPlus: boolean | null;
+  epicPlus: boolean | null;
+}
+
+/** The tiers one pack hit, or null when its cards can't be read (readablePack). */
+export const packTiers = (entry: HistoryEntry): PackTiers | null => {
+  const pack = readablePack(entry);
+  if (!pack) return null;
+  let hasBrainrot = false;
+  let hasLeg = false;
+  let hasEpic = false;
+  // A card id this set doesn't list has no rarity to read: a tier this pack didn't hit is unknown here,
+  // so it bounds that streak rather than counting the pack as a miss.
+  let hasUnknown = false;
+  for (const c of pack.cards) {
+    const rarity = pack.set.cards.find((d) => d.id === c.id)?.rarity;
+    if (rarity === undefined) {
+      hasUnknown = true;
+    } else if (rarity === 'BRAINROT') {
+      hasBrainrot = true;
+      hasLeg = true;
+      hasEpic = true;
+      break;
+    } else if (rarity === 'LEGENDARY') {
+      hasLeg = true;
+      hasEpic = true;
+    } else if (rarity === 'EPIC') {
+      hasEpic = true;
+    }
+  }
+  const tier = (hit: boolean) => (hit ? true : hasUnknown ? null : false);
+  return { brainrot: tier(hasBrainrot), legendaryPlus: tier(hasLeg), epicPlus: tier(hasEpic) };
+};
+
 /** Newest first: the latest openedAt, then the higher ticket; equal ones keep the caller's order. */
-const newestFirst = (a: HistoryEntry, b: HistoryEntry): number => b.openedAt - a.openedAt || b.nonce - a.nonce;
+export const newestFirst = (a: HistoryEntry, b: HistoryEntry): number => b.openedAt - a.openedAt || b.nonce - a.nonce;
 
 /**
  * Derives observational drought counters from local pack history. Sorted newest first here, so a caller
@@ -106,51 +166,18 @@ export const computeDroughtCounters = (
       }
     }
 
-    // Card contents check (resolves cached codes, or looks up in pack store if evicted from raw history).
-    // A pack from a set version this build doesn't know has no rarities to read, so it is unknown too.
-    const set = getSet(entry.setId, entry.setVersion);
-    const cards = !set
-      ? null
-      : (entry.cards ??
-        (() => {
-          const reopened = getStoredPack(`${entry.setId}@${entry.setVersion}`, entry.key, entry.nonce);
-          return reopened ? decodeCards(reopened) : null;
-        })());
+    const tiers = packTiers(entry);
 
-    if (!set || cards === null) {
+    if (tiers === null) {
       // Unknown card contents: this pack and older ones can't be counted, so the count is a lower bound.
       if (!brainrotFound) brainrotBounded = true;
       if (!legFound) legBounded = true;
       if (!epicFound) epicBounded = true;
     } else {
-      let hasBrainrot = false;
-      let hasLeg = false;
-      let hasEpic = false;
-      // A card id this set doesn't list has no rarity to read: a tier this pack didn't hit is unknown
-      // here, so it bounds that streak rather than counting the pack as a miss.
-      let hasUnknown = false;
-
-      for (const c of cards) {
-        const rarity = set.cards.find((d) => d.id === c.id)?.rarity;
-        if (rarity === undefined) {
-          hasUnknown = true;
-        } else if (rarity === 'BRAINROT') {
-          hasBrainrot = true;
-          hasLeg = true;
-          hasEpic = true;
-          break;
-        } else if (rarity === 'LEGENDARY') {
-          hasLeg = true;
-          hasEpic = true;
-        } else if (rarity === 'EPIC') {
-          hasEpic = true;
-        }
-      }
-
       if (!brainrotFound && !brainrotBounded) {
-        if (hasBrainrot) {
+        if (tiers.brainrot === true) {
           brainrotFound = true;
-        } else if (hasUnknown) {
+        } else if (tiers.brainrot === null) {
           brainrotBounded = true;
         } else {
           brainrotPacks++;
@@ -158,9 +185,9 @@ export const computeDroughtCounters = (
       }
 
       if (!legFound && !legBounded) {
-        if (hasLeg) {
+        if (tiers.legendaryPlus === true) {
           legFound = true;
-        } else if (hasUnknown) {
+        } else if (tiers.legendaryPlus === null) {
           legBounded = true;
         } else {
           legPacks++;
@@ -168,9 +195,9 @@ export const computeDroughtCounters = (
       }
 
       if (!epicFound && !epicBounded) {
-        if (hasEpic) {
+        if (tiers.epicPlus === true) {
           epicFound = true;
-        } else if (hasUnknown) {
+        } else if (tiers.epicPlus === null) {
           epicBounded = true;
         } else {
           epicPacks++;

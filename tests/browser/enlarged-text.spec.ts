@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, scaleText } from './support';
+import { monitor, scaleText, PLAYER_KEY_PREFIX } from './support';
+import { STORAGE_KEYS } from '../../src/constants/config';
 
 // Enlarged text on the narrowest phone (#681, #682, #765): the Cards page's unstarted-era rows, the empty
 // Profile's first-pack button and Settings' Motion row wrap inside the page instead of running off its right edge.
@@ -168,3 +169,56 @@ for (const width of [320, 390]) {
     });
   }
 }
+
+// Personal records (#1287): the fixture's ten 1,020-point packs, all on one day, give every record a
+// value to beat. The book's cells wrap to one column instead of running off the page, and no value or
+// detail line is clipped.
+for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }]) {
+  for (const percent of [100, 200]) {
+    test(`Profile: Personal records fit a ${viewport.width}x${viewport.height} phone at ${percent}% text (#1287)`, { tag: '@mobile-only' }, async ({ page, baseURL }) => {
+      await page.setViewportSize(viewport);
+      const errors = await monitor(page, baseURL!, 10, { returning: true });
+      await page.goto('./#/profile');
+      const book = pageNamed(page, 'Profile').getByRole('region', { name: 'Personal records', exact: true });
+      await expect(book).toBeVisible();
+      await expect(book).toContainText('Beat 10 packs to set it');
+      await expect(book).toContainText('Beat 1,020 to set it');
+      await scaleText(page, percent);
+      await book.scrollIntoViewIfNeeded();
+      await insidePage(page, book, viewport.width);
+      await unclipped(book);
+      // It sits between the stats and Achievements, under the page's one heading level.
+      const headings = await pageNamed(page, 'Profile').getByRole('heading', { level: 2 }).allTextContents();
+      expect(headings.indexOf('Personal records')).toBeGreaterThan(headings.indexOf('Level and stats'));
+      expect(headings.indexOf('Personal records')).toBeLessThan(headings.indexOf('Achievements'));
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+// A pack that set a best when it opened keeps its medal on its Profile history row (#1287): ticket 1
+// beat ticket 0. At 200% text the row, medal and all, stays inside a 360 px phone.
+test('Profile: a history row keeps its medal inside a 360x740 phone at 200% text (#1287)', { tag: '@mobile-only' }, async ({ page, baseURL }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const errors = await monitor(page, baseURL!, 2, { returning: true });
+  await page.addInitScript(({ keys, prefix }) => {
+    if (sessionStorage.getItem('records-seeded')) return;
+    sessionStorage.setItem('records-seeded', '1');
+    const c = 'bukangi,niu-laiG,bukangi,la-peace,verity';
+    localStorage.setItem(keys.HISTORY, JSON.stringify([
+      { s: 'right-now', v: 2, n: 1, k: prefix, c, h: 'Pair', x: 1_020, t: 2_000 },
+      { s: 'right-now', v: 2, n: 0, k: prefix, c, h: 'Pair', x: 500, t: 1_000 },
+    ]));
+  }, { keys: STORAGE_KEYS, prefix: PLAYER_KEY_PREFIX });
+  await page.goto('./#/profile');
+  const history = pageNamed(page, 'Profile').locator('.pulls-history');
+  const medalled = history.locator('.pull-row').filter({ has: page.locator('.pull-row-medal') });
+  await expect(medalled).toHaveCount(1);
+  await expect(medalled).toContainText('1,020');
+  await expect(medalled).toContainText(', a new best when opened');
+  await scaleText(page, 200);
+  await medalled.scrollIntoViewIfNeeded();
+  await expect(medalled.locator('.pull-row-medal')).toBeVisible();
+  await insidePage(page, medalled, 360);
+  expect(errors).toEqual([]);
+});

@@ -381,10 +381,17 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   verified, and Verified covers that pack only: the level and totals stay this device's progress, as
   the footnote under them says. Best pack shares through its pull proof, Best card opens the card
   viewer; level and stats (your own profile drops the best-score stat and Best pulls, which would
-  repeat them; a shared profile keeps both); the collection score and sets; Achievements (`#achievements`, the
+  repeat them; a shared profile keeps both); the collection score and sets; Personal records
+  (`profile/RecordBook.tsx`, #1287: Most holos in a pack, Most packs in a day, Longest Brainrot drought
+  broken, then Best pack by set under an `h3`; each shows its value with "previous [n] · [date]", or "Not
+  set yet" with the value to beat while only a first value stands, from `recordBook` in
+  `src/game/personalRecords.ts`: own key, one record per ticket, a strict beat sets a record and a tie keeps
+  the earlier one, days are the device's calendar days; the card-read records say "Counting…" while saved
+  packs load); Achievements (`#achievements`, the
   three newest with "Show all achievements" folded below; achievement toasts link here and open it);
   "Card back and foil" (`#rewards`, a closed `<details>` whose summary counts what is unlocked;
-  level-up toasts open it); All packs; then a one-line "Saved in this browser · Back up" footnote.
+  level-up toasts open it); All packs (a pack that set an all-time best when it opened keeps a solid
+  medal on its row, a best in its set an outlined one, `packMedals`); then a one-line "Saved in this browser · Back up" footnote.
   Sections share one left edge and `--space-6` between them. Its shareable image is the "Profile
   card"; "Player ID" stays the name of the key's fingerprint, as on proofs. Leaving Profile saves a
   changed name, unless saving that same name just failed.
@@ -561,7 +568,7 @@ it explains the formula, not pull excitement. The one exception is a shared pull
 names a real combo, so `PackCardViewer` drops the headline there (`titled`), and only when the multiplier is
 above 1; a No Matches pull keeps its line.
 
-(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. A pack that strictly beats the player's best before it (all sets, their own key, one record per ticket; a first pack or a tie is no record, #1287) leads the heading with a small **NEW BEST** line (a solid medal: all-time) and adds **previous best [score] · +[n]%** under the combo (the **· +[n]%** only when it rounds to 1% or more), both static and known at the first paint (`src/game/personalRecords.ts`). A pack whose ticket the profile admits another set's record of is no record. Then the Rankings line: Submit when the pull
+(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. A pack that strictly beats the player's best before it (all sets, their own key, one record per ticket; a first pack or a tie is no record, #1287) leads the heading with a small **NEW BEST** line (a solid medal: all-time) and adds **previous best [score] · +[n]%** under the combo (the **· +[n]%** only when it rounds to 1% or more), both static and known at the first paint (`src/game/personalRecords.ts`). A pack that doesn't beat that but strictly beats the player's earlier packs in its own set leads instead with **Best in [set]** (an outlined medal, one line: a long set name is cut short on screen) and **previous set best [score] · +[n]%**; a pack that is the player's #2 or #3 so far (an earlier equal score ranks above; it needs at least 2 earlier packs and must beat one of them) gets one quiet line, **your #2 pack ever**, under the combo and nothing in the heading. A pack whose ticket the profile admits another set's record of is no record. Then the Rankings line: Submit when the pull
 qualifies, or the one-sentence reason there is none when it doesn't (#1004). The Card guide (one tap, no fold) has
 points per rarity, the holo, finish and misprint bonuses, the combo multipliers (with a note that a combo counts copies of the same card, and worked
 examples), and Score = card points added up × combo multiplier. There is no per-pack breakdown.
@@ -570,7 +577,8 @@ examples), and Score = card points added up × combo multiplier. There is no per
 
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
 no horizontal scroll): the headline (score and combo with its odds on one line each; for a new
-personal best, the **NEW BEST** line above the score and the previous-best line under the combo; then the
+personal best, the **NEW BEST** line above the score and the previous-best line under the combo, or the same
+two lines for a set best, or one rank line for a #2 or #3 pack; then the
 Rankings line: a Submit, or one muted sentence saying why there is none, which can wrap to three
 lines at 360 and 390), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
 compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is

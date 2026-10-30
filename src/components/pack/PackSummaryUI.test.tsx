@@ -271,7 +271,7 @@ describe('finished card tiles (#620)', () => {
   });
 });
 
-describe('NEW BEST (#1287)', () => {
+describe('record lines (#1287)', () => {
   const key = '0123456789abcdef0000111122223333';
   const score = scoreCards(cards).score;
   const pack = { setId: set.id, setVersion: set.version, nonce: 2, publicKeyHex: key };
@@ -307,5 +307,20 @@ describe('NEW BEST (#1287)', () => {
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={{ ...pack, publicKeyHex: 'fedcba98765432100000111122223333' }} />));
     expect(text()).not.toContain('NEW BEST');
     expect(text()).not.toContain('previous best');
+  });
+
+  it("says a set best when the pack beats only its set's earlier packs, and ranks a tie with the best #2", () => {
+    localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([
+      { s: set.id, v: set.version, n: 2, k: key.slice(0, 16), h: 'Pair', x: score, t: 3_000 },
+      { s: 'other-set', v: 1, n: 1, k: key.slice(0, 16), h: 'Pair', x: score + 1, t: 2_000 },
+      { s: set.id, v: set.version, n: 0, k: key.slice(0, 16), h: 'Pair', x: score - 1, t: 1_000 },
+    ]));
+    show();
+    expect(heading()).toBe(`Best in ${set.name}:${score.toLocaleString()} Brainrot Score`);
+    expect(container.querySelector('.pack-headline-previous')!.textContent).toContain(`previous set best ${(score - 1).toLocaleString()}`);
+    seed(score, 1);
+    act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={{ ...pack }} />));
+    expect(container.querySelector('.pack-headline-record')).toBeNull();
+    expect(container.querySelector('.pack-headline-rank')!.textContent).toBe('your #2 pack ever');
   });
 });
