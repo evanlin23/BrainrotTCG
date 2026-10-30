@@ -831,6 +831,67 @@ describe('one record per pack, whatever order the player and the ticket arrive i
     expect(document.querySelector('.card-reveal-area')).toBeNull();
   });
 
+  it('shows wait feedback when pressed while an earlier left pack is still pending (#1277)', async () => {
+    let landFirst = () => {};
+    let landSecond = () => {};
+    const firstTicket = new Promise<Awaited<ReturnType<typeof openPack>>>((resolve) => { landFirst = () => resolve(dealt); });
+    const secondTicket = new Promise<Awaited<ReturnType<typeof openPack>>>((resolve) => { landSecond = () => resolve(dealt); });
+    vi.mocked(openPack).mockReturnValueOnce(firstTicket).mockReturnValueOnce(secondTicket);
+
+    await show();
+    await tear();
+
+    act(() => {
+      const closeButton = document.querySelector<HTMLButtonElement>('.pack-close');
+      expect(closeButton).not.toBeNull();
+      closeButton!.click();
+    });
+
+    const pack = document.querySelector<HTMLElement>('[data-pack-open]');
+    expect(pack).not.toBeNull();
+    act(() => pack!.click());
+
+    const liveRegion = document.querySelector<HTMLElement>('.pack-opener-container > [aria-live="polite"]');
+    expect(liveRegion?.textContent).toBe('Opening the pack…');
+    expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull();
+
+    await act(async () => { landFirst(); });
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(liveRegion?.textContent).toBe('');
+    expect(document.querySelector('.pack-hint.is-waiting')).toBeNull();
+
+    act(() => pack!.click());
+    await act(async () => { vi.advanceTimersByTime(500); });
+    expect(openPack).toHaveBeenCalledTimes(2);
+
+    await act(async () => { landSecond(); });
+    expect(document.querySelector('.card-reveal-area')).not.toBeNull();
+  });
+
+  it('shows wait feedback when swiped while an earlier left pack is still pending (#1277)', async () => {
+    const landFirst = holdTicket();
+    await show();
+    await tear();
+
+    act(() => {
+      const closeButton = document.querySelector<HTMLButtonElement>('.pack-close');
+      expect(closeButton).not.toBeNull();
+      closeButton!.click();
+    });
+
+    act(() => cutter.tear());
+
+    const liveRegion = document.querySelector<HTMLElement>('.pack-opener-container > [aria-live="polite"]');
+    expect(liveRegion?.textContent).toBe('Opening the pack…');
+    expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull();
+
+    await landFirst();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(liveRegion?.textContent).toBe('');
+    expect(document.querySelector('.pack-hint.is-waiting')).toBeNull();
+  });
+
   it('keeps a pack whose ticket lands after the opener unmounted', async () => {
     const land = holdTicket();
     await show();
