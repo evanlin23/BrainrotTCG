@@ -3,6 +3,51 @@
  * order. Like the rare slot in a real booster, the best card comes last.
  */
 import { cardPoints, type Finish, type Rarity } from '../engine';
+import { setProgress } from './progression';
+
+export interface TakeoverSetContext {
+  /** How many unique cards the player owns in this set (including this card if new). */
+  owned?: number;
+  /** Unique cards owned in this set before this reveal. */
+  ownedBefore?: number;
+  /** Total cards in this set. */
+  size?: number;
+  /** How many holos the player owns in this set. */
+  holoOwned?: number;
+  cards?: readonly unknown[];
+  id?: string;
+}
+
+export interface TakeoverCollectionContext {
+  /** How many unique collectible cards the player owns (including this card if new). */
+  owned?: number;
+  /** Unique collectible cards owned before this reveal. */
+  ownedBefore?: number;
+  /** Total collectible cards in the collection. */
+  total?: number;
+}
+
+export interface TakeoverContext {
+  set?: TakeoverSetContext;
+  collection?: TakeoverCollectionContext;
+  setOwned?: number;
+  setOwnedBefore?: number;
+  setSize?: number;
+  setHoloOwned?: number;
+  collectionOwned?: number;
+  collectionOwnedBefore?: number;
+  collectionTotal?: number;
+  setComplete?: boolean;
+  collectionComplete?: boolean;
+}
+
+export type TakeoverCard = {
+  rarity: Rarity;
+  isNew?: boolean;
+  isHolo?: boolean;
+  finish?: Finish | null;
+  misprint?: boolean;
+};
 
 type Revealable = { rarity: Rarity; isHolo: boolean; finish?: Finish | null; misprint?: boolean };
 
@@ -13,6 +58,58 @@ const rank = (card: Revealable) => cardPoints(card.rarity, card.isHolo, card.fin
 export const SPECIAL_REVEAL_CUTOFF = 5_000;
 export const SPECIAL_REVEAL_DURATION_MS = 3_000;
 export const isSpecialReveal = (card: Revealable): boolean => card.rarity === 'BRAINROT' || rank(card) >= SPECIAL_REVEAL_CUTOFF;
+
+/**
+ * Cinematic takeover reveal trigger (Spec 1, #1293).
+ *
+ * Returns true when the card is of Brainrot rarity, or is a new card that completes its set,
+ * or completes the collection. Points alone never trigger it (even if 10,000+ points).
+ * Evaluates completion via the same set-progress helper the Collection page uses (`setProgress`).
+ */
+export const isTakeoverReveal = (card: TakeoverCard, context?: TakeoverContext): boolean => {
+  if (card.rarity === 'BRAINROT') {
+    return true;
+  }
+
+  // Points alone never trigger the takeover. Only a new card can complete a set or collection.
+  if (!card.isNew || !context) {
+    return false;
+  }
+
+  if (context.setComplete) {
+    return true;
+  }
+
+  const setOwnedBefore = context.set?.ownedBefore ?? context.setOwnedBefore;
+  const setOwned = context.set?.owned ?? context.setOwned ?? (setOwnedBefore !== undefined ? setOwnedBefore + 1 : undefined);
+  const setSize = (context.set && 'size' in context.set && typeof context.set.size === 'number' ? context.set.size : undefined)
+    ?? (context.set && 'cards' in context.set && Array.isArray(context.set.cards) ? context.set.cards.length : undefined)
+    ?? context.setSize;
+  const setHolo = context.set?.holoOwned ?? context.setHoloOwned ?? 0;
+
+  if (setOwned !== undefined && setSize !== undefined) {
+    if (setProgress(setOwned, setHolo, setSize) !== null) {
+      return true;
+    }
+  }
+
+  if (context.collectionComplete) {
+    return true;
+  }
+
+  const collectionOwnedBefore = context.collection?.ownedBefore ?? context.collectionOwnedBefore;
+  const collectionOwned = context.collection?.owned ?? context.collectionOwned ?? (collectionOwnedBefore !== undefined ? collectionOwnedBefore + 1 : undefined);
+  const collectionTotal = (context.collection && 'total' in context.collection && typeof context.collection.total === 'number' ? context.collection.total : undefined)
+    ?? context.collectionTotal;
+
+  if (collectionOwned !== undefined && collectionTotal !== undefined) {
+    if (setProgress(collectionOwned, 0, collectionTotal) !== null) {
+      return true;
+    }
+  }
+
+  return false;
+};
 
 /** Skip can pass ordinary cards, but every still-hidden valuable card must get its own reveal. */
 export const nextSpecialRevealIndex = (cards: readonly (Revealable & { isRevealed: boolean })[]): number =>
