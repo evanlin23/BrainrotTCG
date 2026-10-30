@@ -387,7 +387,7 @@ test('worker outbound fetch is blocked and healthy worker still works', async ({
       worker.onerror = (e) => resolve('error: ' + (e.message || 'egress worker failed'));
     });
   });
-  expect(egressResult).not.toBe('leaked');
+  expect(egressResult).toMatch(/^blocked: /);
   expect(externalHits).toBe(0);
   // The worker's own egress attempt is recorded, not just refused.
   await expect.poll(() => errors.blocked.some((b) => b.includes(externalOrigin))).toBe(true);
@@ -500,11 +500,7 @@ function openSocket(page: Page, url: string) {
   return page.evaluate((target) => new Promise<string>((resolve) => {
     const socket = new WebSocket(target);
     const finish = (result: string) => {
-      try {
-        socket.close();
-      } catch {
-        // Socket may already be closed or errored
-      }
+      socket.close();
       resolve(result);
     };
     socket.onopen = () => finish('open');

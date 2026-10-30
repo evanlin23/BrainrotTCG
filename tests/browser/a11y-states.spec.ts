@@ -28,7 +28,7 @@ test('the card close-up levels, and stops tilting, when reduced motion turns on 
 
   // Motion allowed: the card follows the mouse. The media change and the mouse listener reach the
   // page asynchronously, so each move waits for the card to say it follows the mouse (data-tilt)
-  // before reading its settled bounding box.
+  // before reading coordinates and dispatching mousemove.
   await expect(card).toHaveAttribute('data-tilt', 'live');
   let box = (await card.boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.9);
