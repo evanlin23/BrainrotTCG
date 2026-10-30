@@ -1,9 +1,10 @@
-/* The next goal (#212): one line beside the Card guide link, in the row the guide already takes under the
-   pack (App.tsx), so it adds no height of its own and can't change the pack's size or place, the nav's, or
-   cover the pack, its tear line or the toast. Opening the pack stays the biggest thing on screen. It is
-   exactly the row's height (a 44px target): two short lines, a small picture of the reward when it has one,
-   and nothing in it moves, so there is no motion to turn off. A row too narrow for it (a 320px
-   phone, enlarged text), a short landscape screen and a row that already shows an announcement (News.css,
+/* The next goal (#212): one chip to the right of the Card guide link, in the row the guide already takes under
+   the pack (App.tsx), with the guide kept centred under the pack (see the grid below). It adds no height of
+   its own, so it can't change the pack's size or place, the nav's, or cover the pack, its tear line or the
+   toast. Opening the pack stays the biggest thing on screen. It is exactly the row's height (a 44px target):
+   two short lines and a small picture of the reward when it has one (one line, no picture on a phone, where
+   the column beside the centred guide is narrow), and nothing in it moves, so there is no motion to turn
+   off. A row too narrow even for that (a 320px phone, enlarged text), a short landscape screen and a row that already shows an announcement (News.css,
    which comes first in the row) show nothing rather than squeeze the guide link. */
 .pack-milestone {
   position: relative;
@@ -139,16 +140,48 @@ button.pack-milestone:disabled {
   }
 }
 
-/* The row (Scoring.css) is the container, so the thresholds follow the text size as well as the width. */
+/* The Card guide link stays centred under the pack, with the goal or without it (the owner's call on #212): the row
+   is three columns, the guide alone in the middle one and the goal in the one after it, so the goal can't push the
+   guide aside. The left column stays empty. While an announcement is in the row (News.css) the row keeps its own
+   flex layout, which that chip is sized for. */
+.card-guide-entry:has(> .pack-milestone):not(:has(> .news-banner)) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.card-guide-entry:has(> .pack-milestone):not(:has(> .news-banner)) > :not(.pack-milestone) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+/* The goal fills its column up to a cap, so on a wide screen it stays near the pack and the row reads as balanced
+   around it instead of running to the screen's edge. */
+.card-guide-entry > .pack-milestone {
+  grid-column: 3;
+  grid-row: 1;
+  max-width: 18rem;
+}
+
+/* The row (Scoring.css) is the container, so the thresholds follow the text size as well as the width. A row this
+   narrow (a 320px phone, enlarged text) shows no goal rather than shift or squeeze the guide. */
 @container card-guide (max-width: 20rem) {
   .pack-milestone {
     display: none;
   }
 }
 
-@container card-guide (min-width: 38rem) {
-  .pack-milestone {
-    max-width: 40rem;
+/* Beside a centred guide a phone's column is about 6rem to 12rem: the goal shrinks to its name, how far along it is
+   and the progress bar. The picture and the "Cosmetic, odds unchanged" line give way here only to the eye: that
+   text stays in the chip's accessible name and its tooltip, so the cosmetic-versus-odds distinction is not lost.
+   From 34rem the column holds the whole chip. */
+@container card-guide (max-width: 34rem) {
+  .card-guide-entry > .pack-milestone {
+    margin-left: var(--space-2);
+    padding: 0 var(--space-2);
+  }
+  .card-guide-entry > .pack-milestone .back-swatch,
+  .card-guide-entry > .pack-milestone .pack-milestone-detail {
+    display: none;
   }
 }
 
