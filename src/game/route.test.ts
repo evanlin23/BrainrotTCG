@@ -21,11 +21,11 @@ describe('set links', () => {
 
 describe('isRouteHash', () => {
   it('matches exactly the hashes the app acts on: pages, shared links and set links', () => {
-    const hashes = ['', '#', '#/', '#/open', '#/cards', '#/rankings', '#/profile', '#/settings', '#/cards/', '#/settingsx', '#/cards?x',
+    const hashes = ['', '#', '#/', '#/open', '#/cards', '#/rankings', '#/profile', '#/settings', '#/news', '#/news/', '#/newsx', '#/cards/', '#/settingsx', '#/cards?x',
       '#/pull/abc', '#/pull/', '#/profile/abc', '#/pulls/abc', '#/set/genesis', '#/set/right-now/', '#/set/Genesis', '#/set/', '#/send', '#/receive', 'x#/cards'];
     for (const hash of hashes) {
       expect(isRouteHash(hash), hash).toBe(pageForHash(hash) !== null || isLinkHash(hash) || setIdFromHash(hash) !== null);
     }
-    expect(hashes.filter(isRouteHash)).toEqual(['#/cards', '#/rankings', '#/profile', '#/settings', '#/pull/abc', '#/pull/', '#/profile/abc', '#/set/genesis', '#/set/right-now/']);
+    expect(hashes.filter(isRouteHash)).toEqual(['#/cards', '#/rankings', '#/profile', '#/settings', '#/news', '#/pull/abc', '#/pull/', '#/profile/abc', '#/set/genesis', '#/set/right-now/']);
   });
 });
