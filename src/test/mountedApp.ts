@@ -6,6 +6,8 @@ import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
 // framer-motion is a dependency, so vi.resetModules doesn't re-evaluate it, and its frame loop keeps
 // the requestAnimationFrame it first saw. Hand it one that schedules on whichever fake clock is
 // current, so a second mount in the same file still animates.
+// The real timer, for delays that stand for real-world latency rather than the app's own (fake) clock.
+const realSetTimeout = globalThis.setTimeout;
 let fakeFrame: typeof requestAnimationFrame;
 const onFakeFrame = (callback: FrameRequestCallback) => fakeFrame(callback);
 
@@ -21,9 +23,10 @@ export type TicketReply = { delayMs: number } | { error: string } | 'crash';
  * asks for it), and relay sockets close unanswered; every other request still fails. news stands in for the
  * banner's shipped src/content/news.json (none unless a test supplies items); it is imported, not
  * fetched, so it needs no allowance from the I/O guard, and newsLoads() says whether the app asked.
+ * newsDelayMs holds the news back that long in real time, as a slow chunk would be.
  */
 export async function mountedApp(storage: Record<string, string>,
-  options: { tickets?: (request: TicketRequest) => TicketReply | undefined; hallOfFame?: unknown[]; news?: unknown[] } = {}) {
+  options: { tickets?: (request: TicketRequest) => TicketReply | undefined; hallOfFame?: unknown[]; news?: unknown[]; newsDelayMs?: number } = {}) {
   const errors: string[] = [];
   const jobs = new Set<Promise<unknown>>();
   const track = (job: Promise<unknown>) => {
@@ -52,12 +55,22 @@ export async function mountedApp(storage: Record<string, string>,
     errors.push(error);
     throw new Error(error);
   };
-  const { hallOfFame, news = [] } = options;
+  const { hallOfFame, news = [], newsDelayMs } = options;
   const newsLoaded = vi.fn();
-  vi.doMock('../content/news.json', () => {
-    newsLoaded();
-    return { default: news };
-  });
+  // With newsDelayMs the news arrives that many real milliseconds after it is asked for (a slow chunk on a slow runner).
+  let newsArrives!: () => void;
+  const newsArrived = new Promise<void>((resolve) => { newsArrives = resolve; });
+  vi.doMock('../content/news.json', newsDelayMs === undefined
+    ? () => {
+      newsLoaded();
+      return { default: news };
+    }
+    : async () => {
+      newsLoaded();
+      await new Promise((resolve) => realSetTimeout(resolve, newsDelayMs));
+      newsArrives();
+      return { default: news };
+    });
   // With a list, nothing has been withdrawn from it either (the pending check reads that next to it).
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) =>
     hallOfFame && String(input).endsWith('hall-of-fame.json') ? Promise.resolve(Response.json(hallOfFame))
@@ -129,6 +142,9 @@ export async function mountedApp(storage: Record<string, string>,
   vi.stubGlobal('Worker', TicketWorker);
 
   async function unmount() {
+    // A lazy import the app started is still on its way (the news, a page's chunk): let it land and
+    // its follow-up run while this app is up, so it can't write to the storage the next mount starts from.
+    if (root) await act(async () => { await vi.dynamicImportSettled(); });
     if (root) await act(async () => root?.unmount());
     root = undefined;
     for (const worker of workers) worker.terminate();
@@ -179,6 +195,8 @@ export async function mountedApp(storage: Record<string, string>,
     ticketRequests,
     /** How many times the app has imported the shipped news (the module loads once per mount or reload). */
     newsLoads: () => newsLoaded.mock.calls.length,
+    /** Settles once a news import delayed by newsDelayMs has arrived. */
+    newsArrived,
     async reload() {
       await unmount();
       const saved = Object.fromEntries(Object.entries(localStorage));
