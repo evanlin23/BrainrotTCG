@@ -163,6 +163,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const effectsVolume = effectsLevel(settings.effectsVolume);
   const pauseBigPulls = settings.pauseBigPulls !== false;
 
+  /** When the player left while a ticket was still mining and then taps or swipes the pack, say it is opening. */
+  const [leavingWaiting, setLeavingWaiting] = useState(false);
+
   const { playAndCleanup, preloadAudio, loadDeferred, cleanupAudio, playRandom, stopAll } = useAudio();
 
   const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -283,7 +286,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     };
   }, [isPackCut, isOpening]);
 
+  /** A swipe on a pack another tab holds the save for answers as a tap does (handleOpen, below). */
+  const handleOpenRef = useRef<() => void>(() => {});
+  const swipeBlocked = useCallback(() => handleOpenRef.current(), []);
+
   const handleCutComplete = useCallback(() => {
+    if (leavingOpen) {
+      landingRef.current.resetCutState();
+      setLeavingWaiting(true);
+      return;
+    }
     const torn = send({ type: 'tear' });
     if (torn.stage === torn.from) return;
     // A key can tear the pack mid-fall. The fall's watch reads the stage each frame, which must stop
@@ -302,7 +314,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       // Started: from here the ticket is spent, so leaving keeps the pack rather than cancelling it.
       else if (spent.stage !== spent.from) void startOpening();
     }, 460);
-  }, [startOpening, send]);
+  }, [startOpening, send, leavingOpen]);
 
   const {
     packRef,
@@ -320,16 +332,23 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   } = usePackCutter({
     onCutComplete: handleCutComplete,
     isOpening,
-    isPackCut,
-    volume: effectsVolume,
+    isPackCut: isPackCut && !leavingOpen,
+    volume: leavingOpen ? 0 : effectsVolume,
     particlesEnabled: settings.particlesEnabled,
-    disabled: disabled || openBlocked,
+    disabled,
+    blocked: openBlocked,
     onMiss: nudgeMiss,
     onShortSwipe: nudgeShort,
+    onBlockedSwipe: swipeBlocked,
   });
 
+  const resetCut = useCallback(() => {
+    setLeavingWaiting(false);
+    resetCutState();
+  }, [resetCutState]);
+
   useEffect(() => {
-    landingRef.current = { onOpen, onLeaveEarly, resetCutState };
+    landingRef.current = { onOpen, onLeaveEarly, resetCutState: resetCut };
   });
 
   useEffect(() => {
@@ -355,14 +374,23 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
    */
   const { cue, end: endCue, touch: touchPack } = useOpenCue(openCue);
   const handleOpen = useCallback(() => {
-    if (disabled || isPackCut || isOpening) return;
+    if (disabled || isOpening) return;
+    if (leavingOpen) {
+      touchPack();
+      setLeavingWaiting(true);
+      return;
+    }
+    if (isPackCut) return;
     touchPack();
     if (openBlocked) {
       send({ type: 'refuse', refusal: 'blocked' });
       return;
     }
     completeCut();
-  }, [disabled, isPackCut, isOpening, openBlocked, completeCut, touchPack, send]);
+  }, [disabled, isOpening, leavingOpen, isPackCut, openBlocked, completeCut, touchPack, send]);
+  useEffect(() => {
+    handleOpenRef.current = handleOpen;
+  });
 
   /** Set when the player goes back to the sealed pack, so the pack takes focus once it's there. */
   const focusOpenRef = useRef(false);
@@ -564,6 +592,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       case 'waiting':
         // Its ticket is spent and still on its way: startOpening records it when it lands.
         resetCutState();
+        setLeavingWaiting(false);
         focusOpenRef.current = true;
         break;
       case 'sealed':
@@ -779,7 +808,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     return () => onShowcaseChange?.(false);
   }, [holdNotices, onShowcaseChange]);
 
-  const waiting = slowOpen && isPackCut && !isOpening && !leavingOpen;
+  const waiting = (slowOpen && isPackCut && !isOpening && !leavingOpen) || (leavingOpen && leavingWaiting);
   // The pack's one polite live region, for every stage: why a pack stayed sealed, the wait for a slow
   // ticket, and each card as it turns face up (never before, so nothing is spoiled). It is always
   // mounted, so a change is read. The summary says itself: its heading takes focus.

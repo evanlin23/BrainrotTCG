@@ -91,6 +91,20 @@
   gap: var(--space-2);
 }
 
+.collection-select-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+}
+
+.collection-filter-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 .collection-select {
   max-width: 100%;
   min-height: var(--touch-target);
@@ -171,10 +185,26 @@
   letter-spacing: 0.02em;
 }
 
+.collection-filter-status.is-reason {
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-weight: 400;
+  text-align: center;
+}
+
 .collection-empty-filter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-6) var(--space-4);
   text-align: center;
   color: var(--text-muted);
+}
+
+.collection-empty-filter p {
+  margin: 0;
 }
 
 /* The heading holds the set's show/hide button (#344); the button carries the type. */

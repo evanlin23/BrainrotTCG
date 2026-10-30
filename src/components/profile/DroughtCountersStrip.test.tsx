@@ -65,6 +65,29 @@ describe('DroughtCountersStrip', () => {
     expect(container.textContent).not.toContain('+ At least');
   });
 
+  it('places <dt> before <dd> in every counter pair so screen readers announce label before count (#1275)', () => {
+    const stats: PullDroughtStats = {
+      totalPacks: 25,
+      brainrot: { packsSince: 25, foundInHistory: false },
+      legendaryPlus: { packsSince: 12, foundInHistory: true },
+      epicPlus: { packsSince: 1, foundInHistory: true },
+      rankingsQualifier: { packsSince: 5, foundInHistory: true },
+    };
+
+    render(stats);
+
+    const pairs = container.querySelectorAll('.profile-drought-stats > div');
+    expect(pairs.length).toBe(4);
+    pairs.forEach((pair) => {
+      const dt = pair.querySelector('dt');
+      const dd = pair.querySelector('dd');
+      expect(dt).not.toBeNull();
+      expect(dd).not.toBeNull();
+      expect(pair.firstElementChild).toBe(dt);
+      expect(dt?.nextElementSibling).toBe(dd);
+    });
+  });
+
   it('shows no marker footnotes when every count is exact', () => {
     render({
       totalPacks: 9,
