@@ -12,6 +12,9 @@
  *   the app and no share, set or #/ address (scripts/crawler-files.ts);
  * - every share and set page scripts/preview-pages.ts writes for the set registry is there and
  *   forwards to BASE_PATH (a set's page to #/set/<set id> there);
+ * - the web app manifest (manifest.webmanifest) is there, and its start_url, scope and every icon,
+ *   resolved against the manifest's own address as a browser does, stay under BASE_PATH and land on
+ *   files in the build (a root-absolute "/icon.png" would 404 under /BrainrotTCG/);
  * - the cache contract (docs/HOSTING.md): everything in assets/ has a content hash in its name, pages
  *   load their code and styles from there, every other file sits at the top or in p/ or s/, and a
  *   _headers file, if there is one, marks only assets/ immutable;
@@ -201,6 +204,51 @@ export const checkCrawlerFiles = (site: string, robots: string | undefined, site
   return errors;
 };
 
+/**
+ * Problems with a build's web app manifest (undefined when missing) at `base`. Its URLs are resolved
+ * against the manifest's own address, as a browser does, so a root-absolute "/icon.png" that Vite
+ * copied from public/ unchanged shows up as outside the base, and a relative one resolves under
+ * either base. `present` is the build's files.
+ */
+export const checkManifest = (manifest: string | undefined, base: string, present: ReadonlySet<string>): AssetValidationError[] => {
+  const file = 'manifest.webmanifest';
+  if (manifest === undefined) return [{ path: file, error: 'Missing' }];
+  let json: { start_url?: unknown; scope?: unknown; icons?: unknown };
+  try {
+    json = JSON.parse(manifest);
+  } catch {
+    return [{ path: file, error: "Isn't valid JSON" }];
+  }
+  const errors: AssetValidationError[] = [];
+  const origin = 'https://x.test';
+  const manifestUrl = new URL(`${origin}${base}${file}`);
+  const resolve = (name: string, value: unknown): URL | undefined => {
+    if (typeof value !== 'string' || !value) {
+      errors.push({ path: file, error: `${name} is missing` });
+      return undefined;
+    }
+    const url = new URL(value, manifestUrl);
+    if (url.origin !== origin || !url.pathname.startsWith(base)) {
+      errors.push({ path: file, error: `${name} ${value} resolves to ${url.href}, outside BASE_PATH ${base}` });
+      return undefined;
+    }
+    return url;
+  };
+  const start = resolve('start_url', json.start_url);
+  const scope = resolve('scope', json.scope);
+  if (start && scope && !start.pathname.startsWith(scope.pathname)) errors.push({ path: file, error: `start_url ${start.pathname} is outside scope ${scope.pathname}` });
+  for (const url of [start, scope]) {
+    if (url && !present.has(`${url.pathname.slice(base.length)}index.html`)) errors.push({ path: file, error: `${url.pathname} isn't a page in the build` });
+  }
+  const icons = Array.isArray(json.icons) ? (json.icons as { src?: unknown }[]) : [];
+  if (!icons.length) errors.push({ path: file, error: 'Has no icons' });
+  for (const icon of icons) {
+    const url = resolve('icon src', icon?.src);
+    if (url && !present.has(url.pathname.slice(base.length))) errors.push({ path: file, error: `Icon ${String(icon.src)} resolves to ${url.pathname}, which isn't in the build` });
+  }
+  return errors;
+};
+
 // The build draws every link-preview picture as a JPEG (scripts/preview-pages.ts, public/og-image.jpg).
 const IMAGE_FORMATS: Record<string, AssetCheck['format']> = { '.jpg': 'jpeg', '.jpeg': 'jpeg' };
 
@@ -357,6 +405,8 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
   const index = readFileSync(path.join(outDir, 'index.html'));
   const upFront = firstLoadFiles(index.toString('utf8'), base).filter((file) => present.has(file));
   errors.push(...checkFirstLoad(upFront.reduce((sum, file) => sum + gzipSync(readFileSync(path.join(outDir, file))).length, gzipSync(index).length)));
+
+  errors.push(...checkManifest(optional('manifest.webmanifest'), base, present));
 
   const headersFile = path.join(outDir, '_headers');
   errors.push(...checkCacheContract(files, base, existsSync(headersFile) ? readFileSync(headersFile, 'utf8') : undefined, sourceNames()));
