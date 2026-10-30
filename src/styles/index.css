@@ -222,6 +222,14 @@ a.app-logo--link:focus-visible {
   }
 }
 
+/*
+ * In-app Reduced Motion and OS prefers-reduced-motion (#765, #1289):
+ * The Motion setting puts data-motion="reduced" on <html> (src/utils/motion.ts).
+ * The build step scripts/reduced-motion-css.ts automatically mirrors every
+ * @media (prefers-reduced-motion: reduce) block under :where(:root[data-motion="reduced"])
+ * and restricts @media (prefers-reduced-motion: no-preference) to :where(:root:not([data-motion="reduced"])).
+ * Stylesheets author prefers-reduced-motion as the single source of truth.
+ */
 @media (prefers-reduced-motion: reduce) {
   .app-logo .title-char {
     animation: none;
