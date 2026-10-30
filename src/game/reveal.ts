@@ -6,48 +6,30 @@ import { cardPoints, type Finish, type Rarity } from '../engine';
 import { setProgress } from './progression';
 
 export interface TakeoverSetContext {
-  /** How many unique cards the player owns in this set (including this card if new). */
-  owned?: number;
   /** Unique cards owned in this set before this reveal. */
-  ownedBefore?: number;
+  ownedBefore: number;
   /** Total cards in this set. */
-  size?: number;
-  /** How many holos the player owns in this set. */
-  holoOwned?: number;
-  cards?: readonly unknown[];
-  id?: string;
+  size: number;
 }
 
 export interface TakeoverCollectionContext {
-  /** How many unique collectible cards the player owns (including this card if new). */
-  owned?: number;
   /** Unique collectible cards owned before this reveal. */
-  ownedBefore?: number;
+  ownedBefore: number;
   /** Total collectible cards in the collection. */
-  total?: number;
+  size: number;
 }
 
 export interface TakeoverContext {
   set?: TakeoverSetContext;
   collection?: TakeoverCollectionContext;
-  setOwned?: number;
-  setOwnedBefore?: number;
-  setSize?: number;
-  setHoloOwned?: number;
-  collectionOwned?: number;
-  collectionOwnedBefore?: number;
-  collectionTotal?: number;
-  setComplete?: boolean;
-  collectionComplete?: boolean;
 }
 
 export type TakeoverCard = {
   rarity: Rarity;
   isNew?: boolean;
-  isHolo?: boolean;
-  finish?: Finish | null;
-  misprint?: boolean;
 };
+
+export type TakeoverReason = 'COLLECTION' | 'SET' | 'BRAINROT';
 
 type Revealable = { rarity: Rarity; isHolo: boolean; finish?: Finish | null; misprint?: boolean };
 
@@ -60,56 +42,38 @@ export const SPECIAL_REVEAL_DURATION_MS = 3_000;
 export const isSpecialReveal = (card: Revealable): boolean => card.rarity === 'BRAINROT' || rank(card) >= SPECIAL_REVEAL_CUTOFF;
 
 /**
+ * Which cinematic takeover trigger fired (COLLECTION > SET > BRAINROT), or null if none (Spec 1, #1293).
+ *
+ * Points alone never trigger a takeover. Only a new card can complete a set or collection, evaluated
+ * using setProgress from progression.ts where ownedBefore + 1 reaches size.
+ */
+export const takeoverReason = (card: TakeoverCard, context?: TakeoverContext): TakeoverReason | null => {
+  if (card.isNew && context?.collection) {
+    const { ownedBefore, size } = context.collection;
+    if (size > 0 && ownedBefore === size - 1 && setProgress(ownedBefore + 1, 0, size) !== null) {
+      return 'COLLECTION';
+    }
+  }
+  if (card.isNew && context?.set) {
+    const { ownedBefore, size } = context.set;
+    if (size > 0 && ownedBefore === size - 1 && setProgress(ownedBefore + 1, 0, size) !== null) {
+      return 'SET';
+    }
+  }
+  if (card.rarity === 'BRAINROT') {
+    return 'BRAINROT';
+  }
+  return null;
+};
+
+/**
  * Cinematic takeover reveal trigger (Spec 1, #1293).
  *
  * Returns true when the card is of Brainrot rarity, or is a new card that completes its set,
  * or completes the collection. Points alone never trigger it (even if 10,000+ points).
- * Evaluates completion via the same set-progress helper the Collection page uses (`setProgress`).
  */
-export const isTakeoverReveal = (card: TakeoverCard, context?: TakeoverContext): boolean => {
-  if (card.rarity === 'BRAINROT') {
-    return true;
-  }
-
-  // Points alone never trigger the takeover. Only a new card can complete a set or collection.
-  if (!card.isNew || !context) {
-    return false;
-  }
-
-  if (context.setComplete) {
-    return true;
-  }
-
-  const setOwnedBefore = context.set?.ownedBefore ?? context.setOwnedBefore;
-  const setOwned = context.set?.owned ?? context.setOwned ?? (setOwnedBefore !== undefined ? setOwnedBefore + 1 : undefined);
-  const setSize = (context.set && 'size' in context.set && typeof context.set.size === 'number' ? context.set.size : undefined)
-    ?? (context.set && 'cards' in context.set && Array.isArray(context.set.cards) ? context.set.cards.length : undefined)
-    ?? context.setSize;
-  const setHolo = context.set?.holoOwned ?? context.setHoloOwned ?? 0;
-
-  if (setOwned !== undefined && setSize !== undefined) {
-    if (setProgress(setOwned, setHolo, setSize) !== null) {
-      return true;
-    }
-  }
-
-  if (context.collectionComplete) {
-    return true;
-  }
-
-  const collectionOwnedBefore = context.collection?.ownedBefore ?? context.collectionOwnedBefore;
-  const collectionOwned = context.collection?.owned ?? context.collectionOwned ?? (collectionOwnedBefore !== undefined ? collectionOwnedBefore + 1 : undefined);
-  const collectionTotal = (context.collection && 'total' in context.collection && typeof context.collection.total === 'number' ? context.collection.total : undefined)
-    ?? context.collectionTotal;
-
-  if (collectionOwned !== undefined && collectionTotal !== undefined) {
-    if (setProgress(collectionOwned, 0, collectionTotal) !== null) {
-      return true;
-    }
-  }
-
-  return false;
-};
+export const isTakeoverReveal = (card: TakeoverCard, context?: TakeoverContext): boolean =>
+  takeoverReason(card, context) !== null;
 
 /** Skip can pass ordinary cards, but every still-hidden valuable card must get its own reveal. */
 export const nextSpecialRevealIndex = (cards: readonly (Revealable & { isRevealed: boolean })[]): number =>
