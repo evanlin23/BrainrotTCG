@@ -409,8 +409,9 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   `game/collectionFilter.ts`; ownership comes from the same map the tiles use. Filters only narrow
   which pockets show: collector numbers, era counts and the score line stay the unfiltered ones, and
   an archived or draft era still shows only owned cards, so Missing only never reveals its cards.
-  While filtering, every era with a match opens (collapsing one is remembered until Clear filters),
-  eras with no match hide, and one polite status line says "Showing N cards" or "No cards match the
+  While filtering, the opening budget above applies to the matching pockets (the recent era, then
+  newest first while 24 fit; a header you toggle keeps its choice until Clear filters), eras with no
+  match hide, and one polite status line says "Showing N cards" or "No cards match the
   active filters." with a Clear filters button that returns focus to the search box. Not-started eras
   stay one-line rows, listed when they match.
 - **Toasts** (`achievements/AchievementToasts.tsx`): auto-dismiss after 5 s (6 s for a grouped toast); hovering
