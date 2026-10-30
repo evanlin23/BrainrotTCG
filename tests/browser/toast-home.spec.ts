@@ -31,10 +31,21 @@ const VIEWPORTS = [
   { width: 900, height: 1200 },
   { width: 1280, height: 1200 },
   { width: 1080, height: 1920 },
-  // Short: at doubled text the toast reaches down to the announcement's close.
+  // Short windows. At doubled text the page has little room: from 590px up the toast is clear of every
+  // control, and below about 580px it reaches the Card guide row (see SHORT, below).
+  { width: 900, height: 500 },
+  { width: 1280, height: 550 },
+  { width: 1280, height: 570 },
+  { width: 900, height: 590 },
   { width: 900, height: 600 },
+  // Just past where the one-line clamp ends (Toasts.css, 640px).
+  { width: 900, height: 650 },
 ];
+/** The windows where, at doubled text, the toast is long enough to reach the Card guide row at the foot of the stage. */
+const SHORT = VIEWPORTS.filter(({ width, height }) => width >= 900 && height < 580);
 const WIDE = VIEWPORTS.filter(({ width }) => width >= 900);
+/** Wide windows tall enough that the toast at doubled text covers no control at all. */
+const TALL_ENOUGH = WIDE.filter((viewport) => !SHORT.includes(viewport));
 
 /** Every control on the home screen, as the page lays it out. */
 const CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.pack-milestone', '.app-utilities button', '.app-nav-item'];
@@ -169,7 +180,7 @@ for (const viewport of VIEWPORTS) {
 
 // Doubled text on a wide screen: the toast and the set picker both grow, and the picker then runs the page's
 // width, so the toast must be below it as well as clear of the pack.
-for (const viewport of WIDE) {
+for (const viewport of TALL_ENOUGH) {
   test(`at 200% text both toasts leave every control uncovered on the home screen at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
     test.setTimeout(120000);
     await page.setViewportSize(viewport);
@@ -190,6 +201,50 @@ for (const viewport of WIDE) {
     expect(errors).toEqual([]);
   });
 }
+
+// The short band at doubled text (under about 580px tall, where the page has almost no room left): the toast
+// still sits top right and still covers the pack, the set picker, the tabs, Settings and the wordmark, but it
+// reaches down to the Card guide row at the foot of the stage and covers the right end of the goal chip, and at
+// 900px wide the guide link's edge. That is the limit DESIGN.md states; this pins it to those two controls, so
+// the toast reaching anything else, or a window above the band (TALL_ENOUGH) reaching them, fails.
+const GUIDE_ROW = ['.card-guide-link', '.pack-milestone'];
+for (const viewport of SHORT) {
+  test(`at 200% text in a short window both toasts cover nothing but the guide row at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+    test.setTimeout(120000);
+    await page.setViewportSize(viewport);
+    const errors = await toSummary(page, baseURL!);
+    await page.addStyleTag({ content: ENLARGED });
+    const toast = await toHome(page);
+
+    for (const { kicker, name } of TOASTS) {
+      await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
+      await settled(page);
+      await expectAnchoredTopRight(page, viewport.width);
+      await expect.poll(() => blocked(page, DESKTOP_CONTROLS.filter((selector) => !GUIDE_ROW.includes(selector))), { message: `only the guide row is under the ${kicker} toast` }).toEqual([]);
+      expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
+      expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
+      await expect(toast).toHaveAccessibleName(name);
+      await dismiss(page);
+    }
+    expect(errors).toEqual([]);
+  });
+}
+
+// The one-line clamp is for windows short enough to need it: at 900x700 and normal text nothing is near the
+// toast, so the level-up's line (here "Next: ...") is shown whole.
+test('at 900x700 and normal text the level-up toast shows its whole line', async ({ page, baseURL }) => {
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 900, height: 700 });
+  const errors = await toSummary(page, baseURL!);
+  await toHome(page);
+  await dismiss(page);
+  await expect(page.locator('.toast-kicker').filter({ hasText: /^Level up$/ })).toBeVisible({ timeout: 15000 });
+  await settled(page);
+  const clipped = await page.locator('.toast-desc').evaluate((el) => el.scrollHeight - el.clientHeight);
+  expect(clipped, 'the description is not cut short').toBeLessThanOrEqual(1);
+  expect(await blocked(page, DESKTOP_CONTROLS)).toEqual([]);
+  expect(errors).toEqual([]);
+});
 
 // The pack's summary is where the toast is first up: on a wide screen it hangs under the header at the
 // right, clear of the header's tabs and Settings, the X, the cards and the buttons, at normal and doubled text.

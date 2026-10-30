@@ -466,8 +466,9 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   narrowed to that column: its left edge stays clear of the pack, whose width is the smaller of 80vw and what
   the stage's height gives it, estimated from the window a little on the large side (`Toasts.css`). It is
   held between `--toast-floor` (7.5rem, in tokens.css) and 24rem; narrower than 15rem it stacks, the icon and X on one row
-  and the text under them, with the title clamped to two lines (one, with the description, in a window 700 px tall
-  or less, so that doubled text does not reach the announcement's close; the full text is still the button's name).
+  and the text under them, with the title clamped to two lines (one, with the description, in a window 640 px tall
+  or less, so that doubled text stays off the Card guide row; the full text is still the button's name). The same
+  rule holds for every toast in the queue, the What's new one included.
   A square or portrait window has no such column, since the pack takes 80% of the width. The toast could go nowhere
   else on the home screen (the strip beside the picker row is under 60 px wide at 900 px, and the header row is full),
   so the pack gives way instead: from 900 px up its width is also capped at the window less two toast floors, gutters
@@ -475,16 +476,22 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   changes nothing where a column already exists (windows about 1.2 times wider than tall, at normal text, and every
   size checked at 1366x768 and up); it trims the pack in 1024x900 (730 to 655 px wide), 900x1200 (720 to 572),
   1280x1200 and 1080x1920, and at doubled text on a 900 px wide window (323 to 300 at 900x700). One case is not
-  fixed: doubled text in a window under about 520 px tall (900x500, 1280x420), where the page itself has almost no
-  room left, still puts the toast over the announcement's close. It is at least 44 px tall at every
-  size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
+  fixed: doubled text in a window under about 580 px tall (900x500, 1280x550, 1280x570), where the page itself has
+  almost no room left (the pack is about 100 px tall). The toast, 173 px tall once stacked, then reaches the Card
+  guide row at the foot of the stage and covers the right end of the next-goal chip and, at 900 px wide, the
+  guide link's edge. It still covers the pack, the set picker, the tabs, Settings and the wordmark in no
+  window, and from 590 px up (900x590, 900x600, 900x650) it covers nothing. At normal text no window from 900 px
+  wide up reaches the row (checked from 900x500). Fixing the band needs the goal chip or the toast to give way
+  there, which is the owner's call. It is at least 44 px tall at every size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
   hold the toasts until they clear, and a toast the player had 1.5 s to see is let go then, not shown again in
   full. In pack focus mode it still overlays, under the pack's X, or beside the X at the right on a short
   screen (520 px tall or less, where the headline below it is kept clear by tight padding).
   `tests/browser/toast-home.spec.ts` checks every home control (the pack, the set picker, the tabs, Settings, the
-  wordmark, the guide link and the announcement's link and close) at 360, 390, 640x360, 844x390, 900x700, 1024x768,
-  1280x800, 1440x900 and 1920x1080 and the square and portrait windows 1024x1000, 900x1200, 1280x1200 and 1080x1920
-  (and 900x600), at 200% text at 360 and on every wide screen, the pack's summary on every
+  wordmark, the guide link and the next-goal chip) at 360, 390, 640x360, 844x390, 900x700, 1024x768,
+  1280x800, 1440x900 and 1920x1080, the square and portrait windows 1024x1000, 900x1200, 1280x1200 and 1080x1920,
+  and the short windows 900x500, 1280x550, 1280x570, 900x590, 900x600 and 900x650, at 200% text at 360 and on every
+  wide screen from 900x590 up (under 580 px tall it pins the limit above: nothing but the guide row is covered),
+  the pack's summary on every
   wide screen at normal and doubled text, that nothing moves as the toast goes, the turn to landscape, and the sheet hold.
   `tests/browser/toast-touch.spec.ts` checks the tap, the X, the swipe, the seen toast, the pack hold, the reduced
   motion fade, and the 44 px target, a tap and what the toast covers on the home screen and the summary at
@@ -502,7 +509,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   the queue and comes back after that pack is put away. Tapping it opens the page; its X, a timeout and
   opening the page all read the entry. Read state is the one `DISMISSED_NEWS` key, as the old chip kept it
   (opening `#/news` writes it too, even for a first-time visitor with no save); when storage refuses the
-  write, the entry stays read for the rest of the visit. `tests/browser/news-toast.spec.ts`
+  write, the entry stays read for the rest of the visit. On a wide screen it is placed like every toast (top
+  right, covering no control, see Toasts). `tests/browser/news-toast.spec.ts`
   checks the toast over phone sizes and 200% text, the wide screen, the page, the quota failure and the
   ordering.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.

@@ -232,9 +232,12 @@
     line-clamp: 2;
   }
 
-  /* A short window with large text: the toast hangs lower than it is tall, so it is held to one line of title and
-     one of description (the button's name has all of it) to stay off the announcement's close at the bottom. */
-  @media (max-height: 700px) {
+  /* A short window: the toast is held to one line of title and one of description (the button's name has all
+     of it) to stay off the Card guide row at the bottom. Unclamped it is about 212px tall at doubled text and
+     under 125px at normal text, and the row starts 76px above the window's foot, so doubled text needs this
+     only below about 620px; 640px keeps a margin. Normal text never reaches the row, so there it is only the
+     price of a short window. Under about 580px doubled text still reaches the row's right end (DESIGN.md, Toasts). */
+  @media (max-height: 640px) {
     .app:not(.is-focus) .toast-title,
     .app:not(.is-focus) .toast--detail .toast-desc {
       -webkit-line-clamp: 1;
