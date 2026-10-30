@@ -190,18 +190,99 @@
   }
 }
 
-/* Wide screens: the nav and Settings share the header's row with the wordmark, and the nav starts only about
-   37px past the wordmark's right edge, so the toast is held to the wordmark's width: 9.6em of the logo's
-   size here (index.css; the wordmark, mark included, measures about 9.7em), and at most 24rem. At 900px that
-   is 346px against the wordmark's 348px; from about 950px the 24rem cap is the narrower. Focus mode (a
-   header-less pack screen) keeps it at the right. */
-@media (min-width: 900px) {
-  .app:not(.is-focus) .toast-region {
-    width: min(24rem, calc(9.6 * clamp(1.75rem, 10vw - 3.375rem, 3.25rem)));
-    margin-right: 0;
-  }
 
+/* Wide screens: the toast stays at the top right on every screen (the owner's call, so it never jumps
+   between corners), fitted so that it covers no control.
+   Pack summary (focus mode): it hangs under the header at the right, as it always did; nothing the player
+   can press is in that strip.
+   Home: the header row is full (wordmark, tabs and Settings), the set picker sits right under it, and the
+   pack is centred below, so the toast takes the free column at the right of the pack. Its left edge stays
+   clear of the pack, whose width is the smaller of 80vw and what the stage's height gives it (PackOpener.css:
+   the stage is the window less the header, the set picker and the guide row, about 12rem); both are
+   estimated here from the window, a little on the large side, so the toast is a little too narrow rather
+   than ever over the pack. It is held between --toast-floor (7.5rem) and 24rem; the pack is capped so that
+   the floor always fits beside it (--pack-cap, PackOpener.css). Narrower than 15rem it stacks (icon and X
+   on one row, the text under it). It starts below the set picker's row (5.25rem under the header: the
+   picker is 4rem to 5rem tall, and 3.9rem with doubled text), because with larger text the picker runs
+   the width of the page. Still a zero-height row: it takes no room. */
+@media (min-width: 900px) {
   .app.is-focus .toast-region {
     margin: 0 var(--gutter) 0 auto;
+  }
+
+  .app:not(.is-focus) .toast-region {
+    container-type: inline-size;
+    top: 5.25rem;
+    width: clamp(var(--toast-floor), calc(50vw - var(--gutter) - var(--space-3) - min(40vw, 800px, (100dvh - 12rem) / 1.806)), 24rem);
+    max-width: none;
+    margin: 0 var(--gutter) 0 auto;
+  }
+
+  .app:not(.is-focus) .toast {
+    position: static;
+  }
+
+  .app:not(.is-focus) .toast-open {
+    gap: var(--space-3);
+    padding: var(--space-2) 0 var(--space-2) var(--space-3);
+  }
+
+  .app:not(.is-focus) .toast--detail .toast-desc {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  /* A short window: the toast is held to one line of title and one of description (the button's name has all
+     of it) to stay off the Card guide row at the bottom. Unclamped it is about 212px tall at doubled text and
+     under 125px at normal text, and the row starts 76px above the window's foot, so doubled text needs this
+     only below about 620px; 640px keeps a margin. Normal text never reaches the row, so there it is only the
+     price of a short window. Under about 580px doubled text still reaches the row's right end (DESIGN.md, Toasts). */
+  @media (max-height: 640px) {
+    .app:not(.is-focus) .toast-title,
+    .app:not(.is-focus) .toast--detail .toast-desc {
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+    }
+  }
+
+  @container (max-width: 15rem) {
+    .app:not(.is-focus) .toast {
+      position: relative;
+    }
+
+    .app:not(.is-focus) .toast-open {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-1);
+      /* The X is 44px square at the top right, beside the icon; the text starts under both. */
+      padding: var(--space-2) var(--space-3) var(--space-2);
+    }
+
+    .toast-icon {
+      margin-bottom: var(--space-1);
+    }
+
+    .toast-dismiss {
+      position: absolute;
+      top: 0;
+      right: 0;
+    }
+
+    .toast-text {
+      width: 100%;
+    }
+
+    .toast-kicker,
+    .toast-title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .toast-title {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+    }
   }
 }

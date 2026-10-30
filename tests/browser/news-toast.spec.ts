@@ -141,9 +141,9 @@ for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 
   });
 }
 
-// Where on a wide screen the toast sits (over the wordmark today; the owner wants the top right, which PR
-// #1220 moves for every toast) is the toast system's rule, not this feature's: this checks it covers no control.
-test('toasts the latest news in the header band on a wide screen, clear of every control', async ({ page, baseURL }, testInfo) => {
+// Where on a wide screen the toast sits (top right, for every toast, as toast-home.spec.ts checks) is the
+// toast system's rule, not this feature's: this checks the news toast takes the same place and covers no control.
+test('toasts the latest news at the top right on a wide screen, clear of every control', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A wide-screen layout check.');
   test.setTimeout(120000);
   const errors = await toNewsToast(page, baseURL!, { width: 1280, height: 800 });
@@ -153,10 +153,12 @@ test('toasts the latest news in the header band on a wide screen, clear of every
   const box = (await toast.boundingBox())!;
   const settings = (await page.locator('.app-utilities button').first().boundingBox())!;
   expect(box.height).toBeGreaterThanOrEqual(44);
-  // Level with the header, on screen, and not over the Settings button.
+  // At the right edge (the page's gutter is 2rem), under the header's row, on screen, and not over the Settings button.
   expect(box.x).toBeGreaterThanOrEqual(0);
-  expect(box.y).toBeLessThan(100);
   expect(box.x + box.width).toBeLessThanOrEqual(1280);
+  expect(box.x + box.width).toBeGreaterThanOrEqual(1280 - 40);
+  expect(box.y).toBeGreaterThanOrEqual(settings.y + settings.height);
+  expect(box.y).toBeLessThan(200);
   expect(box.x + box.width <= settings.x || box.y + box.height <= settings.y || box.y >= settings.y + settings.height).toBe(true);
   expect(errors).toEqual([]);
 });
