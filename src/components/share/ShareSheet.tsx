@@ -3,7 +3,7 @@ import { Crown, Info, ShieldCheck } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import type { PackScore } from '../../engine';
 import { decodeProof, pullId, qualifiesForHallOfFame, utcDay, wouldJoinHallOfFame } from '../../engine';
-import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList';
+import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { getLatestSet, getSet, setCode } from '../../content/sets';
 import { getPlayer } from '../../game/player';
 import { canShare, previewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
@@ -46,10 +46,23 @@ const ShareSheet = ({ target, onClose, onOpenRankingsHelp }: ShareSheetProps) =>
   // Submit only what would make the list (the top pulls or today's top in UTC); until it loads
   // or if unavailable, anything that qualifies with neutral wording (#1072).
   const qualifies = qualifiesForHallOfFame(target.score);
-  const [list, setList] = useState<HallOfFameEntry[] | null | undefined>(undefined);
+  const [published, setPublished] = useState<HallOfFameEntry[] | null | undefined>(undefined);
+  const [pending, setPending] = useState<HallOfFameEntry[]>([]);
   useEffect(() => {
-    if (qualifies) loadHallOfFame().then(setList);
+    if (!qualifies) return;
+    const controller = new AbortController();
+    loadHallOfFame().then((res) => {
+      if (controller.signal.aborted) return;
+      setPublished(res);
+      if (res) {
+        loadPending(res, (entry) => {
+          if (!controller.signal.aborted) setPending((prev) => [...prev, entry]);
+        }, controller.signal).catch(() => {});
+      }
+    });
+    return () => controller.abort();
   }, [qualifies]);
+  const list = useMemo(() => (published ? [...published, ...pending] : published), [published, pending]);
   const listed = !!list?.some((e) => e.id === id);
   const wouldJoin = list ? wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list, utcDay(new Date().toISOString())) : null;
   const [submitState] = useHallOfFameSubmit(proof, id, target.score.score);

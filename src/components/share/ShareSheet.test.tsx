@@ -7,7 +7,7 @@ import { DEFAULT_SET_ID, getSet } from '../../content/sets';
 import { getSetCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
 import { revealOrder } from '../../game/reveal';
-import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList';
+import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { hallOfFameEvent, publishUntilAccepted } from '../../game/nostrInbox';
 import ShareSheet from './ShareSheet';
 
@@ -25,7 +25,10 @@ vi.mock('../../engine', async (importOriginal) => ({
   qualifiesForHallOfFame: vi.fn(() => true),
   wouldJoinHallOfFame: vi.fn(() => true),
 }));
-vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame: vi.fn(async () => []) }));
+vi.mock('../../game/hallOfFameList', () => ({
+  loadHallOfFame: vi.fn(async () => []),
+  loadPending: vi.fn(async () => true),
+}));
 vi.mock('../../game/share', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/share')>()),
   bragText: vi.fn(() => 'Look at this pull'),
@@ -190,6 +193,64 @@ describe('Hall of Fame in the pack share sheet', () => {
       const note = await renderFloorNote(() => {});
       expect(note.querySelector('button')).toBeNull();
     });
+  });
+
+  it("keeps the submit control and shows no wouldn't-beat note for a pull already sent (#1072)", async () => {
+    vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
+    localStorage.setItem('brainrot-hof-submitted-v1', JSON.stringify([`pull-${pull}`]));
+    try {
+      await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+      const offer = document.querySelector('.share-hof')!;
+      expect(offer).not.toBeNull();
+      expect(offer.querySelector('button')?.textContent).toBe('Submitted');
+      expect([...document.querySelectorAll('.share-note')].some((el) => el.textContent?.includes('lowest listed score'))).toBe(false);
+    } finally {
+      vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
+    }
+  });
+
+  it("keeps the submit control and shows no wouldn't-beat note when sent while the list loads (#1072)", async () => {
+    let resolveList!: (entries: HallOfFameEntry[]) => void;
+    const listPromise = new Promise<HallOfFameEntry[]>((resolve) => {
+      resolveList = resolve;
+    });
+    vi.mocked(loadHallOfFame).mockReturnValueOnce(listPromise);
+    vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
+
+    try {
+      await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+      // While list is loading, wouldJoin is null, so Submit is offered
+      const button = [...document.querySelectorAll<HTMLButtonElement>('.share-hof button')].find((b) => b.textContent === 'Submit')!;
+      expect(button).not.toBeNull();
+
+      // User submits before list resolves
+      await act(async () => button.click());
+      expect(button.textContent).toBe('Submitted');
+
+      // Now the list finishes loading with wouldJoin=false
+      await act(async () => resolveList([]));
+
+      // Guard ensures Submit control stays and no note appears
+      expect(document.querySelector('.share-hof')).not.toBeNull();
+      expect(button.textContent).toBe('Submitted');
+      expect([...document.querySelectorAll('.share-note')].some((el) => el.textContent?.includes('lowest listed score'))).toBe(false);
+    } finally {
+      vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
+    }
+  });
+
+  it('includes pending submissions from relays when ranking in the share sheet (#1072)', async () => {
+    const pendingEntry = { id: 'pending-1' } as HallOfFameEntry;
+    vi.mocked(loadPending).mockImplementationOnce(async (_published, onEntry) => {
+      onEntry(pendingEntry);
+      return true;
+    });
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    expect(vi.mocked(wouldJoinHallOfFame)).toHaveBeenCalledWith(
+      expect.objectContaining({ id: `pull-${pull}` }),
+      expect.arrayContaining([pendingEntry]),
+      expect.any(String),
+    );
   });
 
   it("uses neutral headline when the list couldn't load (#1072)", async () => {
