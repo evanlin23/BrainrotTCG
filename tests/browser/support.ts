@@ -99,6 +99,12 @@ export type MonitorErrors = string[] & {
    */
   readonly pending: string[];
   /**
+   * How many pages the guard's Chromium CDP redirect watch is attached to (Network.enable resolved):
+   * the monitored page, then each page the context opens later. 0 where the watch is off (non-Chromium,
+   * or no continueAllowed / routeHttp: false), so a test can assert a second page or popup is watched.
+   */
+  readonly cdpAttached: number;
+  /**
    * The monitor's HTTP policy for guards that cannot use `page.route` (warm runs, which keep the
    * HTTP cache): null when the request is allowed, otherwise the status and body to answer with.
    * A refusal is recorded like any other unexpected attempt.
@@ -260,6 +266,8 @@ export async function monitor(
   // left paused (its fetch still running, or a fulfill the browser never completed) stays named.
   const pending = new Map<Request, string>();
   Object.defineProperty(errors, 'pending', { get: () => [...pending.values()], enumerable: false });
+  let cdpAttached = 0;
+  Object.defineProperty(errors, 'cdpAttached', { get: () => cdpAttached, enumerable: false });
   page.context().on('requestfinished', (request) => pending.delete(request));
   page.context().on('requestfailed', (request) => pending.delete(request));
   /**
@@ -444,6 +452,7 @@ export async function monitor(
         else if (REDIRECTS.has(redirectResponse.status)) noteRedirect(methods.get(requestId) ?? request.method, redirectResponse.url, request.url);
       });
       await cdp.send('Network.enable');
+      cdpAttached++;
       // A CDP session sees one page only, so popups and other pages opened later get their own.
       page.context().on('page', (other) => {
         const watchOther = async () => {
@@ -454,6 +463,7 @@ export async function monitor(
             else if (REDIRECTS.has(redirectResponse.status)) noteRedirect(otherMethods.get(requestId) ?? request.method, redirectResponse.url, request.url);
           });
           await otherCdp.send('Network.enable');
+          cdpAttached++;
         };
         // A page that closes before its session opens has nothing left to watch. A popup's first
         // navigation hop can also start before its Network.enable resolves; the context-wide
