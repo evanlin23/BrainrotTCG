@@ -6,8 +6,8 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { buildCardsCatalog, buildSetsCatalog } from './build-api.ts';
-import { canonicalLink, checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkManifest, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, rootBootCopy, type SiteCheckOptions } from './check-site.ts';
-import { robotsTxt, sitemapXml } from './crawler-files.ts';
+import { canonicalLink, check404Page, checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkManifest, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, rootBootCopy, type SiteCheckOptions } from './check-site.ts';
+import { notFoundHtml, robotsTxt, sitemapXml } from './crawler-files.ts';
 import { generatePreviews } from './preview-pages.ts';
 
 interface Host {
@@ -93,6 +93,7 @@ const build = async (host: Host) => {
   write(`${outDir}og-image.jpg`, JPEG);
   write(`${outDir}robots.txt`, robotsTxt(site));
   write(`${outDir}sitemap.xml`, sitemapXml(site));
+  write(`${outDir}404.html`, notFoundHtml(base));
   const { pages, images } = await writePages(outDir, host);
   const options: SiteCheckOptions = { outDir, base, site, versions: [SET], sets: [SET] };
   return { options, outDir, pages, images };
@@ -196,6 +197,33 @@ describe('checkCrawlerFiles', () => {
   });
 });
 
+describe('check404Page', () => {
+  const base = '/BrainrotTCG/';
+
+  it('passes the 404 page the build writes, including with nofollow', () => {
+    expect(check404Page(notFoundHtml(base), base)).toEqual([]);
+    expect(check404Page(notFoundHtml(base).replace('content="noindex"', 'content="noindex, nofollow"'), base)).toEqual([]);
+  });
+
+  it('fails a missing 404.html', () => {
+    expect(check404Page(undefined, base)).toEqual([{ path: '404.html', error: 'Missing' }]);
+  });
+
+  it('fails a 404 page without noindex', () => {
+    const html = notFoundHtml(base).replace('<meta name="robots" content="noindex">', '');
+    expect(check404Page(html, base)).toEqual([
+      { path: '404.html', error: 'Has no <meta name="robots" content="noindex">' },
+    ]);
+  });
+
+  it('fails a 404 page that does not link to home', () => {
+    const html = notFoundHtml(base).replace(`href="${base}"`, 'href="/other/"');
+    expect(check404Page(html, base)).toEqual([
+      { path: '404.html', error: `Does not link to home (${base})` },
+    ]);
+  });
+});
+
 describe('pageUrl', () => {
   it('gives a directory page its directory and any other page its own name', () => {
     const site = CLOUDFLARE.site;
@@ -210,12 +238,12 @@ describe('checkSite', () => {
     const { options, pages, images } = await build(host);
     expect(pages).toHaveLength(20 + (SET.modifiers ? 12 : 0));
     expect(images).toContain(SET_PICTURE);
-    expect(await checkSite(options)).toEqual({ pages: pages.length + 1, images: images.length + 1, errors: [] });
+    expect(await checkSite(options)).toEqual({ pages: pages.length + 2, images: images.length + 1, errors: [] });
   });
 
   it.each([GITHUB, CLOUDFLARE])('checks a build for $name the same whether SITE_URL ends in / or not', async (host) => {
     const { options, pages, images } = await build(host);
-    const result = { pages: pages.length + 1, images: images.length + 1, errors: [] };
+    const result = { pages: pages.length + 2, images: images.length + 1, errors: [] };
     expect(await checkSite({ ...options, site: host.site.replace(/\/$/, '') })).toEqual(result);
     expect(await checkSite({ ...options, site: host.site })).toEqual(result);
   });
@@ -373,6 +401,13 @@ describe('checkSite', () => {
       ]),
     );
     expect(errors).toHaveLength(2);
+  });
+
+  it('fails a build missing 404.html', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    unlinkSync(`${outDir}404.html`);
+    const { errors } = await checkSite(options);
+    expect(errors).toEqual([{ path: '404.html', error: 'Missing' }]);
   });
 
   it.each([GITHUB, CLOUDFLARE])("fails a build for $name whose index.html loads more than the first-load budget up front (#776)", async (host) => {

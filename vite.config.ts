@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { reducedMotionCss } from './scripts/reduced-motion-css.ts'
 import { HANG_TIMEOUT_MS, testBudget } from './scripts/test-budget.ts'
-import { CANONICAL_SITE_URL, robotsTxt, siteFromEnv, sitemapXml } from './scripts/crawler-files.ts'
+import { CANONICAL_SITE_URL, notFoundHtml, robotsTxt, siteFromEnv, sitemapXml } from './scripts/crawler-files.ts'
 
 const buildRevision = () => {
   // This checkout's revision, wherever the build is started from.
@@ -19,12 +19,17 @@ const buildRevision = () => {
  */
 const siteUrl = (): Plugin => {
   const site = siteFromEnv(process.env.SITE_URL)
+  let base = process.env.BASE_PATH ?? '/BrainrotTCG/'
   return {
     name: 'site-url',
+    configResolved(config) {
+      base = config.base
+    },
     transformIndexHtml: (html) => html.replaceAll(CANONICAL_SITE_URL, site),
     generateBundle() {
       this.emitFile({ type: 'asset', fileName: 'robots.txt', source: robotsTxt(site) })
       this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: sitemapXml(site) })
+      this.emitFile({ type: 'asset', fileName: '404.html', source: notFoundHtml(base) })
     },
   }
 }
