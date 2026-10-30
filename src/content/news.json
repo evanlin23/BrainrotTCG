@@ -1,11 +1,11 @@
 [
   {
     "id": "2026-10-27-open-api-and-stats",
-    "title": "Open Card Database API & Drought Counters",
+    "title": "Drought counters and holo progress",
     "date": "2026-10-27",
     "category": "changelog",
     "tag": "Update",
-    "summary": "Added static JSON card and set APIs (/api/cards.json, /api/sets.json), rarity drought counters on the Profile page, and holo completion tracking in the binder."
+    "summary": "Profile now shows how many packs it has been since your last Brainrot, Legendary or better, and Epic or better pull. Each set in your binder also shows how much of it you have collected as holos."
   },
   {
     "id": "2026-10-25-profile-and-search",
