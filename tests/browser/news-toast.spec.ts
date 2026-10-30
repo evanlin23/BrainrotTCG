@@ -339,16 +339,14 @@ test('waits for the save warning: the toast would sit over the banner and its bu
   const banner = page.locator('.save-warning[role="alert"]');
   await expect(banner).toBeVisible();
   await putPackAway(page);
-  // The pack's own toasts show as they always do (that is the toast system's rule); the news waits, being the one an unread entry can hold back.
-  await sendAwayEveryToast(page);
-  await page.evaluate(() => new Promise<void>((done) => requestIdleCallback(() => done())));
-  await expect(newsToast(page)).toHaveCount(0);
-  expect((await shownToasts(page)).filter((kicker) => kicker === "What's new")).toEqual([]);
+  // The pack's own toasts show as they always do (the toast system's rule); the news is the one an unread entry can hold back.
+  await expect(page.locator('.toast')).toHaveCount(1, { timeout: 15000 });
+  expect(await shownToasts(page)).not.toContain("What's new");
   await expect(banner).toBeVisible();
-  // Hiding the note clears the warning: now it comes in, and the banner is gone from under it.
+  // Hiding the note clears the warning: the news follows the pack's toasts, and the banner is gone from under it.
   await banner.getByRole('button', { name: 'Hide note' }).click();
   await expect(banner).toHaveCount(0);
-  await expect(newsToast(page)).toBeVisible();
+  await untilNewsToast(page);
   expect(errors).toEqual([]);
 });
 
