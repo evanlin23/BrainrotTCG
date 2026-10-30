@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { expectSummaryTakesClicks, fingerFor, monitor, recordShownToasts } from './support';
+import { dismissShippedNews, expectSummaryTakesClicks, fingerFor, monitor, recordShownToasts } from './support';
 
 /**
  * Achievement toasts under a thumb (phone feedback on #803: it blocks things, will not go away, and a
@@ -43,6 +43,8 @@ async function toSummaryWithToast(page: Page, baseURL: string, { clock = false }
   if (clock) await page.clock.install();
   await recordShownToasts(page, { hold: true });
   const errors = await monitor(page, baseURL);
+  // The next goal gives way to an unread announcement: with it read, the goal is on screen wherever the row has room.
+  await dismissShippedNews(page);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   await page.getByRole('button', { name: /^Open pack/ }).focus();
@@ -245,7 +247,7 @@ test('no toast shows over the pack while it is torn and revealed', async ({ page
 });
 
 /** Every control on the home screen: the set steps, the pack, the guide link, the header buttons, the tab bar. */
-const HOME_CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.app-utilities button', '.app-nav-item'];
+const HOME_CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.pack-milestone', '.app-utilities button', '.app-nav-item'];
 for (const viewport of PHONES) {
   test(`on the home screen the toast is a 44px target a tap opens, and covers no control at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
     test.setTimeout(120000);
@@ -255,6 +257,10 @@ for (const viewport of PHONES) {
     const toast = page.locator('.toast');
     await expect(toast).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.set-current')).toBeVisible();
+    // The goal is one of the controls checked below wherever the row shows it (not on a short landscape phone).
+    const goal = page.locator('.card-guide-entry .pack-milestone');
+    if (viewport.width < 900 && viewport.height <= 520) await expect(goal).toBeHidden();
+    else await expect(goal, 'the goal is on screen, so the check below covers it').toBeVisible();
     await hold(page);
     await settled(page, toast);
 

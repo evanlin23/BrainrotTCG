@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectSummaryTakesClicks, monitor, recordShownToasts } from './support';
+import { dismissShippedNews, expectSummaryTakesClicks, monitor, recordShownToasts } from './support';
 
 /**
  * The achievement toast on the home screen (#803). The first visit back after a pack's summary still has
@@ -27,7 +27,7 @@ const VIEWPORTS = [
 ];
 
 /** Every control on the home screen, as the page lays it out. */
-const CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.app-utilities button', '.app-nav-item'];
+const CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.pack-milestone', '.app-utilities button', '.app-nav-item'];
 /** The touch targets the toast must never squeeze below 44 CSS px (the pack to open and the set steps). */
 const TARGETS = ['.set-step', '[data-pack-open]'];
 const TARGET = 44;
@@ -74,6 +74,8 @@ const placed = (page: Page) => page.evaluate((selectors) => selectors.flatMap((s
 async function toSummary(page: Page, baseURL: string) {
   await recordShownToasts(page, { hold: true });
   const errors = await monitor(page, baseURL);
+  // The next goal gives way to an unread announcement: with it read, the goal is on screen wherever the row has room.
+  await dismissShippedNews(page);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   await page.getByRole('button', { name: /^Open pack/ }).focus();
@@ -115,6 +117,10 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
     const errors = await toSummary(page, baseURL!);
     const toast = await toHome(page);
+    // The goal is one of the controls checked below wherever the row shows it (not below 360px of row, nor on a short landscape phone).
+    const goal = page.locator('.card-guide-entry .pack-milestone');
+    if (viewport.width < 900 && viewport.height <= 520) await expect(goal).toBeHidden();
+    else await expect(goal, 'the goal is on screen, so the checks below cover it').toBeVisible();
 
     for (const { kicker, name } of TOASTS) {
       await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });

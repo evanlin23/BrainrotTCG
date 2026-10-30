@@ -15,6 +15,8 @@ import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
 import { RANKINGS_HELP_ID } from './components/ui/rankingsRule';
 import CardGuideButton from './components/ui/CardGuideButton';
+import PackMilestoneGoal from './components/pack/PackMilestoneGoal';
+import { getNextMilestone } from './game/nextMilestone';
 import { scoreCards } from './data/cards';
 import type { Achievement } from './data/achievements';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
@@ -237,11 +239,14 @@ function App() {
   // loaded, as last read: the new player's packs are no level-up here, and unlock no rewards.
   // samePlayer reads its latch ref here on purpose: the level must stop following storage once it does.
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/refs
-  const ownLevel = useMemo(() => (samePlayer() ? myStats()?.level ?? null : undefined), [stats.packsOpened, packCache, samePlayer]);
-  const [mountedLevel, setMountedLevel] = useState(ownLevel ?? null);
-  if (ownLevel !== undefined && ownLevel !== mountedLevel) setMountedLevel(ownLevel);
-  const level = ownLevel === undefined ? mountedLevel : ownLevel;
+  const ownStats = useMemo(() => (samePlayer() ? myStats() : undefined), [stats.packsOpened, packCache, samePlayer]);
+  const [mountedStats, setMountedStats] = useState(ownStats ?? null);
+  if (ownStats !== undefined && ownStats !== mountedStats) setMountedStats(ownStats);
+  const verifiedStats = ownStats === undefined ? mountedStats : ownStats;
+  const level = verifiedStats?.level ?? null;
   const rewardLevel = level ?? 1;
+  // The next goal (#212) reads the same stats (a level, a set's cards), so it shows only once they are known.
+  const milestoneGoal = useMemo(() => (verifiedStats ? getNextMilestone(verifiedStats, selectedSet) : null), [verifiedStats, selectedSet]);
   // A level-up says so, with what it unlocked (otherwise it only shows if you open the profile).
   // Reading saved packs isn't a level-up: no toast until a known level rises.
   const shownLevel = useRef(level);
@@ -593,6 +598,14 @@ function App() {
                 (#58), so no news read either; it goes with the row once a pack is torn, and while a save warning
                 shows. Dismissing removes the focused button: focus goes to the logo, the page's heading here. */}
             {pagesUnlocked && !saveWarningShown && <NewsBanner onDismiss={() => logoRef.current?.focus()} />}
+            {/* The next goal (#212) takes the same row after the news, which it yields to (PackMilestone.css). */}
+            {pagesUnlocked && !saveWarningShown && milestoneGoal && (
+              <PackMilestoneGoal
+                goal={milestoneGoal}
+                onNavigate={(target) => (target === 'rewards' ? openPage('profile', 'rewards') : openPage('cards'))}
+                disabled={isAnyModalOpen}
+              />
+            )}
           </div>
         )}
       </main>

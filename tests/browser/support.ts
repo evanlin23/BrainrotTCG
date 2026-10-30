@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { test, expect, type Page, type Locator, type Request, type TestInfo, type WebSocketRoute } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
@@ -936,4 +936,14 @@ export async function fingerFor(page: Page, touch: boolean, { settled = false } 
       await send('touchEnd', []);
     },
   };
+}
+
+/**
+ * Marks the newest announcement the build ships (src/content/news.json) as read before the page loads, so a
+ * screen is measured the way a player who has dismissed it sees it: the Card guide row is then free for the
+ * next goal, which gives way to an unread announcement.
+ */
+export async function dismissShippedNews(page: Page) {
+  const [latest] = JSON.parse(readFileSync(new URL('../../src/content/news.json', import.meta.url), 'utf8')) as { id: string }[];
+  await page.addInitScript(([key, id]) => localStorage.setItem(key, id), [STORAGE_KEYS.DISMISSED_NEWS, latest.id] as const);
 }
