@@ -193,17 +193,29 @@ it('is a page for a first-time visitor with no save, and reading it asks for no 
   expect($('.app-nav')).toBeNull();
 });
 
+it('a news read still on its way when a test ends does not reach the next mount\'s storage (#1122)', async () => {
+  const mounted = await mountedApp({ ...QUIET }, { news: NEWS, newsDelayMs: 50 });
+  app = mounted;
+  location.hash = '#/news';
+  await app.mount();
+  await app.until('the page opens', () => expect(pageTitle()).toBe("What's new"));
+  // The page has asked for the news (to read it) and it has not arrived: ending here used to leave that read to land in the next test.
+  expect(mounted.newsLoads()).toBeGreaterThan(0);
+  await app.dispose();
+  app = undefined;
+  await mounted.newsArrived;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(stored()).toBeNull();
+});
+
 it('is reachable from Settings', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING, [STORAGE_KEYS.DISMISSED_NEWS]: 'news-a' }, { news: NEWS });
   await app.mount();
   await go('#/settings');
   await app.until('Settings opens', () => expect(pageTitle()).toBe('Settings'));
-  const link = await vi.waitFor(() => {
-    const button = [...document.querySelectorAll<HTMLButtonElement>('.settings-help-actions button')].find((el) => el.textContent === "What's new");
-    expect(button).toBeDefined();
-    return button!;
-  });
-  await press(link);
+  const whatsNewButton = () => [...document.querySelectorAll<HTMLButtonElement>('.settings-help-actions button')].find((el) => el.textContent === "What's new");
+  await app.until('the What\'s new button shows', () => expect(whatsNewButton()).toBeDefined());
+  await press(whatsNewButton());
   await app.until('What\'s new opens', () => expect(pageTitle()).toBe("What's new"));
   expect(location.hash).toBe('#/news');
 });
