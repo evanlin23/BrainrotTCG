@@ -253,14 +253,22 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
   // open shows open. Collapsing unmounts the grid, so hidden cards cost nothing.
   const [open, setOpen] = useState<Record<string, boolean>>(() => initiallyOpen(started, recentSetId));
   const gridIds = useId();
-  // Stable, so toggling or tapping doesn't hand every era new props.
+  // While filtering, the same budget applies to the matching pockets (#344): the recent era, then
+  // newest first while they fit, and the rest start collapsed. A header you toggled keeps its choice.
+  const filteredDefault = useMemo(() => {
+    if (!matches) return {};
+    const withMatches = sections
+      .filter((s) => s.have > 0 && (matches.get(s.set.id)?.size ?? 0) > 0)
+      .map((s) => ({ set: s.set, pockets: matches.get(s.set.id)!.size }));
+    return initiallyOpen(withMatches, recentSetId);
+  }, [matches, sections, recentSetId]);
   const toggleEra = useCallback((setId: string) => {
     if (filtering) {
-      setFilteredOpen((current) => ({ ...current, [setId]: !(current[setId] ?? true) }));
+      setFilteredOpen((current) => ({ ...current, [setId]: !(current[setId] ?? filteredDefault[setId] ?? true) }));
     } else {
       setOpen((current) => ({ ...current, [setId]: !(current[setId] ?? true) }));
     }
-  }, [filtering]);
+  }, [filtering, filteredDefault]);
   const selectCard = useCallback((card: Card, counts: Owned) => setSelected({ card, ...counts }), []);
 
   const uniqueOwned = COLLECTIBLE_CARDS.filter((c) => owned.has(c.key)).length;
@@ -337,7 +345,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
             have={have}
             holo={holo}
             done={done}
-            expanded={filtering ? (filteredOpen[set.id] ?? true) : (open[set.id] ?? true)}
+            expanded={filtering ? (filteredOpen[set.id] ?? filteredDefault[set.id] ?? true) : (open[set.id] ?? true)}
             gridId={`${gridIds}-${set.id}`}
             owned={owned}
             filteredCardKeys={matches?.get(set.id) ?? null}
@@ -362,12 +370,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
         )}
 
         {nothingMatches && (
-          <div className="collection-empty-filter">
-            <p>Try fewer filters, or a shorter name.</p>
-            <button type="button" className="collection-reset-btn" onClick={resetFilters}>
-              Clear filters
-            </button>
-          </div>
+          <p className="collection-empty-filter">Try fewer filters, or a shorter name.</p>
         )}
 
         {!filtering && uniqueOwned === 0 && <p className="collection-empty">Open packs to start your collection.</p>}

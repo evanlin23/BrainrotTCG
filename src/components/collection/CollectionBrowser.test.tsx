@@ -534,9 +534,10 @@ describe('collection search and filters (#756)', () => {
     choose('Filter by rarity', 'LEGENDARY');
     expect(status()).toBe('No cards match the active filters.');
     expect(headers()).toHaveLength(0);
-    const empty = page().querySelector<HTMLElement>('.collection-empty-filter')!;
-    expect(empty).not.toBeNull();
-    act(() => empty.querySelector<HTMLButtonElement>('.collection-reset-btn')!.click());
+    expect(page().querySelector('.collection-empty-filter')).not.toBeNull();
+    // One reset button, not two with the same name.
+    expect(page().querySelectorAll('.collection-reset-btn')).toHaveLength(1);
+    act(() => clearFilters()!.click());
     expect(page().querySelector('.collection-empty-filter')).toBeNull();
     expect(searchInput().value).toBe('');
     expect(select('Filter by rarity').value).toBe('ALL');
@@ -582,6 +583,52 @@ describe('collection search and filters (#756)', () => {
     expect(openEras()).toEqual([]);
     act(() => clearFilters()!.click());
     expect(openEras()).toEqual([]);
+  });
+
+  describe('keeps the opening budget while filtering (#344)', () => {
+    it('opens the matching eras newest first until 24 pockets, and the rest open on demand', () => {
+      const collection = own(SETS.flatMap((set) => getSetCards(set.id)));
+      render(collection);
+      const unfilteredOpen = openEras();
+      typeSearch('a');
+      const matching = headers();
+      expect(matching.length).toBeGreaterThan(unfilteredOpen.length);
+      expect(mountedPockets()).toBeLessThanOrEqual(24);
+      expect(openEras().length).toBeGreaterThan(0);
+      expect(openEras().length).toBeLessThan(matching.length);
+      // A collapsed matching era opens on demand and shows only its own matches.
+      const closed = headers().find((h) => h.getAttribute('aria-expanded') === 'false')!;
+      const before = mountedPockets();
+      act(() => closed.click());
+      expect(closed.getAttribute('aria-expanded')).toBe('true');
+      expect(mountedPockets()).toBeGreaterThan(before);
+      act(() => closed.click());
+      expect(closed.getAttribute('aria-expanded')).toBe('false');
+      expect(mountedPockets()).toBe(before);
+    });
+
+    it('always opens the first matching era even when it alone is over the budget', () => {
+      addFutureSets(2, 30);
+      render(own(SETS.slice(-2).flatMap((set) => getSetCards(set.id))));
+      typeSearch('card');
+      expect(openEras()).toEqual(['Future era 2']);
+      expect(mountedPockets()).toBe(30);
+      expect(headerOf('Future era 1').getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('keeps the bound for a future-growth collection of 40 eras, without finish work for collapsed ones', () => {
+      addFutureSets();
+      render(own(SETS.flatMap((set) => getSetCards(set.id))));
+      typeSearch('card');
+      // Every future card matches ("... card N"): 40 eras of matches, two eras' worth of pockets.
+      expect(headers().length).toBeGreaterThanOrEqual(FUTURE_SETS);
+      expect(openEras()).toEqual([`Future era ${FUTURE_SETS - 1}`, `Future era ${FUTURE_SETS}`]);
+      expect(mountedPockets()).toBe(24);
+      expect(holdFinishedCardImage).toHaveBeenCalledTimes(finishedTiles());
+      // Leaving the filter returns to the unfiltered opening budget.
+      act(() => clearFilters()!.click());
+      expect(mountedPockets()).toBe(24);
+    });
   });
 
   it('hides eras with no match', () => {
