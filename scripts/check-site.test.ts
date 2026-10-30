@@ -6,7 +6,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { buildCardsCatalog, buildSetsCatalog } from './build-api.ts';
-import { checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkManifest, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
 import { robotsTxt, sitemapXml } from './crawler-files.ts';
 import { generatePreviews } from './preview-pages.ts';
 
@@ -30,6 +30,9 @@ let JPEG: Buffer;
 beforeAll(async () => {
   JPEG = await picture().jpeg().toBuffer();
 });
+
+/** A manifest as public/manifest.webmanifest has it: URLs relative to itself, so they hold under any base. */
+const MANIFEST = { start_url: './', scope: './', icons: [{ src: 'favicon.svg' }, { src: 'icon-192.png', sizes: '192x192' }] };
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -79,6 +82,8 @@ const build = async (host: Host) => {
 `,
   );
   write(`${outDir}favicon.svg`, 'icon');
+  write(`${outDir}icon-192.png`, 'icon');
+  write(`${outDir}manifest.webmanifest`, JSON.stringify(MANIFEST));
   write(`${outDir}assets/index-AbCd1234.js`, 'app');
   write(`${outDir}assets/index-AbCd1234.css`, `@font-face{src:url(${base}assets/font-AbCd1234.woff2) format("woff2")}body{background:url("./paper-AbCd1234.webp")}`);
   write(`${outDir}assets/font-AbCd1234.woff2`, 'font');
@@ -238,6 +243,14 @@ describe('checkSite', () => {
     expect((await checkSite(options)).errors).toEqual([{ path: 'index.html', error: `og:image ${GITHUB.site}og-image.webp isn't a JPEG` }]);
   });
 
+  it('fails a build whose manifest is missing or points outside the base', async () => {
+    const { options, outDir } = await build(GITHUB);
+    writeFileSync(`${outDir}manifest.webmanifest`, JSON.stringify({ ...MANIFEST, start_url: '/' }));
+    expect((await checkSite(options)).errors.map((e) => e.error)).toEqual(['start_url / resolves to https://x.test/, outside BASE_PATH /BrainrotTCG/']);
+    unlinkSync(`${outDir}manifest.webmanifest`);
+    expect((await checkSite(options)).errors).toEqual([{ path: 'manifest.webmanifest', error: 'Missing' }]);
+  });
+
   it('fails a directory that is not a build', async () => {
     const outDir = mkdtempSync(path.join(os.tmpdir(), 'check-site-test-'));
     dirs.push(outDir);
@@ -367,6 +380,41 @@ describe('checkSite', () => {
       expect(errors).toContainEqual({ path: 'index.html', error: `og:image is ${built.site}og-image.jpg, not under SITE_URL ${other.site}` });
       expect(errors).toContainEqual({ path: `s/${SET.id}/index.html`, error: `Forwards to ${built.base}, not BASE_PATH ${other.base}` });
     });
+  });
+});
+
+describe('checkManifest', () => {
+  const present = new Set(['index.html', 'favicon.svg', 'icon-192.png']);
+  const check = (manifest: unknown, base: string) => checkManifest(JSON.stringify(manifest), base, present);
+
+  it.each([GITHUB, CLOUDFLARE])('passes URLs relative to the manifest, under $name', ({ base }) => {
+    expect(check(MANIFEST, base)).toEqual([]);
+  });
+
+  it('fails root-absolute URLs under a subpath, which Vite copies from public/ unchanged', () => {
+    const errors = check({ start_url: '/', scope: '/', icons: [{ src: '/icon-192.png' }] }, GITHUB.base);
+    expect(errors.map((e) => e.error)).toEqual([
+      'start_url / resolves to https://x.test/, outside BASE_PATH /BrainrotTCG/',
+      'scope / resolves to https://x.test/, outside BASE_PATH /BrainrotTCG/',
+      'icon src /icon-192.png resolves to https://x.test/icon-192.png, outside BASE_PATH /BrainrotTCG/',
+    ]);
+  });
+
+  it('fails an icon that is not in the build, another site, or a start_url outside its scope', () => {
+    expect(check({ ...MANIFEST, icons: [{ src: 'icon-512.png' }] }, GITHUB.base).map((e) => e.error)).toEqual([
+      "Icon icon-512.png resolves to /BrainrotTCG/icon-512.png, which isn't in the build",
+    ]);
+    expect(check({ ...MANIFEST, icons: [{ src: 'https://elsewhere.test/BrainrotTCG/icon-192.png' }] }, GITHUB.base)[0].error).toMatch(/outside BASE_PATH/);
+    expect(check({ ...MANIFEST, scope: './sub/' }, GITHUB.base).map((e) => e.error)).toEqual([
+      'start_url /BrainrotTCG/ is outside scope /BrainrotTCG/sub/',
+      "/BrainrotTCG/sub/ isn't a page in the build",
+    ]);
+  });
+
+  it('fails a missing, unparsable or iconless manifest', () => {
+    expect(checkManifest(undefined, GITHUB.base, present)).toEqual([{ path: 'manifest.webmanifest', error: 'Missing' }]);
+    expect(checkManifest('{', GITHUB.base, present)).toEqual([{ path: 'manifest.webmanifest', error: "Isn't valid JSON" }]);
+    expect(check({ ...MANIFEST, icons: [] }, GITHUB.base).map((e) => e.error)).toEqual(['Has no icons']);
   });
 });
 
