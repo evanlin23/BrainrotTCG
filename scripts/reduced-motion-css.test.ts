@@ -110,4 +110,25 @@ describe('reduced-motion-css', () => {
     expect(mirrored).toBeGreaterThan(0);
     expect(guarded).toBeGreaterThan(0);
   });
+
+  it('specifically covers the pack opener calm-downs (pack foil, idle lift, seam shimmer, ceremony)', async () => {
+    const dir = new URL('../src/styles/', import.meta.url);
+    const css = readFileSync(new URL('PackOpener.css', dir), 'utf8');
+    const result = await postcss([reducedMotionCss()]).process(css, { from: undefined });
+    const decls = new Map<string, Record<string, string>>();
+    result.root.walkRules((rule) => {
+      const selectors = rule.selector.split(',').map((s) => s.trim());
+      const d: Record<string, string> = {};
+      rule.walkDecls((decl) => { d[decl.prop] = decl.value; });
+      for (const sel of selectors) {
+        decls.set(sel, { ...decls.get(sel), ...d });
+      }
+    });
+    expect(decls.get(':where(:root[data-motion="reduced"]) .pack-foil::before')).toMatchObject({ animation: 'none' });
+    expect(decls.get(':where(:root[data-motion="reduced"]) .cut-line')).toMatchObject({ animation: 'none' });
+    expect(decls.get(':where(:root[data-motion="reduced"]) .showcase-halo')).toMatchObject({ animation: 'none' });
+    expect(decls.get(':where(:root[data-motion="reduced"]) .showcase-halo::before')).toMatchObject({ animation: 'none' });
+    const idleRule = decls.get(':where(:root:not([data-motion="reduced"])) .pack-shell.is-idle .pack-half-top');
+    expect(idleRule?.animation).toContain('pack-idle-lift');
+  });
 });
