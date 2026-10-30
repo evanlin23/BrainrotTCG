@@ -88,28 +88,28 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
 
       <dl className="profile-stats">
         <div>
-          <dd className="tabular">{stats.packs.toLocaleString()}</dd>
           <dt>
             {stats.packs === 1 ? 'pack' : 'packs'}
             {partialNote && '*'}
           </dt>
+          <dd className="tabular">{stats.packs.toLocaleString()}</dd>
         </div>
         <div>
+          <dt>cards{partial && '*'}</dt>
           <dd className="tabular">
             {collectibleOwned(stats.uniqueBySet)}/{COLLECTIBLE_CARDS.length}
           </dd>
-          <dt>cards{partial && '*'}</dt>
         </div>
         <div>
-          <dd className="tabular">{stats.holos.toLocaleString()}</dd>
           <dt>holo{partial && '*'}</dt>
+          <dd className="tabular">{stats.holos.toLocaleString()}</dd>
         </div>
         {!highlighted && (
           <div>
+            <dt>best score{partial && '*'}</dt>
             <dd className="tabular" title={(stats.best[0]?.score.score ?? 0).toLocaleString()}>
               {partial && !stats.best[0] ? '…' : compact.format(stats.best[0]?.score.score ?? 0)}
             </dd>
-            <dt>best score{partial && '*'}</dt>
           </div>
         )}
       </dl>
