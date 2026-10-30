@@ -1,8 +1,8 @@
 /* The next goal (#212): one line beside the Card guide link, in the row the guide already takes under the
    pack (App.tsx), so it adds no height of its own and can't change the pack's size or place, the nav's, or
    cover the pack, its tear line or the toast. Opening the pack stays the biggest thing on screen. It is
-   exactly the row's height (a 44px target), shows what fits (the goal and its progress, then why as the row
-   widens) and nothing in it moves, so there is no motion to turn off. A row too narrow for it (a 320px
+   exactly the row's height (a 44px target): two short lines, a small picture of the reward when it has one,
+   and nothing in it moves, so there is no motion to turn off. A row too narrow for it (a 320px
    phone, enlarged text), a short landscape screen and a row that already shows an announcement (News.css,
    which comes first in the row) show nothing rather than squeeze the guide link. */
 .pack-milestone {
@@ -48,6 +48,38 @@ button.pack-milestone:disabled {
   cursor: default;
 }
 
+/* A reward with a picture (a card back) shows it small, at the start; its size is the row's, not the text's. */
+.pack-milestone .back-swatch {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  height: 28px;
+  aspect-ratio: var(--card-aspect);
+  isolation: isolate;
+}
+
+.pack-milestone .card-back-image {
+  border-radius: var(--radius-sm);
+  /* The Prismatic back cycles its colours elsewhere; a still one here keeps the row calm. */
+  animation: none;
+}
+
+.pack-milestone-lines {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pack-milestone-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The name comes first and the kind after it, so a narrow row clips the kind and keeps the name whole. */
 .pack-milestone-text {
   flex: 1 1 auto;
   min-width: 0;
@@ -62,15 +94,19 @@ button.pack-milestone:disabled {
   font-weight: 600;
 }
 
-.pack-milestone-detail {
-  display: none;
-}
-
 .pack-milestone-progress {
   flex-shrink: 0;
   color: var(--brand);
   font-family: var(--font-mono);
   white-space: nowrap;
+}
+
+/* Always shown: on a phone it is the line that says a cosmetic changes nothing about rarity or odds. */
+.pack-milestone-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
 }
 
 /* Progress along the bottom edge, inside the box. */
@@ -99,9 +135,6 @@ button.pack-milestone:disabled {
 @container card-guide (min-width: 38rem) {
   .pack-milestone {
     max-width: 40rem;
-  }
-  .pack-milestone-detail {
-    display: inline;
   }
 }
 

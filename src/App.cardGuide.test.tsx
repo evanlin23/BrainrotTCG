@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from './constants/config';
 import { DEFAULT_SET_ID, getLatestSet } from './content/sets';
 import { PAGE_TITLES } from './game/route';
+import { profileStats, type ProfileStats } from './engine';
 import App from './App';
 
 // The pack opener, down to the stage it reports: a pack torn and opening, or back on the shelf.
@@ -18,11 +19,14 @@ vi.mock('./components/pack/PackOpener', () => ({
 }));
 
 // The verified-pack stats the goal reads: none until a test gives some, otherwise the real ones.
-const mine = vi.hoisted(() => ({ stats: undefined as undefined | null | { xp: number; level: number; uniqueBySet: Record<string, number>; holoUniqueBySet: Record<string, number> } }));
+const mine = vi.hoisted(() => ({ stats: undefined as undefined | null | ProfileStats }));
 vi.mock('./game/profiles', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./game/profiles')>();
-  return { ...actual, myStats: () => (mine.stats === undefined ? actual.myStats() : (mine.stats as ReturnType<typeof actual.myStats>)) };
+  return { ...actual, myStats: () => (mine.stats === undefined ? actual.myStats() : mine.stats) };
 });
+
+/** Stats for a player halfway from level 2 to 3 (100 XP and 300 XP), with no cards. */
+const atLevel2 = (): ProfileStats => ({ ...profileStats([]), xp: 200, level: 2 });
 
 let container: HTMLDivElement;
 let root: Root;
@@ -104,17 +108,17 @@ it('shows the next goal beside the guide link once verified packs are read, and 
   expect(guideButton()).toBeDefined();
   expect(goal()).toBeNull();
 
-  mine.stats = { xp: 200, level: 2, uniqueBySet: {}, holoUniqueBySet: {} };
+  mine.stats = atLevel2();
   await act(async () => root.unmount());
   root = createRoot(container);
   await mount(true);
-  expect(goal()!.getAttribute('aria-label')).toContain('Pack Rat (title), 50% to level 3');
+  expect(goal()!.getAttribute('aria-label')).toContain('Pack Rat (title), 50% of the way to level 3');
   // It shares the guide's row rather than adding one of its own.
   expect(goal()!.parentElement).toBe(guideButton()!.closest('.card-guide-entry'));
 });
 
 it('steps aside with the guide while a pack is torn and opening, and comes back once it is put away', async () => {
-  mine.stats = { xp: 200, level: 2, uniqueBySet: {}, holoUniqueBySet: {} };
+  mine.stats = atLevel2();
   await mount(true);
   expect(goal()).not.toBeNull();
   await act(async () => opener.onFocusChange!(true));
@@ -128,13 +132,13 @@ it('steps aside with the guide while a pack is torn and opening, and comes back 
 });
 
 it('never shows a new player a goal before their first pack is saved', async () => {
-  mine.stats = { xp: 200, level: 2, uniqueBySet: {}, holoUniqueBySet: {} };
+  mine.stats = atLevel2();
   await mount(false);
   expect(goal()).toBeNull();
 });
 
 it('opens the profile\'s rewards from the goal', async () => {
-  mine.stats = { xp: 200, level: 2, uniqueBySet: {}, holoUniqueBySet: {} };
+  mine.stats = atLevel2();
   await mount(true);
   await act(async () => goal()!.click());
   expect(document.title).toBe(PAGE_TITLES.profile);

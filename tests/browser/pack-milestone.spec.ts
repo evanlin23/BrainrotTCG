@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, scaleText } from './support';
+import { xpForLevel, type SetDefinition } from '../../src/engine';
+import { getNextMilestone, type NextMilestoneGoal } from '../../src/game/nextMilestone';
+import { expectStill, monitor, scaleText } from './support';
 
 /**
  * The next goal (#212) shares the Card guide's row under the pack, after the announcement it yields to, so it
@@ -35,15 +37,46 @@ const layout = (page: Page) => page.evaluate(() => {
 });
 
 /** The pack falls in on load: wait until it stops moving before measuring anything. */
-async function settled(page: Page) {
-  let last = -1;
-  await expect.poll(async () => {
-    const top = (await page.locator('.pack-display').evaluate((el) => el.getBoundingClientRect().top));
-    const still = top === last;
-    last = top;
-    return still;
-  }).toBe(true);
-}
+const settled = (page: Page) => expectStill(page.locator('.pack-display'), 'the pack has settled');
+
+/** Every cosmetic goal a player can be shown, worked out by the real rules (a set with no cards has no set goal to get in the way). */
+const COSMETIC_GOALS = Array.from({ length: 31 }, (_, i) => getNextMilestone(
+  { xp: xpForLevel(i + 1), uniqueBySet: {}, holoUniqueBySet: {} },
+  { cards: [] } as unknown as SetDefinition,
+)).filter((goal, i, all) => goal.kind === 'cosmetic' && all.findIndex((g) => g.targetName === goal.targetName) === i);
+
+/** Puts a goal's words into the chip on the page (and its card-back picture, if it has one), at its worst case of "99%". */
+const show = (page: Page, goal: NextMilestoneGoal) => page.locator('.pack-milestone').evaluate((chip, g) => {
+  chip.querySelector('.pack-milestone-target')!.textContent = g.targetName;
+  chip.querySelector('.pack-milestone-kind')!.textContent = ` ${g.targetKind}`;
+  chip.querySelector('.pack-milestone-detail')!.textContent = g.detail;
+  chip.querySelector('.pack-milestone-progress')!.textContent = '99%';
+  chip.querySelector('.back-swatch')?.remove();
+  if (g.preview) {
+    const swatch = document.createElement('span');
+    swatch.className = `back-swatch back-${g.preview.id}`;
+    swatch.innerHTML = '<img class="card-back-image" alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">';
+    chip.prepend(swatch);
+  }
+}, goal);
+
+/** Whether the chip shows its whole name and the whole "Cosmetic, odds unchanged" cue, and stays the row's height. */
+const fits = (page: Page) => page.locator('.pack-milestone').evaluate((chip) => {
+  const within = (inner: Range | Element, outer: Element) => inner.getBoundingClientRect().right <= outer.getBoundingClientRect().right + 0.5;
+  const text = chip.querySelector('.pack-milestone-text')!;
+  const detail = chip.querySelector('.pack-milestone-detail')!;
+  const cue = document.createRange();
+  cue.setStart(detail.firstChild!, 0);
+  cue.setEnd(detail.firstChild!, 'Cosmetic, odds unchanged'.length);
+  const progress = chip.querySelector('.pack-milestone-progress')!;
+  return {
+    name: within(chip.querySelector('.pack-milestone-target')!, text),
+    cue: within(cue, detail),
+    progress: within(progress, chip) && progress.getBoundingClientRect().left >= text.getBoundingClientRect().right - 0.5,
+    height: chip.getBoundingClientRect().height,
+    row: chip.parentElement!.getBoundingClientRect().height,
+  };
+});
 
 for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 568, 100], [320, 568, 200]] as const) {
   test(`sits in the guide's row without moving anything on a ${width} x ${height} phone at ${percent}% text`, async ({ page, baseURL }, testInfo) => {
@@ -72,6 +105,17 @@ for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 
       expect(box.y).toBeGreaterThanOrEqual(pack.y + pack.height - 0.5);
       // No second row, and no animation of its own to run.
       expect(await goal.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0);
+      // Beyond the aria-label, the chip says on screen that a cosmetic changes no odds (it does not wait for a wide row).
+      const shown = await page.locator('.pack-milestone-detail').innerText();
+      if (shown.startsWith('Cosmetic')) expect(shown).toContain('odds unchanged');
+      // Every reward there is, at its worst case, shows its whole name and the whole cue in the row's height.
+      expect(COSMETIC_GOALS.length).toBeGreaterThan(10);
+      for (const reward of COSMETIC_GOALS) {
+        await show(page, reward);
+        expect(await fits(page), `${reward.targetName} (${reward.targetKind}) at ${width}px`).toEqual({
+          name: true, cue: true, progress: true, height: 44, row: row.height,
+        });
+      }
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     expect(errors).toEqual([]);
@@ -96,7 +140,7 @@ test('on a desktop window it names the goal and goes to the rewards, and the pac
   const goal = page.locator('.card-guide-entry .pack-milestone');
   await expect(goal).toBeVisible();
   expect(await layout(page)).toEqual(before);
-  await expect(goal).toContainText('odds stay the same');
+  await expect(goal).toContainText('odds unchanged');
   await goal.click();
   await expect(page).toHaveURL(/profile/);
   expect(errors).toEqual([]);

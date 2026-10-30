@@ -6,13 +6,20 @@ export type MilestoneStats = Pick<ProfileStats, 'xp' | 'uniqueBySet' | 'holoUniq
 
 export interface NextMilestoneGoal {
   kind: 'cosmetic' | 'set-complete' | 'set-master' | 'done';
-  /** The one thing to chase, e.g. "Midnight (card back)". */
+  /** The one thing to chase, e.g. "Midnight". */
   targetName: string;
-  /** Why it is worth chasing, in a short phrase. Cosmetic goals say they change no odds. */
+  /** What kind of reward it is ("card back"), when it is one. */
+  targetKind?: string;
+  /** A short second line. Cosmetic goals lead with the fact that they change no odds, so a narrow row clips the level, not that. */
   detail: string;
+  /** Short enough for a phone: "50%", "3/12". */
   progressText: string;
+  /** The same progress in words, for a screen reader: "50% of the way to level 3". */
+  progressLabel: string;
   /** Whole percent, never 100 until the goal is actually reached. */
   progressPct: number;
+  /** A picture of the reward, when it has one worth the room: a card back (a pack foil's is held, #1161). */
+  preview?: { kind: 'card-back'; id: string };
   /** Where the goal's link goes; none once everything is done. */
   action?: { text: string; target: 'rewards' | 'cards' };
 }
@@ -32,10 +39,13 @@ export const getNextMilestone = (stats: MilestoneStats, set: SetDefinition): Nex
     const progressPct = percent(stats.xp - xpForLevel(level), xpForLevel(next.level) - xpForLevel(level));
     return {
       kind: 'cosmetic',
-      targetName: `${next.name} (${next.kind})`,
-      detail: `Level ${next.level} cosmetic: rarity and odds stay the same`,
-      progressText: `${progressPct}% to level ${next.level}`,
+      targetName: next.name,
+      targetKind: next.kind,
+      detail: `Cosmetic, odds unchanged · Lv ${next.level}`,
+      progressText: `${progressPct}%`,
+      progressLabel: `${progressPct}% of the way to level ${next.level}`,
       progressPct,
+      preview: next.kind === 'card back' ? { kind: 'card-back', id: next.id } : undefined,
       action: { text: next.kind === 'title' ? 'View rewards' : 'Select rewards', target: 'rewards' },
     };
   };
@@ -51,6 +61,7 @@ export const getNextMilestone = (stats: MilestoneStats, set: SetDefinition): Nex
       targetName: `${set.name} ${completing ? 'complete' : 'master set'}`,
       detail: `${counted}/${size} ${completing ? 'cards' : 'as holos'}, ${size - counted} to go`,
       progressText: `${counted}/${size}`,
+      progressLabel: `${counted} of ${size}`,
       progressPct: percent(counted, size),
       action: { text: 'View binder', target: 'cards' },
     };
@@ -61,6 +72,7 @@ export const getNextMilestone = (stats: MilestoneStats, set: SetDefinition): Nex
     targetName: size > 0 ? `${set.name} mastered` : 'Every reward unlocked',
     detail: 'Every reward is unlocked',
     progressText: 'Done',
+    progressLabel: 'Done',
     progressPct: 100,
   };
 };

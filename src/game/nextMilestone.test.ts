@@ -25,6 +25,7 @@ describe('getNextMilestone', () => {
       targetName: 'Mock Set complete',
       detail: '0/4 cards, 4 to go',
       progressText: '0/4',
+      progressLabel: '0 of 4',
       progressPct: 0,
       action: { text: 'View binder', target: 'cards' },
     });
@@ -34,10 +35,13 @@ describe('getNextMilestone', () => {
     // Level 2 starts at 100 XP and level 3 at 300: 200 XP is halfway. Level 3 unlocks the Pack Rat title.
     expect(getNextMilestone(stats(200, 2), set)).toEqual({
       kind: 'cosmetic',
-      targetName: 'Pack Rat (title)',
-      detail: 'Level 3 cosmetic: rarity and odds stay the same',
-      progressText: '50% to level 3',
+      targetName: 'Pack Rat',
+      targetKind: 'title',
+      detail: 'Cosmetic, odds unchanged · Lv 3',
+      progressText: '50%',
+      progressLabel: '50% of the way to level 3',
       progressPct: 50,
+      preview: undefined,
       action: { text: 'View rewards', target: 'rewards' },
     });
   });
@@ -45,8 +49,12 @@ describe('getNextMilestone', () => {
   it('links choosable rewards (a card back) to selecting them', () => {
     // Level 3 -> Midnight card back at level 4.
     const goal = getNextMilestone(stats(xpForLevel(3)), set);
-    expect(goal).toMatchObject({ kind: 'cosmetic', targetName: 'Midnight (card back)', progressPct: 0 });
+    expect(goal).toMatchObject({ kind: 'cosmetic', targetName: 'Midnight', targetKind: 'card back', progressPct: 0 });
     expect(goal.action).toEqual({ text: 'Select rewards', target: 'rewards' });
+    // A card back has a picture to show; the title before it and the pack foil after have none.
+    expect(goal.preview).toEqual({ kind: 'card-back', id: 'midnight' });
+    expect(getNextMilestone(stats(xpForLevel(2)), set).preview).toBeUndefined();
+    expect(getNextMilestone(stats(xpForLevel(5)), set)).toMatchObject({ targetKind: 'pack foil', preview: undefined });
   });
 
   it('is never at 100% before the goal is reached', () => {
@@ -70,18 +78,18 @@ describe('getNextMilestone', () => {
 
   it('falls back to the next cosmetic once the set is mastered, even when it is further than a level away', () => {
     const goal = getNextMilestone(stats(xpForLevel(8), 4, 4), set);
-    expect(goal).toMatchObject({ kind: 'cosmetic', targetName: 'Gold (card back)', progressText: '0% to level 10' });
+    expect(goal).toMatchObject({ kind: 'cosmetic', targetName: 'Gold', targetKind: 'card back', progressLabel: '0% of the way to level 10' });
   });
 
   it('is done, with nowhere to go, when the set is mastered and every reward is unlocked', () => {
     const goal = getNextMilestone(stats(everything, 4, 4), set);
-    expect(goal).toEqual({ kind: 'done', targetName: 'Mock Set mastered', detail: 'Every reward is unlocked', progressText: 'Done', progressPct: 100 });
+    expect(goal).toEqual({ kind: 'done', targetName: 'Mock Set mastered', detail: 'Every reward is unlocked', progressText: 'Done', progressLabel: 'Done', progressPct: 100 });
     expect(goal.action).toBeUndefined();
   });
 
   it('skips set goals for a set with no cards', () => {
     const empty = { ...set, cards: [] } as unknown as SetDefinition;
-    expect(getNextMilestone(stats(0), empty)).toMatchObject({ kind: 'cosmetic', targetName: 'Pack Rat (title)' });
+    expect(getNextMilestone(stats(0), empty)).toMatchObject({ kind: 'cosmetic', targetName: 'Pack Rat' });
     expect(getNextMilestone(stats(everything), empty)).toMatchObject({ kind: 'done', targetName: 'Every reward unlocked' });
   });
 

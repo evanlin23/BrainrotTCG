@@ -22,9 +22,11 @@ afterEach(() => {
 
 const cosmetic: NextMilestoneGoal = {
   kind: 'cosmetic',
-  targetName: 'Pack Rat (title)',
-  detail: 'Level 3 cosmetic: rarity and odds stay the same',
-  progressText: '50% to level 3',
+  targetName: 'Pack Rat',
+  targetKind: 'title',
+  detail: 'Cosmetic, odds unchanged · Lv 3',
+  progressText: '50%',
+  progressLabel: '50% of the way to level 3',
   progressPct: 50,
   action: { text: 'Select rewards', target: 'rewards' },
 };
@@ -34,6 +36,7 @@ const binder: NextMilestoneGoal = {
   targetName: 'Base Set complete',
   detail: '12/20 cards, 8 to go',
   progressText: '12/20',
+  progressLabel: '12 of 20',
   progressPct: 60,
   action: { text: 'View binder', target: 'cards' },
 };
@@ -43,6 +46,7 @@ const done: NextMilestoneGoal = {
   targetName: 'Base Set mastered',
   detail: 'Every reward is unlocked',
   progressText: 'Done',
+  progressLabel: 'Done',
   progressPct: 100,
 };
 
@@ -56,15 +60,27 @@ describe('PackMilestoneGoal', () => {
     const onNavigate = render(cosmetic);
     const button = container.querySelector<HTMLButtonElement>('button.pack-milestone')!;
     expect(button.getAttribute('aria-label')).toBe(
-      'Next goal: Pack Rat (title), 50% to level 3. Level 3 cosmetic: rarity and odds stay the same. Select rewards.',
+      'Next goal: Pack Rat (title), 50% of the way to level 3. Cosmetic, odds unchanged · Lv 3. Select rewards.',
     );
-    expect(container.querySelector('.pack-milestone-target')!.textContent).toBe('Pack Rat (title)');
-    expect(container.querySelector('.pack-milestone-progress')!.textContent).toBe('50% to level 3');
+    expect(container.querySelector('.pack-milestone-target')!.textContent).toBe('Pack Rat');
+    expect(container.querySelector('.pack-milestone-kind')!.textContent).toBe(' title');
+    expect(container.querySelector('.pack-milestone-progress')!.textContent).toBe('50%');
+    // The cosmetic cue is on-screen text, not only in the label, so a phone reads it too.
+    expect(container.querySelector('.pack-milestone-detail')!.textContent).toBe('Cosmetic, odds unchanged · Lv 3');
     expect(container.querySelector<HTMLElement>('.pack-milestone-fill')!.style.width).toBe('50%');
     // One control, nothing nested in it.
     expect(container.querySelectorAll('button, a, [role="progressbar"]')).toHaveLength(1);
     act(() => button.click());
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith('rewards');
+  });
+
+  it('shows a card back goal with a picture of that back, and no picture for a title', () => {
+    render({ ...cosmetic, targetName: 'Midnight', targetKind: 'card back', preview: { kind: 'card-back', id: 'midnight' } });
+    const swatch = container.querySelector('button.pack-milestone > .back-swatch')!;
+    expect(swatch.classList.contains('back-midnight')).toBe(true);
+    expect(swatch.querySelector('img')!.getAttribute('alt')).toBe('');
+    render(cosmetic);
+    expect(container.querySelector('.back-swatch')).toBeNull();
   });
 
   it('sends a set goal to the binder', () => {
