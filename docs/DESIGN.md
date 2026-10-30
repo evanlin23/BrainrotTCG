@@ -25,7 +25,9 @@ from a 390 px wide screen.
    or Enter with focus on it, opens it exactly as a finished swipe does, and the click a swipe ends in
    is swallowed (a press that moved more than `TAP_SLOP_PX`, 10px, is a drag). The keys work only with
    focus on the pack, never from the page. While the ticket works its name reads "Opening…" and input
-   is ignored. Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
+   is ignored. If the player leaves early while that ticket is still pending, the pack appears sealed
+   again, and a press, swipe, Space or Enter shows "Taking a moment…" (announcing "Opening the pack…")
+   while hiding the swipe hint until the ticket lands (#1277). Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
    from the tear until the pack is put away) opens the selected set's card guide. The latest unread
    news shows as a one-line chip beside it in that row, adding no height: it hides on narrow rows,
    landscape phones and at 200% text on a phone, gives way to a save warning, and is never marked
