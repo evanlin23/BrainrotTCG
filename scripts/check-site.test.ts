@@ -27,11 +27,12 @@ const SET = { ...OPENABLE, cards: OPENABLE.cards.slice(0, 2) };
 
 const picture = (width = 1200, height = 630) => sharp({ create: { width, height, channels: 3, background: '#121114' } });
 let JPEG: Buffer;
+const templateKey = (host: Host) => `${host.site}:${host.base}`;
 const TEMPLATES = new Map<string, { outDir: string; pages: string[]; images: string[] }>();
 beforeAll(async () => {
   JPEG = await picture().jpeg().toBuffer();
-  TEMPLATES.set(GITHUB.name, await seedBuild(GITHUB));
-  TEMPLATES.set(CLOUDFLARE.name, await seedBuild(CLOUDFLARE));
+  TEMPLATES.set(templateKey(GITHUB), await seedBuild(GITHUB));
+  TEMPLATES.set(templateKey(CLOUDFLARE), await seedBuild(CLOUDFLARE));
 });
 
 /** A manifest as public/manifest.webmanifest has it: URLs relative to itself, so they hold under any base. */
@@ -106,7 +107,7 @@ const build = async (host: Host) => {
   const { base, site } = host;
   const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'check-site-test-'))}/`;
   dirs.push(outDir);
-  const template = TEMPLATES.get(host.name) ?? await seedBuild(host);
+  const template = TEMPLATES.get(templateKey(host)) ?? await seedBuild(host);
   cpSync(template.outDir, outDir, { recursive: true });
   const pages = [...template.pages];
   const images = [...template.images];
