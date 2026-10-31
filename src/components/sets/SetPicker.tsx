@@ -4,13 +4,12 @@ import type { SetDefinition } from '../../engine';
 import { isNewSet, setCode } from '../../content/sets';
 import { packThumbUrl } from '../../content/art';
 import type { CollectionItem } from '../../types';
-import { setProgress } from '../../game/progression';
-import { isCardOwned } from '../../game/versions';
 import { siteUrl } from '../../game/pulls';
 import { setPagePath } from '../../game/previewLinks';
 import { copyText } from '../../game/shareActions';
 import Sheet from '../ui/Sheet';
 import SetBadge from './SetBadge';
+import { progressOf } from './packChoices';
 import '../../styles/Sets.css';
 
 interface SetPickerProps {
@@ -21,13 +20,13 @@ interface SetPickerProps {
   collection: Record<string, CollectionItem>;
   /** While a pack is being opened, switching sets would throw it away. */
   disabled?: boolean;
+  /**
+   * The Packs sheet's state, when something else opens it too (the summary's "Try another pack"). Left
+   * out, the picker keeps it itself.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
-
-const progressOf = (set: SetDefinition, collection: Record<string, CollectionItem>) => {
-  const owned = set.cards.filter((c) => isCardOwned(collection[`${set.id}/${c.id}`])).length;
-  const holoOwned = set.cards.filter((c) => (collection[`${set.id}/${c.id}`]?.holoCount ?? 0) > 0).length;
-  return { owned, size: set.cards.length, done: setProgress(owned, holoOwned, set.cards.length) };
-};
 
 const palette = (set: SetDefinition) => {
   const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
@@ -38,8 +37,10 @@ const palette = (set: SetDefinition) => {
  * Which pack to open: the current era with arrows to the one before and after, and every pack in a
  * sheet. One line however many sets there are.
  */
-const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }: SetPickerProps) => {
-  const [open, setOpen] = useState(false);
+const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false, open: controlledOpen, onOpenChange }: SetPickerProps) => {
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = controlledOpen ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   // The set whose link was just copied, so "Link copied" never shows under another set. Each copy is
   // a new object, so copying the same link again starts the message's time over.
   const [copied, setCopied] = useState<{ setId: string } | null>(null);

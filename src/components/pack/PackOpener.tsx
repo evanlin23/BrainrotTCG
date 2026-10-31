@@ -20,7 +20,7 @@ import { BRAINROT_VOICES, EFFECT_SOUNDS, CARD_FLIP_SRC, EFFECT_DELAY_MS } from '
 import { effectsLevel } from '../../utils/settings';
 import PackCuttingUI from './PackCuttingUI';
 import CardRevealUI from './CardRevealUI';
-import PackSummaryUI from './PackSummaryUI';
+import PackSummaryUI, { type PackChoices } from './PackSummaryUI';
 import PackTopBar from './PackTopBar';
 import ShowcaseRibbon from './ShowcaseRibbon';
 import { revealAnnouncement } from '../cards/cardLabel';
@@ -88,6 +88,8 @@ interface PackOpenerProps {
    */
   onShowcaseChange?: (showcase: boolean) => void;
   set: SetDefinition;
+  /** The other packs the summary can point to ("Try another pack"); left out, it doesn't. */
+  packChoices?: PackChoices;
   disabled?: boolean;
   /** No new pack may start (the save changed in another tab); one already opening still finishes. */
   openBlocked?: boolean;
@@ -121,7 +123,7 @@ interface PackOpenerProps {
   onOpenRankingsHelp?: () => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true, onOpenSave, onOpenRankingsHelp }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, packChoices, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true, onOpenSave, onOpenRankingsHelp }: PackOpenerProps) => {
   // Where the pack is, from the tear to the packs screen (packLifecycle.ts). What the stage doesn't say is
   // the reveal's own state below: which card is up, what is locked, what is being celebrated.
   const [stage, send] = usePackLifecycle();
@@ -920,6 +922,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 onOpenRankingsHelp={onOpenRankingsHelp}
                 holdOptional={!disabled}
                 guard={summaryGuard}
+                packChoices={packChoices}
               />
             )}
           </Lifted>

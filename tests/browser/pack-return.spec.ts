@@ -3,7 +3,7 @@ import { expectDecoded, expectPackDropped, monitor } from './support';
 
 /**
  * The sealed pack's entrance (#720). It falls in from above the header only the first time the packs
- * screen is on screen after the page loads; every return from a pack (Back from the summary, Next pack,
+ * screen is on screen after the page loads; every return from a pack (Back from the summary, Open again,
  * the summary's X and Escape) rises a few pixels while it fades in instead, so it never passes over the
  * header or the gear and takes a tap as soon as it is at rest. Under reduced motion a return is instant.
  *
@@ -92,7 +92,7 @@ async function reachSummary(page: Page) {
 
 const returns = [
   ['browser Back from the summary', async (page: Page) => { await reachSummary(page); await forgetStage(page); await page.goBack(); }],
-  ['Next pack', async (page: Page) => { await reachSummary(page); await forgetStage(page); await page.getByRole('button', { name: 'Next pack' }).click(); }],
+  ['Open again', async (page: Page) => { await reachSummary(page); await forgetStage(page); await page.getByRole('button', { name: /^Open .+ again$/ }).click(); }],
   ['the summary X', async (page: Page) => { await reachSummary(page); await forgetStage(page); await page.getByRole('button', { name: 'Back to packs', exact: true }).click(); }],
   ['Escape', async (page: Page) => { await intoReveal(page); await forgetStage(page); await page.keyboard.press('Escape'); }],
 ] as const;

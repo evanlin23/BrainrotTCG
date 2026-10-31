@@ -9,7 +9,7 @@ from a 390 px wide screen.
 ## Principles
 
 1. **The pack is the hero.** Each screen has one primary action: on the home screen it's opening the
-   pack; during a reveal it's the next card; in the summary it's moving on to the next pack. Everything else
+   pack; during a reveal it's the next card; in the summary it's opening the set again (Open {set name} again). Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is the logo (mark
    and wordmark), the gear and the pack: the tabs, the era picker and the quiet Card guide link come
    once their first pack is saved and they leave it (#898, #628).
@@ -62,7 +62,7 @@ from a 390 px wide screen.
    loads (a load straight into #/cards waits until the packs screen is shown). The fall passes over the
    header and any warning banner, so the pack takes no presses until it first reaches its place: a tap on
    the gear or a banner's Download then reaches them. Every return (Back, Escape,
-   the X, Next pack) uses a short entrance instead: it fades in while rising about 24px over 180 ms, with
+   the X, Open again) uses a short entrance instead: it fades in while rising about 24px over 180 ms, with
    no rotation, so the stage never passes over the header or the gear and takes a tap as soon as it is at
    rest. Reduced motion makes the return instant (#720).
 4. **Places are pages, moments are sheets.** Cards, Rankings, Profile and Settings are pages with an
@@ -166,13 +166,24 @@ results line (`PackSummaryUI.tsx`) that goes.
    qualify (#1004) or qualifies but wouldn't beat the lowest listed score (#1072). If the list is
    unavailable, neutral wording ('Qualifies for Rankings') offers Submit without claiming a rank. Score
    and combo are one line each; the reason sentence is the only text that can wrap, to three lines at
-   360 and 390. No 1-in-X, XP or fingerprint (that is on the share). Next pack is the one primary action,
+   360 and 390. No 1-in-X, XP or fingerprint (that is on the share). Open {set name} again is the one primary action,
    Share secondary. Tiles keep their own New stickers: they name different cards.
-6. **Next pack and share.** Next pack returns to a sealed pack under the same cue rules (no replayed
+6. **Open again and share.** Open {set name} again returns to a sealed pack under the same cue rules (no replayed
    demonstration once a pack is saved). Share makes the best card's image and link, as today.
 7. **Desktop (900 px up).** The same flow in a centred column; the pack opens by click, Space, Enter
    or drag. A pack carousel is **not** added now: a new player has one pack and the picker already
    serves returning players. Revisit with two or more started eras. Phones keep the picker.
+8. **Discovering other packs (2026-10-28 direction).** Players kept opening the same pack without
+   knowing others exist. Two entry points, built one slice at a time, both opening the **existing
+   Packs sheet** (the one the era picker opens; no second picker, no automatic set switching, the
+   selected set stays until the player picks another):
+   - *Now, the summary.* A quiet **Try another pack** control sits in the summary's actions area,
+     above the Share and primary row, with up to two small wrapper thumbnails of other sets. It shows
+     only when another set is available (the same list the picker uses, so draft or hidden sets count
+     only when the picker would show them). The primary becomes **Open {set name} again**, for players
+     chasing that set. It is never shown mid-reveal.
+   - *Next, the landing.* A **Change pack · N available** control under the pack, for a returning player
+     who has not yet looked at the picker. Not built yet; it is the next slice.
 
 ### Guardrails
 
@@ -193,7 +204,7 @@ results rules below (#339).
   removed, landing de-cluttered, honest cue.
 - #627: stationary-click loop from pack to summary; ignore clicks for about 400 ms after a stage
   change and during Opening so no viewer opens. The loop deliberately ends at the summary, where
-  the player reads the score, views cards and shares, so a stray click must not skip it; Next pack
+  the player reads the score, views cards and shares, so a stray click must not skip it; Open again
   stays the one deliberate move. This replaces #627's pack-after-pack criterion. The keyboard
   follows the same window: on the summary Space and Enter are ignored until it ends
   (`useKeyboardControls`), so a stuck or repeated press that opened the summary can't close it.
@@ -609,8 +620,10 @@ Rankings line: a Submit when it would make the list, neutral 'Qualifies for Rank
 lines at 360 and 390; the line keeps its reserved height so cards below never move), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
 compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
 shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
-actions: **Next pack** primary (it returns to the packs screen, where the next sealed pack waits; opening it is a swipe or Open pack away), **Share** secondary, stuck to the bottom of the summary's
-scroller above the safe area. The cards are the last content: only the actions sit below them,
+actions: **Open {set name} again** primary (it returns to the packs screen, where the next sealed pack waits; opening it is a swipe or Open pack away), **Share** secondary, stuck to the bottom of the summary's
+scroller above the safe area. When another pack exists, a quiet **Try another pack** line (a 44px
+target with up to two wrapper thumbnails; the Packs sheet opens from it) leads the actions, above Share
+and the primary, so the primary stays last and lowest. The cards are the last content: only the actions sit below them,
 nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP
 or level here: level-ups toast and progress lives on Profile. Keyboard focus is scrolled clear of
 the stuck actions, whose faded strip passes taps through. Focus starts on the heading.

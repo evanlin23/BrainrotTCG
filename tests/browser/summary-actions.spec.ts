@@ -200,14 +200,14 @@ for (const textZoom of [200]) {
       expect(button.bottom).toBeLessThanOrEqual(before.actions.bottom);
       expect(button.bottom - button.top).toBeGreaterThanOrEqual(44);
     }
-    await expect(page.getByRole('button', { name: 'Next pack' })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('button', { name: /^Open .+ again$/ })).toBeInViewport({ ratio: 1 });
 
     // Scrolled to the end, the actions are still whole on screen and the last card is clear of them.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = list.scrollHeight; });
     const after = await layout(page);
     expect(after.scrollTop).toBeGreaterThan(0);
     expect(after.actions.bottom).toBeLessThanOrEqual(after.content.bottom);
-    await expect(page.getByRole('button', { name: 'Next pack' })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('button', { name: /^Open .+ again$/ })).toBeInViewport({ ratio: 1 });
     expect(after.lastCard.bottom).toBeLessThanOrEqual(after.actions.top);
 
     // Focus order is the page's: the heading, "How Rankings work" in the note (this pull doesn't qualify), the Card
@@ -232,7 +232,7 @@ for (const textZoom of [200]) {
       expect(await obstruction(page), `stop ${stop + 1} is covered or off screen`).toBeNull();
     }
     expect(visited).toEqual(expected);
-    expect(visited.at(-1)).toContain('Next pack');
+    expect(visited.at(-1)).toMatch(/Open .+ again/);
     expect(errors).toEqual([]);
   });
 }
@@ -252,13 +252,53 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
     page.locator('.pack-headline-combo'),
     ...Array.from({ length: 5 }, (_, index) => page.locator('.summary-card').nth(index)),
     page.getByRole('button', { name: 'Share', exact: true }),
-    page.getByRole('button', { name: 'Next pack' }),
+    page.getByRole('button', { name: /^Open .+ again$/ }),
   ]) await expect(locator).toBeInViewport({ ratio: 1 });
   // Nothing in the actions' way: the last card ends above them.
   const { lastCard, actions, buttons, pageOverflow } = await layout(page);
   expect(lastCard.bottom).toBeLessThanOrEqual(Math.min(...buttons.map((button) => button.top)));
   expect(actions.bottom).toBeLessThanOrEqual(viewport.height);
   expect(pageOverflow).toBeLessThanOrEqual(0);
+  expect(errors).toEqual([]);
+});
+
+// Other packs are discoverable from the result (#898): after a first pack, "Try another pack" leads the
+// actions, stays whole on screen clear of the other buttons, and opens the same Packs sheet the picker does,
+// with the pack's set still the chosen one. At the owner's phone, a short landscape phone and the desktop.
+for (const viewport of [{ width: 393, height: 727 }, { width: 667, height: 375 }, { width: 1280, height: 800 }]) test(`offers Try another pack after a first pack and opens the Packs sheet at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const { errors } = await openSummary(page, baseURL!, { viewport });
+  const tryAnother = page.getByRole('button', { name: /^Try another pack, \d+ other packs? to choose from$/ });
+  const again = page.getByRole('button', { name: /^Open .+ again$/ });
+  await expect(tryAnother).toBeVisible();
+  await expect(tryAnother).toBeInViewport({ ratio: 1 });
+  await expect(again).toBeInViewport({ ratio: 1 });
+  // Leads the row, and is a 44px target that never overlaps the Share and primary buttons below it.
+  const boxes = await page.evaluate(() => {
+    const box = (element: Element | null) => {
+      const { top, bottom, left, right, height } = element!.getBoundingClientRect();
+      return { top, bottom, left, right, height };
+    };
+    const buttons = Array.from(document.querySelectorAll('.summary-actions button'));
+    return { buttons: buttons.map((button) => ({ text: button.textContent!.trim().slice(0, 14), ...box(button) })), pageOverflow: document.documentElement.scrollWidth - innerWidth };
+  });
+  expect(boxes.buttons.map((b) => b.text)).toEqual([expect.stringMatching(/^Try another/), expect.anything(), expect.stringMatching(/^Open /)]);
+  expect(boxes.buttons[0].height).toBeGreaterThanOrEqual(44);
+  for (const lower of boxes.buttons.slice(1)) expect(boxes.buttons[0].bottom, JSON.stringify(boxes)).toBeLessThanOrEqual(lower.top);
+  expect(boxes.pageOverflow).toBeLessThanOrEqual(0);
+
+  const selectedBefore = await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEYS.SELECTED_SET);
+  await tryAnother.focus();
+  await page.keyboard.press('Enter');
+  const sheet = page.getByRole('dialog', { name: 'Packs' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.locator('.pack-tile[aria-pressed="true"]')).toHaveCount(1);
+  expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEYS.SELECTED_SET)).toBe(selectedBefore);
+  // Closing it leaves the summary as it was, with focus back on the control that opened it.
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(tryAnother).toBeFocused();
+  await expect(page.locator('.summary-card')).toHaveCount(5);
   expect(errors).toEqual([]);
 });
 

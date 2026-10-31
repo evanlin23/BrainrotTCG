@@ -233,3 +233,30 @@
     flex: 1 1 auto;
   }
 }
+
+/*
+ * "Try another pack": a quiet line that leads the actions (the primary stays last and lowest), on a row
+ * of its own so it never competes with Share or the primary. A 44px target; the wrapper thumbnails are
+ * decoration, small enough not to repeat the Packs sheet's metadata. Nothing moves.
+ */
+.pack-summary .summary-actions .summary-try-another {
+  flex: 1 0 100%;
+  gap: var(--space-2);
+  min-height: var(--touch-target);
+  padding-block: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.summary-try-thumbs {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.summary-try-thumbs img {
+  display: block;
+  width: auto;
+  height: 1.75rem;
+  aspect-ratio: 300 / 533;
+  border-radius: var(--radius-sm);
+}

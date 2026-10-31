@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../../constants/config';
 import { cardFinishThumbUrl } from '../../content/art';
-import { getSet } from '../../content/sets';
+import { SETS, getSet, isOpenable } from '../../content/sets';
 import { getSetCards, scoreCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
 import { revealOrder } from '../../game/reveal';
@@ -73,7 +73,7 @@ describe('special and new cards', () => {
 });
 
 describe('the first moments (#627)', () => {
-  it('ignores clicks on the cards, Card guide and Share, never on Next pack, until the summary has settled', () => {
+  it('ignores clicks on the cards, Card guide and Share, never on Open again, until the summary has settled', () => {
     // The up-close viewer measures itself and reads motion preferences.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
@@ -84,7 +84,7 @@ describe('the first moments (#627)', () => {
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={onClose} onShare={onShare} />));
     const tile = () => container.querySelector<HTMLButtonElement>('.summary-card')!;
     const share = [...container.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((b) => b.textContent?.includes('Share'))!;
-    const next = [...container.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((b) => b.textContent?.includes('Next pack'))!;
+    const next = [...container.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((b) => b.textContent?.includes('again'))!;
     const guide = [...container.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Card guide'))!;
     const clickAll = () => act(() => { tile().click(); share.click(); guide.click(); });
 
@@ -96,7 +96,7 @@ describe('the first moments (#627)', () => {
     expect(container.querySelector('.summary-caption')?.textContent, 'the hint went away as if a card had been viewed').toBe('Select a card to view');
 
     act(() => next.click());
-    expect(onClose, 'Next pack is the one deliberate move and is never held').toHaveBeenCalledTimes(1);
+    expect(onClose, 'Open again is the one deliberate move and is never held').toHaveBeenCalledTimes(1);
 
     act(() => vi.advanceTimersByTime(1));
     expect(container.querySelector('.summary-cards')!.hasAttribute('data-settling')).toBe(false);
@@ -118,7 +118,7 @@ describe('result first', () => {
     expect(follows(title, guideLine) && follows(guideLine, list) && follows(list, actions)).toBe(true);
     expect(actions.nextElementSibling).toBeNull();
     expect(title.textContent).toMatch(/^[\d,]+ Brainrot Score$/);
-    expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Next pack']);
+    expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', `Open ${set.name} again`]);
     expect([...guideLine.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide']);
     // No per-pack breakdown and no level progress: the guide explains scoring, Profile holds progress.
     expect(text()).not.toMatch(/XP|Level \d|How this score works|pts ×/);
@@ -322,5 +322,68 @@ describe('record lines (#1287)', () => {
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={{ ...pack }} />));
     expect(container.querySelector('.pack-headline-record')).toBeNull();
     expect(container.querySelector('.pack-headline-rank')!.textContent).toBe('your #2 pack ever');
+  });
+});
+
+describe('Try another pack (#898)', () => {
+  const openable = SETS.filter(isOpenable);
+  const shown = (extra: Partial<ComponentProps<typeof SummaryScreen>> = {}) => {
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} {...extra} />));
+  };
+  const tryAnother = () => [...container.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((b) => b.textContent?.includes('Try another pack'));
+  const actions = () => [...container.querySelectorAll('.summary-actions button')].map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim());
+
+  it('names the primary for the set it opens again, and keeps it the last and only primary action', () => {
+    shown({ packChoices: { sets: openable, collection: {}, onOpen: () => {} } });
+    const primary = container.querySelector<HTMLButtonElement>('.summary-actions .btn--primary')!;
+    expect(primary.textContent?.trim()).toBe(`Open ${set.name} again`);
+    expect(container.querySelectorAll('.summary-actions .btn--primary')).toHaveLength(1);
+    expect(container.querySelector('.summary-actions')!.lastElementChild).toBe(primary);
+    expect(container.querySelector('.summary-actions')!.nextElementSibling).toBeNull();
+  });
+
+  it('leads the actions with a control whose name counts the other packs, and opens the Packs sheet from it', () => {
+    const onOpen = vi.fn();
+    shown({ packChoices: { sets: openable, collection: {}, onOpen } });
+    expect(openable.length).toBeGreaterThan(1);
+    const others = openable.filter((s) => s.id !== set.id).length;
+    expect(actions()).toEqual(['Try another pack' + `, ${others} other ${others === 1 ? 'pack' : 'packs'} to choose from`, 'Share', `Open ${set.name} again`]);
+    const button = tryAnother()!;
+    expect(button.textContent, 'the visible words are the start of the accessible name').toBe('Try another pack');
+    expect(button.querySelectorAll('img')).toHaveLength(Math.min(2, others));
+    expect(button.querySelector('.summary-try-thumbs')!.getAttribute('aria-hidden')).toBe('true');
+    settled();
+    act(() => button.click());
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('says "1 other pack" when only one more is listed', () => {
+    const two = [openable.find((s) => s.id !== set.id)!, set];
+    shown({ packChoices: { sets: two, collection: {}, onOpen: () => {} } });
+    expect(tryAnother()!.getAttribute('aria-label')).toBe('Try another pack, 1 other pack to choose from');
+    expect(tryAnother()!.textContent).toBe('Try another pack');
+    expect(tryAnother()!.querySelectorAll('img')).toHaveLength(1);
+  });
+
+  it('shows nothing new, and no layout change, with one available set or no choices at all', () => {
+    shown();
+    const plain = container.querySelector('.summary-actions')!.innerHTML;
+    expect(tryAnother()).toBeUndefined();
+    shown({ packChoices: { sets: [set], collection: {}, onOpen: () => {} } });
+    expect(tryAnother()).toBeUndefined();
+    expect(container.querySelector('.summary-actions')!.innerHTML).toBe(plain);
+    expect(actions()).toEqual(['Share', `Open ${set.name} again`]);
+  });
+
+  it('holds a click inside the settle window like Share, so a stray tap on the last card cannot open the sheet', () => {
+    const onOpen = vi.fn();
+    shown({ packChoices: { sets: openable, collection: {}, onOpen } });
+    act(() => tryAnother()!.click());
+    expect(onOpen).not.toHaveBeenCalled();
+    settled();
+    act(() => tryAnother()!.click());
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });

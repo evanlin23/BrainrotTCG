@@ -208,6 +208,9 @@ function App() {
   }, [setSelectedSetId]);
   // A set's link opens the packs screen on that set (see useSetLink).
   useSetLink(playableSets, packBusy, selectSet);
+  // The Packs sheet is the set picker's; the summary's "Try another pack" opens the same one.
+  const [shelfOpen, setShelfOpen] = useState(false);
+  const openShelf = useCallback(() => setShelfOpen(true), []);
 
   // Each page names the tab; back on the packs screen, focus returns to the top of it (the page's
   // own heading takes focus itself, see Page). Back over a pack, the chrome has stepped aside (on a
@@ -583,7 +586,7 @@ function App() {
 
       {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}
       <main ref={mainRef} className="app-main" hidden={onPage} inert={onPage}>
-        {showNav && <SetPicker sets={playableSets} selectedId={selectedSet.id} onSelect={selectSet} collection={collection} disabled={packBusy} />}
+        {showNav && <SetPicker sets={playableSets} selectedId={selectedSet.id} onSelect={selectSet} collection={collection} disabled={packBusy} open={shelfOpen} onOpenChange={setShelfOpen} />}
         <PackOpener
           key={selectedSet.id}
           onOpen={handlePackOpened}
@@ -592,6 +595,7 @@ function App() {
           onFocusChange={setPackFocus}
           onShowcaseChange={setPackShowcase}
           set={selectedSet}
+          packChoices={showNav ? { sets: playableSets, collection, onOpen: openShelf } : undefined}
           disabled={isAnyModalOpen || onPage}
           openBlocked={staleSave}
           mountedSave={mountedSave}

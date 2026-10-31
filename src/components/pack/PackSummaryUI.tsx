@@ -2,9 +2,12 @@ import { useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
 import { motion } from 'framer-motion';
 import { RotateCcw, Share2 } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
+import type { CollectionItem } from '../../types';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
 import CardGuideButton from '../ui/CardGuideButton';
+import { packThumbUrl } from '../../content/art';
+import { otherPackChoices } from '../sets/packChoices';
 import { modifierLabel, modifierThumb } from '../../game/modifiers';
 import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
@@ -19,6 +22,13 @@ import '../../styles/CollectionLabel.css';
 import '../../styles/PackSummary.css';
 
 const Motion = motion;
+
+/** What "Try another pack" needs: the sets the picker lists (oldest first), the player's cards, and how to open the Packs sheet. */
+export interface PackChoices {
+  sets: SetDefinition[];
+  collection: Record<string, CollectionItem>;
+  onOpen: () => void;
+}
 
 interface PackSummaryUIProps {
   openedCards: CardWithMeta[];
@@ -36,6 +46,8 @@ interface PackSummaryUIProps {
    * reads the same state that holds these clicks and sets data-settling here (#972).
    */
   guard: StageClickGuard;
+  /** Left out (or with no other set to choose), the summary has no "Try another pack". */
+  packChoices?: PackChoices;
 }
 
 /**
@@ -48,7 +60,7 @@ interface PackSummaryUIProps {
  * starts here, never mid-reveal: the link carries the whole pack, so it would spoil the cards still face
  * down.
  */
-const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRankingsHelp, holdOptional = false, guard }: PackSummaryUIProps) => {
+const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRankingsHelp, holdOptional = false, guard, packChoices }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
   // The "select a card" hint stays until a card is opened on this visit.
   const [viewed, setViewed] = useState(false);
@@ -58,7 +70,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
   useHoldUntilDecoded(cardsRef, holdOptional);
   // A click that was meant for the last card (the player is clicking in one spot, #627) lands here as the
   // summary appears: it must not open a card up close, the Card guide, the share sheet or send a Hall of
-  // Fame entry. Next pack is the one deliberate move.
+  // Fame entry. Open again is the one deliberate move.
   const { blockClicks, settling } = guard;
   // The keyboard starts at the result, not on an action: the heading, so the cards come next.
   useEffect(() => {
@@ -80,6 +92,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
   };
   const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
   // Read as the summary first renders, so a record line shows from the first paint and nothing moves after.
+  const others = packChoices ? otherPackChoices(packChoices.sets, set.id, packChoices.collection) : null;
   const record = useMemo(() => (pack ? packRecord(getHistory(), pack, packScore.score) : null), [pack, packScore]);
 
   return (
@@ -122,13 +135,31 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
 
           {/* Right after the result, and stuck to the bottom so they never scroll away. */}
           <div className="summary-actions" ref={actionsRef}>
+            {/* Other eras exist: a quiet way into the Packs sheet, above the row so the primary stays last. */}
+            {packChoices && others && others.count > 0 && (
+              <button
+                type="button"
+                className="summary-try-another btn btn--ghost"
+                onClick={packChoices.onOpen}
+                aria-haspopup="dialog"
+                // The visible words first, then how many there are to choose from.
+                aria-label={`Try another pack, ${others.count} other ${others.count === 1 ? 'pack' : 'packs'} to choose from`}
+              >
+                <span className="summary-try-thumbs" aria-hidden="true">
+                  {others.preview.map((other) => (
+                    <img key={other.id} src={packThumbUrl(other.id)} alt="" loading="lazy" draggable="false" />
+                  ))}
+                </span>
+                Try another pack
+              </button>
+            )}
             {onShare && (
               <button type="button" className="btn btn--secondary btn--lg" onClick={onShare}>
                 <Share2 aria-hidden="true" /> Share
               </button>
             )}
             <button type="button" className="btn btn--primary btn--lg" onClick={onClose} {...{ [STAGE_PRIMARY_ATTR]: true }}>
-              <RotateCcw aria-hidden="true" /> Next pack
+              <RotateCcw aria-hidden="true" /> Open {set.name} again
             </button>
           </div>
         </div>
