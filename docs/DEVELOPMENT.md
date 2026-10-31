@@ -702,8 +702,10 @@ implementations), and puts the address back at `/BrainrotTCG/` (`history.replace
 so no history entry and no `hashchange`); the address is also set before each test and when a file loads.
 Rules that follow:
 
-- A new or edited test doesn't repeat those resets in its file's `afterEach` (many existing files still
-  do; removing them is remaining #1312 work); add only the cleanup for state the file owns,
+- A test file doesn't repeat those resets in its `afterEach`; the guard in `src/test/isolation.test.ts`
+  fails on an `afterEach` whose whole body is covered resets. A reset stays only where it does
+  something the setup doesn't: a `beforeEach` clear of calls made at import time, or a reset inside a
+  test body or `finally`. Add only the cleanup for state the file owns,
   such as `vi.unstubAllGlobals()` for a `vi.stubGlobal` the file makes in `beforeEach` (the setup can't
   unstub globally: files stub `localStorage` once at module level).
 - A mock's default behaviour is set in `beforeEach` (or as the `vi.fn(impl)` argument), never once at
