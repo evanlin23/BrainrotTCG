@@ -50,15 +50,28 @@ const reached = (rewards: readonly Reward[], level: number) => rewards.filter((r
 /** The title for a level. */
 export const titleFor = (level: number): string => reached(TITLES, level).slice(-1)[0].name;
 
-/** The next reward of any kind still to unlock, if there is one. */
-export const nextReward = (level: number): (Reward & { kind: 'title' | 'card back' | 'pack foil' }) | undefined =>
-  [
-    ...TITLES.map((r) => ({ ...r, kind: 'title' as const })),
-    ...CARD_BACKS.map((r) => ({ ...r, kind: 'card back' as const })),
+type NextReward = Reward & { kind: 'title' | 'card back' | 'pack foil' };
+
+/**
+ * Every reward at the lowest level above this one, if any are left. A level can hold more than one (12
+ * has a title and a pack foil, 20 a title and a card back), so they are all here: pack foil and card
+ * back first, since those have a preview and are picked on Profile, then the title, which equips itself.
+ */
+export const nextRewards = (level: number): NextReward[] => {
+  const all: NextReward[] = [
     ...PACK_FOILS.map((r) => ({ ...r, kind: 'pack foil' as const })),
-  ]
-    .filter((r) => r.level > level)
-    .sort((a, b) => a.level - b.level)[0];
+    ...CARD_BACKS.map((r) => ({ ...r, kind: 'card back' as const })),
+    ...TITLES.map((r) => ({ ...r, kind: 'title' as const })),
+  ].filter((r) => r.level > level);
+  const soonest = Math.min(...all.map((r) => r.level));
+  return all.filter((r) => r.level === soonest);
+};
+
+/** The next reward of any kind still to unlock, if there is one: the first of `nextRewards`, so a choosable cosmetic beats a title at a tie. */
+export const nextReward = (level: number): NextReward | undefined => nextRewards(level)[0];
+
+/** Names for text that lists the rewards at one level: "Gold foil and Meme Historian". */
+const joinNames = (names: string[]) => names.join(' and ');
 
 /**
  * What a level-up toast says about the rewards between two levels. A title equips itself (there is no
@@ -75,8 +88,8 @@ export const levelUpLine = (from: number, level: number): string => {
   if (titles.length) parts.push(`Title equipped: ${titles[titles.length - 1].name}.`);
   if (choosable.length) parts.push(`Unlocked ${choosable.join(', ')}. Pick ${choosable.length > 1 ? 'them' : 'it'} on your Profile.`);
   if (parts.length) return parts.join(' ');
-  const next = nextReward(level);
-  return next ? `Next: ${next.name} at level ${next.level}.` : 'Keep opening.';
+  const next = nextRewards(level);
+  return next.length ? `Next: ${joinNames(next.map((r) => r.name))} at level ${next[0].level}.` : 'Keep opening.';
 };
 
 /** The chosen reward if this level has unlocked it, otherwise the first one (after importing another save, say). */

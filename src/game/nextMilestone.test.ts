@@ -57,6 +57,18 @@ describe('getNextMilestone', () => {
     expect(getNextMilestone(stats(xpForLevel(5)), set)).toMatchObject({ targetKind: 'pack foil', preview: undefined });
   });
 
+  it('shows the choosable cosmetic, with its picture, where a title shares the level (#212)', () => {
+    // Level 19 -> level 20 holds Aura Farmer (title) and the Prismatic card back: the card back is the goal.
+    const prism = getNextMilestone(stats(xpForLevel(19)), set);
+    expect(prism).toMatchObject({ kind: 'cosmetic', targetName: 'Prismatic', targetKind: 'card back', detail: 'Cosmetic, odds unchanged · Lv 20' });
+    expect(prism.preview).toEqual({ kind: 'card-back', id: 'prism' });
+    expect(prism.action).toEqual({ text: 'Select rewards', target: 'rewards' });
+    // Level 11 -> level 12 holds Meme Historian (title) and the Gold foil: the foil is the goal (a foil has no picture).
+    const gold = getNextMilestone(stats(xpForLevel(11)), set);
+    expect(gold).toMatchObject({ kind: 'cosmetic', targetName: 'Gold foil', targetKind: 'pack foil', preview: undefined });
+    expect(gold.action).toEqual({ text: 'Select rewards', target: 'rewards' });
+  });
+
   it('is never at 100% before the goal is reached', () => {
     const goal = getNextMilestone(stats(xpForLevel(4) - 1), set);
     expect(goal.progressPct).toBe(99);

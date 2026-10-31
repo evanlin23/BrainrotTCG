@@ -33,7 +33,7 @@ from a 390 px wide screen.
    its place in the same row, to the right of the Card guide link, which stays centred under the pack
    with the goal or without it (the row is three columns, the guide alone in the middle): one two-line, 44px chip (a small card-back picture when the reward is a
    card back, the name, a percentage or count, and "Cosmetic, odds unchanged" or the cards still to
-   go), a link to Profile rewards or the binder. It comes from the same verified-pack level and set
+   go), a link to Profile rewards or the binder. Where a level holds two rewards (12: Gold foil and Meme Historian; 20: Prismatic and Aura Farmer) the chip names the choosable cosmetic, with its picture, and not the title that equips itself; the Profile "Next:" line names both (#212). It comes from the same verified-pack level and set
    counts the profile shows, adds no height, never moves and has no animation, and hides on a phone on its
    side and in a row of 20rem or less (a 320px phone, enlarged text), rather
    than shift or squeeze the guide. In a row up to 34rem (every phone) the column beside the centred
