@@ -559,6 +559,8 @@ describe('usePackCutter frame batching (#266)', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    // Must run before the file's unstubAllGlobals: the cancelAnimationFrame spy wraps the stub, and a restore after the unstub would put the stub back.
+    vi.restoreAllMocks();
   });
 
   it('draws the moves between two frames in one update, keeping every point', () => {

@@ -703,9 +703,12 @@ so no history entry and no `hashchange`); the address is also set before each te
 Rules that follow:
 
 - A test file doesn't repeat those resets in its `afterEach`; the guard in `src/test/isolation.test.ts`
-  fails on an `afterEach` whose whole body is covered resets. A reset stays only where it does
-  something the setup doesn't: a `beforeEach` clear of calls made at import time, or a reset inside a
-  test body or `finally`. Add only the cleanup for state the file owns,
+  fails on an `afterEach` whose whole body is only `vi.restoreAllMocks()`, `vi.resetAllMocks()` or
+  `vi.clearAllMocks()` calls. A reset stays only where it does something the setup doesn't: a
+  `beforeEach` clear of calls made at import time, a reset inside a test body or `finally`, or an
+  `afterEach` restore that must run before the file's own `vi.unstubAllGlobals()` or other dependent
+  teardown (file hooks run before the shared ones; a spy on a stubbed global would otherwise put the
+  stub back after the unstub). Add only the cleanup for state the file owns,
   such as `vi.unstubAllGlobals()` for a `vi.stubGlobal` the file makes in `beforeEach` (the setup can't
   unstub globally: files stub `localStorage` once at module level).
 - A mock's default behaviour is set in `beforeEach` (or as the `vi.fn(impl)` argument), never once at
