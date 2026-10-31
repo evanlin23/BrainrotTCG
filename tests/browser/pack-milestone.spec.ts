@@ -28,7 +28,7 @@ const layout = (page: Page) => page.evaluate(() => {
 /** The pack falls in on load: wait until it stops moving before measuring anything. */
 const settled = (page: Page) => expectStill(page.locator('.pack-display'), 'the pack has settled');
 
-/** Every cosmetic goal a player can be shown (one per name and kind: Gold and Prismatic are both a card back and a foil), worked out by the real rules (a set with no cards has no set goal to get in the way). */
+/** Every cosmetic goal a player can be shown (one per name and kind: Prismatic is both a card back and a pack foil, so the name alone would drop one), worked out by the real rules (a set with no cards has no set goal to get in the way). */
 const COSMETIC_GOALS = Array.from({ length: 31 }, (_, i) => getNextMilestone(
   { xp: xpForLevel(i + 1), uniqueBySet: {}, holoUniqueBySet: {} },
   { cards: [] } as unknown as SetDefinition,
