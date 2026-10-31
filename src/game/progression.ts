@@ -89,7 +89,10 @@ export const levelUpLine = (from: number, level: number): string => {
   if (choosable.length) parts.push(`Unlocked ${choosable.join(', ')}. Pick ${choosable.length > 1 ? 'them' : 'it'} on your Profile.`);
   if (parts.length) return parts.join(' ');
   const next = nextRewards(level);
-  return next.length ? `Next: ${joinNames(next.map((r) => r.name))} at level ${next[0].level}.` : 'Keep opening.';
+  if (!next.length) return 'Keep opening.';
+  // Several at one level say their kind, as the unlock line does, so "Prismatic" is not mistaken for the foil.
+  const names = next.length > 1 ? next.map((r) => `the ${r.name} ${r.kind}`) : [next[0].name];
+  return `Next: ${joinNames(names)} at level ${next[0].level}.`;
 };
 
 /** The chosen reward if this level has unlocked it, otherwise the first one (after importing another save, say). */

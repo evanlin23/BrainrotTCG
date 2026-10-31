@@ -53,8 +53,8 @@ describe('progression', () => {
     // Nothing new: a teaser for the next reward, or the end of the list.
     expect(levelUpLine(1, 2)).toBe('Next: Pack Rat at level 3.');
     // A level that holds two rewards names both, choosable first (#212).
-    expect(levelUpLine(10, 11)).toBe('Next: Gold foil and Meme Historian at level 12.');
-    expect(levelUpLine(18, 19)).toBe('Next: Prismatic and Aura Farmer at level 20.');
+    expect(levelUpLine(10, 11)).toBe('Next: the Gold foil pack foil and the Meme Historian title at level 12.');
+    expect(levelUpLine(18, 19)).toBe('Next: the Prismatic card back and the Aura Farmer title at level 20.');
     expect(levelUpLine(29, 30)).toBe('Title equipped: Brainrot Royalty.');
     expect(levelUpLine(30, 31)).toBe('Keep opening.');
     // Only a title is ever "equipped": no line tells the player to pick a title.
