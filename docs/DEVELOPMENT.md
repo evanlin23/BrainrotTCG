@@ -713,7 +713,14 @@ Rules that follow:
   unstub globally: files stub `localStorage` once at module level).
 - A mock's default behaviour is set in `beforeEach` (or as the `vi.fn(impl)` argument), never once at
   module level with `mockImplementation`, because the reset clears it after the first test.
-- A test that starts a sound stubs `play()` itself: jsdom's returns undefined, so `.catch` throws.
+- A test that starts a sound stubs `play()` itself
+  (`vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()`): jsdom's returns undefined, so
+  `.catch` throws. The setup enforces this (owner: the `/work` queue, like the rest of the file). Before
+  each test it spies `HTMLMediaElement.prototype.play` with a default that throws a message naming this
+  rule, and in `afterEach` it fails any test that reached that default, because app code can swallow
+  the throw. A test's own stub replaces the default and its calls are fine. A test that calls play()
+  without a stub on purpose clears it with `mockClear()` after the call (only
+  `src/test/isolation.test.ts` does).
 - A test builds its own proof, pull or save fixture, or shares one that nothing mutates. Rendering the
   same props twice in one test doesn't re-run an effect keyed on them; use one test per case.
 - A module that settles or caches once per load is re-imported per test (`vi.resetModules()` then a
