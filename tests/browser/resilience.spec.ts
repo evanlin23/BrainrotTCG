@@ -559,7 +559,7 @@ test.describe('offline mid-session', () => {
     await expectDecoded(art, 5);
 
     // Rankings loads online; offline, it says the live feed is down; back online, Retry brings it back.
-    await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+    await page.getByRole('button', { name: /^Open .+ again$/ }).click();
     await packsScreen(page);
     const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
     const rankingsStatus = rankings.getByRole('status');
@@ -624,7 +624,7 @@ test.describe('offline mid-session', () => {
     expect(cardCount(collection)).toBe(5);
 
     // Cards, offline, reads the saved pack: one tile per distinct card, none of them the empty note.
-    await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+    await page.getByRole('button', { name: /^Open .+ again$/ }).click();
     await packsScreen(page);
     // The first saved pack is also the first time the news chunk is asked for (a fresh player never loads it
     // online): offline it gives no news, so there is no news toast, and nothing else breaks.

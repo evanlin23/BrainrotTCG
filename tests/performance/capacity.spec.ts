@@ -303,7 +303,7 @@ test.describe('growing saves', () => {
         rows.push({ phase: 'pack', size, pack, openToResultMs: openMs, localStorageBytes: bytes.total, historyBytes, historyGrowthBytes: historyBytes - previousHistoryBytes });
         previousHistoryBytes = historyBytes;
         if (pack < config.packs) {
-          await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+          await page.getByRole('button', { name: /^Open .+ again$/ }).click();
           await expect(openButton(page)).toBeVisible();
           await ticketReady(page, size + pack);
         }
@@ -363,7 +363,7 @@ test.describe('long session', () => {
       expect(historyBytes - previousHistoryBytes).toBeLessThanOrEqual(BUDGETS.historyGrowthPerPack.max);
       previousHistoryBytes = historyBytes;
 
-      await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+      await page.getByRole('button', { name: /^Open .+ again$/ }).click();
       await expect(openButton(page)).toBeVisible();
       const tabs = page.getByRole('navigation', { name: 'Main', exact: true });
       // Pages opened and closed between packs.

@@ -6,7 +6,7 @@ const RISE_SECONDS = 0.18;
 
 /**
  * How the sealed pack's stage comes in. The first arrival on the packs screen in a page load is the full
- * fall from above the screen. Every return (Back from the summary, Next pack, the X, Escape) is a short
+ * fall from above the screen. Every return (Back from the summary, Open again, the X, Escape) is a short
  * rise from a little below its place, so the stage never passes over the header or its Settings gear
  * on the way, and with reduced motion it is simply there.
  */

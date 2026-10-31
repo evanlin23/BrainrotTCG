@@ -29,7 +29,7 @@ async function open(page: Page, baseURL: string, size: { width: number; height: 
   return errors;
 }
 
-/** Opens a pack from the pack screen, skips to its summary, and puts it away with "Next pack". */
+/** Opens a pack from the pack screen, skips to its summary, and puts it away with "Open <set> again". */
 async function putPackAway(page: Page) {
   await expect(page.locator('.app-logo')).toBeVisible();
   await page.getByRole('button', { name: /^Open pack/ }).focus();
@@ -37,7 +37,7 @@ async function putPackAway(page: Page) {
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
-  await page.getByRole('button', { name: /Next pack/ }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   await expect(page.locator('.set-current')).toBeVisible();
 }
 
@@ -287,7 +287,7 @@ test('comes after the pack is put away, behind the pack\'s own toasts, one at a 
   expect(await shownToasts(page)).not.toContain("What's new");
   await expect(newsToast(page)).toHaveCount(0);
 
-  await page.getByRole('button', { name: /Next pack/ }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   await expect(page.locator('.set-current')).toBeVisible();
   await untilNewsToast(page);
   const log = await shownToasts(page);
@@ -312,7 +312,7 @@ test('a returning player\'s waiting news does not jump ahead when the next pack 
   await expect(newsToast(page)).toHaveCount(0);
 
   // Put away: the notices are held on screen, so the news waits behind them, unshown. The next pack starts at once.
-  await page.getByRole('button', { name: /Next pack/ }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   await expect(page.locator('.set-current')).toBeVisible();
   expect(await shownToasts(page)).not.toContain("What's new");
   await page.getByRole('button', { name: /^Open pack/ }).focus();
@@ -326,7 +326,7 @@ test('a returning player\'s waiting news does not jump ahead when the next pack 
   await expect(newsToast(page)).toHaveCount(0);
 
   // Put away again: the news follows the notices, once.
-  await page.getByRole('button', { name: /Next pack/ }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   await expect(page.locator('.set-current')).toBeVisible();
   await untilNewsToast(page);
   const log = await shownToasts(page);

@@ -133,7 +133,7 @@ for (const [size, motion] of SIZES.flatMap((one) => MOTIONS.map((mode) => [one, 
 
       // The next sealed pack rests at the same size, with the chrome back.
       await page.getByRole('button', { name: 'Skip opening animation' }).click();
-      await page.getByRole('button', { name: 'Next pack' }).click();
+      await page.getByRole('button', { name: /^Open .+ again$/ }).click();
       await expect(page.locator('.app')).not.toHaveClass(/\bis-focus\b/);
       await expectSameBox(await landedPack(page), rest, 'for the next pack');
       expect(errors).toEqual([]);

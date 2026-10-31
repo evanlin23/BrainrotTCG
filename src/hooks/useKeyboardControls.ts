@@ -36,7 +36,7 @@ const sheetOpen = () => document.querySelector('[role="dialog"][aria-modal="true
 
 /**
  * Space or Enter does the next thing: open the pack (only with focus on it, so typing or pressing keys
- * elsewhere never tears one), flip, next card, next pack. Holding Space runs through the cards. Escape leaves a pack at any stage. With Ctrl, Cmd or Alt held, none of these
+ * elsewhere never tears one), flip, next card, the summary's close. Holding Space runs through the cards. Escape leaves a pack at any stage. With Ctrl, Cmd or Alt held, none of these
  * keys do anything. The listeners are added once and read the latest state from a ref, so a
  * re-render can't cancel a held Space.
  */

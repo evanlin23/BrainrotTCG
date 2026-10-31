@@ -60,7 +60,7 @@ const stepBackAfterUnmount = () => {
  * Entering a pack (`inPack` turning true) adds one history entry (or reuses the current one when
  * it's an earlier pack's, reached with Forward), so entries never stack across packs. Back from it
  * calls `onBack`, the same handler as the pack's X. Leaving any other way (the X, Escape, the
- * summary's next-pack button) steps back over the entry, so the next Back leaves the page as it would
+ * summary's Open again button) steps back over the entry, so the next Back leaves the page as it would
  * have before, and Forward onto the old entry reopens nothing. A page loaded (or reloaded) on a pack's
  * entry has no pack, so it steps back over that entry the same way, and the first Back leaves (or, with
  * nothing of ours below it, just stops it being a pack's entry).
