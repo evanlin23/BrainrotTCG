@@ -736,7 +736,9 @@ Rules that follow:
 - A test gives a jsdom prototype a method with `vi.spyOn(Canvas.prototype, 'getContext')` (the setup
   restores it), or with `Object.defineProperty` where jsdom has none (`scrollIntoView`) and removes it
   in the file's `afterEach`. It never assigns `Element.prototype.x = ...`: that stays on the prototype
-  for every later test in the file. `src/test/isolation.test.ts` fails on a direct assignment.
+  for every later test in the file. `src/test/isolation.test.ts` fails on `=`, `||=`, `&&=` and `??=` onto
+  `.prototype.name` or `.prototype['name']`, through a cast or a `window.` prefix, on any line. It does not
+  catch `Object.assign` or `Reflect.set` onto a prototype, or a prototype held in a variable.
 - A top-level `vi.stubGlobal` is for a fixture the whole file shares, such as a `localStorage` backed by a
   `Map`; the file clears the data in `beforeEach`. Stubs and spies a single test needs go in that
   test or its `beforeEach`, with `vi.unstubAllGlobals()` in the file's `afterEach`.
@@ -748,10 +750,13 @@ repeat runs below.
 ### Modules that keep state for the load
 
 Each file below declares state at the top level (a `let`, or a Map, Set, WeakMap, array, object or Promise
-in a lower-case `const`) that outlives one test. `onceModules.test.ts` (in `src/test`) fails when this list and
+in a `const` that is not ALL_CAPS) that outlives one test. `onceModules.test.ts` (in `src/test`) fails when this list and
 the sources disagree, so a new module with such state is added here with the way tests start clean. That
-check reads declarations, not behaviour: it misses state kept in a class field or on an exported object,
-and it can list a lookup table. Vitest gives every test file its own module graph, so this is about tests
+check reads top-level declarations, not behaviour. It sees `let` and `var`, and a `const` initialised with an
+object or array literal, `Object.create(`, a Promise, or a new Map, Set, WeakMap, WeakSet, Array, Object,
+EventTarget, BroadcastChannel or AbortController. It misses state behind any other initialiser (a call such as
+`createStore()`, `new SomeClass()`), in a class field, or set as a property on an exported object, and it
+lists a lookup table named in lower case. Vitest gives every test file its own module graph, so this is about tests
 in one file, not across files.
 
 Re-imported before every test (the module's own test file calls `vi.resetModules()` in `beforeEach`, then
@@ -773,6 +778,8 @@ Re-imported by the tests that need a fresh load; the others use the static impor
 - `src/game/history.ts` (decoded-history and count caches, keyed on the stored text)
 - `src/game/publishedRankings.ts` (month loaders)
 - `src/game/pulls.ts` (unshelved packs)
+- `src/game/qrCode.ts` (`decoderLoader`, an exported object whose `load` a test replaces; `profileQr.test.ts` puts the
+  real one back in `afterEach`)
 
 Put back by the module's own reset, which the files that touch it call:
 - `src/game/bestCards.ts` (`resetBestCards`), `src/game/myTickets.ts` (`resetTicketList`),
@@ -788,8 +795,9 @@ Nothing to reset, because the value is built at load and never written, is keyed
   definition), `src/game/profiles.ts` (WeakMaps keyed by the ticket list), `src/game/profileVerification.ts`
   (a counter that makes a superseded check ignore itself)
 
-Listeners, timers and queues that unmounting or cleanup removes; the shuffled runs have found no test that
-reads them across tests (if one does, re-import the module or reset it through the first two groups):
+Listeners, timers and queues that unmounting or cleanup removes. Verified only by shuffled runs, which found
+no test that reads them across tests; not proven per module, and seeds sample orders. If one does start to
+leak, re-import the module or reset it through the groups above:
 - `src/components/pages/SettingsPage.tsx` (pending sample timer), `src/components/ui/openSheets.ts` (open
   sheet stack), `src/game/packCache.ts` (listeners, version, last run), `src/game/reopenJob.ts` (job, listeners)
 

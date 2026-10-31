@@ -52,10 +52,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // First, so a throwing unmount can't leave it behind. jsdom has no scrollIntoView; a test that gives it one
+  // (defineProperty) loses it here, pass or fail.
+  delete (Element.prototype as Partial<Element>).scrollIntoView;
   act(() => root.unmount());
   container.remove();
-  // jsdom has no scrollIntoView; a test that gives it one (defineProperty) loses it here, pass or fail.
-  delete (Element.prototype as Partial<Element>).scrollIntoView;
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });

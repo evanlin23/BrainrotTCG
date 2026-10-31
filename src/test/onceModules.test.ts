@@ -29,6 +29,20 @@ describe('detecting top-level state', () => {
     expect(keepsStateForTheLoad('const stack: string[] = [];')).toBe(true);
     expect(keepsStateForTheLoad('const shipped = Promise.resolve()\n  .then(load);')).toBe(true);
     expect(keepsStateForTheLoad('import x from "y";\n\nconst waiting = [];')).toBe(true);
+    // The shapes a first version missed.
+    expect(keepsStateForTheLoad('const listeners: Set<() => void> = new Set();')).toBe(true);
+    expect(keepsStateForTheLoad('const state = { ready: false };')).toBe(true);
+    expect(keepsStateForTheLoad('const queue = [a, b];')).toBe(true);
+    expect(keepsStateForTheLoad('var flag = false;')).toBe(true);
+    expect(keepsStateForTheLoad('const _memo = new Map();')).toBe(true);
+    expect(keepsStateForTheLoad('const $cache = new Map();')).toBe(true);
+    expect(keepsStateForTheLoad('export const seam = { load: () => import("x") };')).toBe(true);
+    expect(keepsStateForTheLoad('const bus = new EventTarget();')).toBe(true);
+    expect(keepsStateForTheLoad('const channel = new BroadcastChannel("x");')).toBe(true);
+    expect(keepsStateForTheLoad('const slots = new Array(4);')).toBe(true);
+    expect(keepsStateForTheLoad('const abort = new AbortController();')).toBe(true);
+    expect(keepsStateForTheLoad('const bare = Object.create(null);')).toBe(true);
+    expect(keepsStateForTheLoad('const bare: Record<string, number> = Object.create(null);')).toBe(true);
   });
 
   it('leaves out tables in ALL_CAPS, local declarations, immutable consts and comments', () => {
@@ -36,6 +50,8 @@ describe('detecting top-level state', () => {
     expect(keepsStateForTheLoad('export const run = () => {\n  let count = 0;\n  const seen = new Set<string>();\n  return count;\n};')).toBe(false);
     expect(keepsStateForTheLoad('export const VERSION = 3;\nconst name = "x";\nconst now = () => 1;')).toBe(false);
     expect(keepsStateForTheLoad('// let settled = false;\n/* const cache = new Map(); */')).toBe(false);
+    expect(keepsStateForTheLoad('const MAX_RETRIES = 3;\nconst TABLE = { a: 1 };\nconst _LIMITS = [1, 2];\nconst $KEYS = new Set();')).toBe(false);
+    expect(keepsStateForTheLoad('const now = () => ({ a: 1 });\nconst total = count + [1].length;')).toBe(false);
   });
 });
 
