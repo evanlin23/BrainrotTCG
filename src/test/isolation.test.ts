@@ -6,16 +6,19 @@ import { describe, expect, it, vi } from 'vitest';
 // `shuffle: false` keeps a pair in order under --sequence.shuffle; a reversed pair would test nothing.
 const queued = vi.fn<() => string | undefined>();
 
+let entriesAfterLeak = 0;
+
 describe('address', { shuffle: false }, () => {
-  it('leaves a fragment, a path and a history entry behind', () => {
-    const entries = history.length;
+  it('starts at the app address (jsdom itself starts at /), then leaves a fragment, a path and a history entry behind', () => {
+    expect(location.pathname + location.search + location.hash).toBe('/BrainrotTCG/');
     history.pushState(null, '', '/BrainrotTCG/#/somewhere');
     history.replaceState(null, '', '/BrainrotTCG/profile#/pull/leaked');
-    expect(history.length).toBe(entries + 1);
+    entriesAfterLeak = history.length;
   });
 
-  it('starts at the app address, with no fragment', () => {
+  it('is back at the app address, with no fragment and no history entry added by the reset', () => {
     expect(location.pathname + location.search + location.hash).toBe('/BrainrotTCG/');
+    expect(history.length).toBe(entriesAfterLeak);
   });
 });
 

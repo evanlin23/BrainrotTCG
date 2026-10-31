@@ -42,7 +42,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  // Globals, spies and the mocks' queued values are reset by src/test/isolation.ts (docs/DEVELOPMENT.md, Test isolation).
+  // Spies, the mocks' queued values and the address are reset by src/test/isolation.ts; the globals this file stubs are not.
+  vi.unstubAllGlobals();
 });
 
 const subtitle = async (name: string) => {

@@ -2,32 +2,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import shipped from '../content/news.json';
-import {
-  getLatestUnreadNews,
-  isValidNewsItem,
-  isNewsToastId,
-  markNewsRead,
-  newestFirst,
-  newsTag,
-  newsToast,
-  newsToastId,
-  type NewsItem,
-  parseNews,
-  readNewsToasts,
-} from './news';
+import type { NewsItem } from './news';
 
-// These keep state for the visit (a dismissal storage refused, the shipped list once loaded), so each
-// test loads its own copy of the module (docs/DEVELOPMENT.md, Test isolation).
+// The module keeps state for the visit (a dismissal storage refused, the shipped list once loaded), so each
+// test loads its own copy of all of it (docs/DEVELOPMENT.md, Test isolation).
 let dismissNewsId: typeof import('./news').dismissNewsId;
 let getDismissedNewsId: typeof import('./news').getDismissedNewsId;
+let getLatestUnreadNews: typeof import('./news').getLatestUnreadNews;
 let isNewsDismissed: typeof import('./news').isNewsDismissed;
+let isNewsToastId: typeof import('./news').isNewsToastId;
+let isValidNewsItem: typeof import('./news').isValidNewsItem;
 let loadNews: typeof import('./news').loadNews;
+let markNewsRead: typeof import('./news').markNewsRead;
+let newestFirst: typeof import('./news').newestFirst;
+let newsTag: typeof import('./news').newsTag;
+let newsToast: typeof import('./news').newsToast;
+let newsToastId: typeof import('./news').newsToastId;
+let parseNews: typeof import('./news').parseNews;
+let readNewsToasts: typeof import('./news').readNewsToasts;
 
 describe('news data & validation', () => {
   beforeEach(async () => {
     localStorage.clear();
     vi.resetModules();
-    ({ dismissNewsId, getDismissedNewsId, isNewsDismissed, loadNews } = await import('./news'));
+    ({
+      dismissNewsId, getDismissedNewsId, getLatestUnreadNews, isNewsDismissed, isNewsToastId, isValidNewsItem, loadNews, markNewsRead, newestFirst, newsTag, newsToast, newsToastId, parseNews, readNewsToasts,
+    } = await import('./news'));
   });
 
   it('validates compliant news items', () => {
