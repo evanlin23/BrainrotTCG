@@ -31,7 +31,8 @@ from a 390 px wide screen.
    from the tear until the pack is put away) opens the selected set's card guide. The row carries no
    news: the latest unread entry arrives as a toast (see What's new, below). The next goal (#212) takes
    its place in the same row, to the right of the Card guide link, which stays centred under the pack
-   with the goal or without it (the row is three columns, the guide alone in the middle): one two-line, 44px chip (a small card-back picture when the reward is a
+   with the goal or without it (the row is three columns, the guide alone in the middle; the left column
+   is empty but for **Change pack**, item 8 of the Flow below): one two-line, 44px chip (a small card-back picture when the reward is a
    card back, the name, a percentage or count, and "Cosmetic, odds unchanged" or the cards still to
    go), a link to Profile rewards or the binder. Where a level holds two rewards (12: Gold foil and
    Meme Historian; 20: Prismatic card back and Aura Farmer) the chip names the choosable cosmetic
@@ -183,8 +184,19 @@ results line (`PackSummaryUI.tsx`) that goes.
      only when another set is available (the same list the picker uses, so draft or hidden sets count
      only when the picker would show them). The primary becomes **Open {set name} again**, for players
      chasing that set. It is never shown mid-reveal.
-   - *Next, the landing.* A **Change pack · N available** control under the pack, for a returning player
-     who has not yet looked at the picker. Not built yet; it is the next slice.
+   - *The landing.* A quiet ghost **Change pack · N available** control (44px target, named "Change pack,
+     N available") leads the row under the sealed pack, so it comes right after the pack in the keyboard
+     order, outside the pack's stage (a press on it never starts a tear). N is the same list the picker
+     uses, less the selected set; with no other set there is no control. It shows only to a returning
+     player (the tabs show) who has never opened the Packs sheet on this device: opening the sheet from
+     anywhere (the era picker, the summary's control or this one) hides it for good, kept in a device
+     flag outside the save (`PACKS_SHEET_SEEN`, game/packsSheet.ts; storage that refuses it still hides it
+     for the visit). It is hidden from the tear until the pack is put away, so never mid-reveal or on the
+     summary. A pick lands focus on the pack, and so does a close with no pick, since the control has gone.
+     Where the row has room (a phone on its side, a desktop) it takes the row's empty left column, beside
+     the centred guide, so the row and the pack keep their size; on an upright phone or with enlarged text
+     (a row up to 36rem) it takes a line of its own above the guide and the goal, and the pack fits the
+     44px less. It has no animation (`tests/browser/change-pack.spec.ts`).
 
 ### Guardrails
 

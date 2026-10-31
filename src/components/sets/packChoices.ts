@@ -33,3 +33,11 @@ export const otherPackChoices = (sets: SetDefinition[], selectedId: string, coll
     .map((entry) => entry.set);
   return { count: others.length, preview };
 };
+
+/**
+ * How many other packs the landing's "Change pack · N available" offers: every other set the picker lists,
+ * for a returning player who has never opened the Packs sheet on this device; 0 (no control) for a new
+ * player, once the sheet has been seen, or with nothing else to choose.
+ */
+export const changePackCount = ({ returning, seen, sets, selectedId }: { returning: boolean; seen: boolean; sets: SetDefinition[]; selectedId: string }) =>
+  returning && !seen ? sets.filter((s) => s.id !== selectedId).length : 0;

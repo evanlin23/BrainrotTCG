@@ -335,3 +335,14 @@
   margin: var(--space-5) 0 0;
   color: var(--text-muted);
 }
+
+/* ---- The landing's Change pack (App, in the row under the sealed pack; PackMilestone.css places it) ---- */
+
+.change-pack {
+  min-height: var(--touch-target);
+  max-width: 100%;
+  font-size: var(--text-sm);
+  /* Large text wraps the label inside the button instead of clipping it. */
+  line-height: 1.2;
+  text-align: center;
+}

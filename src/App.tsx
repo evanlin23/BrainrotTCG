@@ -11,6 +11,8 @@ import AppPage, { type PageSection } from './components/ui/Page';
 import DeferredSheet from './components/ui/DeferredSheet';
 import { sheetLoader } from './components/ui/sheetEntry';
 import SetPicker from './components/sets/SetPicker';
+import ChangePackButton from './components/sets/ChangePackButton';
+import { changePackCount } from './components/sets/packChoices';
 import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
 import { RANKINGS_HELP_ID } from './components/ui/rankingsRule';
@@ -40,6 +42,7 @@ import { usePackCacheVersion } from './hooks/usePackCache';
 import { playerUnreadable, sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { isNewsToastId, readNewsToasts } from './game/news';
+import { hasSeenPacksSheet, markPacksSheetSeen } from './game/packsSheet';
 import { reloadPage } from './game/reload';
 import { flushReopenCache } from './game/reopenCache';
 import { isStaging, STAGING_NOTE } from './game/staging';
@@ -208,25 +211,39 @@ function App() {
   }, [setSelectedSetId]);
   // A set's link opens the packs screen on that set (see useSetLink).
   useSetLink(playableSets, packBusy, selectSet);
-  // The Packs sheet is the set picker's; the summary's "Try another pack" opens the same one.
+  // The Packs sheet is the set picker's; the summary's "Try another pack" and the landing's "Change pack" open the same one.
   const [shelfOpen, setShelfOpen] = useState(false);
-  // A pick from the sheet the summary opened replaces that summary (and the control that opened the sheet), so the new pack takes focus.
-  const [shelfFromSummary, setShelfFromSummary] = useState(false);
-  const openShelf = useCallback(() => {
-    setShelfFromSummary(true);
+  // What opened it. A pick from the sheet the summary opened replaces that summary (and the control that opened the
+  // sheet), so the new pack takes focus; so does any close of the sheet the landing's Change pack opened, which has gone.
+  const [shelfFrom, setShelfFrom] = useState<'picker' | 'summary' | 'landing'>('picker');
+  // Once the sheet has opened on this device, from anywhere, the landing stops pointing to it (game/packsSheet.ts).
+  const [packsSheetSeen, setPacksSheetSeen] = useState(hasSeenPacksSheet);
+  const showShelf = useCallback((from: 'picker' | 'summary' | 'landing') => {
+    markPacksSheetSeen();
+    setPacksSheetSeen(true);
+    setShelfFrom(from);
     setShelfOpen(true);
   }, []);
+  const openShelf = useCallback(() => showShelf('summary'), [showShelf]);
+  const openShelfFromLanding = useCallback(() => showShelf('landing'), [showShelf]);
   const changeShelf = useCallback((open: boolean) => {
-    if (open) setShelfFromSummary(false);
-    setShelfOpen(open);
-  }, []);
-  // The flag lasts only as long as that sheet: a close with no pick must not leave it for the next time the sheet opens another way.
+    if (open) showShelf('picker');
+    else setShelfOpen(false);
+  }, [showShelf]);
+  // The origin lasts only as long as that sheet: a close with no pick must not leave it for the next time the sheet opens another way.
   // It is cleared after the commit, so a pick (which closes the sheet in the same batch) has already remounted the pack with it:
-  // clearing it in the close handler would drop it before that commit.
+  // clearing it in the close handler would drop it before that commit. The sheet has given focus back by now (its cleanup runs
+  // first); the landing's Change pack it would go to has gone, so a close with no pick, or a pick of the same set, lands on the pack.
   useEffect(() => {
+    if (shelfOpen || shelfFrom === 'picker') return;
+    if (shelfFrom === 'landing') {
+      const pack = mainRef.current?.querySelector<HTMLElement>('[data-pack-open]');
+      const active = document.activeElement;
+      if (pack && (!active || active === document.body)) pack.focus({ preventScroll: true });
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!shelfOpen) setShelfFromSummary(false);
-  }, [shelfOpen]);
+    setShelfFrom('picker');
+  }, [shelfOpen, shelfFrom]);
 
   // Each page names the tab; back on the packs screen, focus returns to the top of it (the page's
   // own heading takes focus itself, see Page). Back over a pack, the chrome has stepped aside (on a
@@ -502,6 +519,7 @@ function App() {
   const pagesUnlocked = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus);
   const showNav = pagesUnlocked || settings.showAllPages === true;
   const onPage = route !== 'open';
+  const changePack = changePackCount({ returning: pagesUnlocked, seen: packsSheetSeen, sets: playableSets, selectedId: selectedSet.id });
   // Settings shows these problems in its own sections, so the banner leaves it.
   const saveWarningShown = !!bannerWarning && route !== 'settings';
   // The latest unread announcement, once, as a toast behind the others: only after a pack is put away in this visit, and while the pack screen is at rest.
@@ -611,7 +629,7 @@ function App() {
           onFocusChange={setPackFocus}
           onShowcaseChange={setPackShowcase}
           set={selectedSet}
-          focusPackOnMount={shelfFromSummary}
+          focusPackOnMount={shelfFrom !== 'picker'}
           packChoices={showNav ? { sets: playableSets, collection, onOpen: openShelf } : undefined}
           disabled={isAnyModalOpen || onPage}
           openBlocked={staleSave}
@@ -630,6 +648,8 @@ function App() {
         {/* A quiet way into the card guide once a first pack is saved (a new player sees only the pack); it steps aside with the chrome once a pack is torn. */}
         {showNav && !packFocus && !packBusy && (
           <div className="card-guide-entry">
+            {/* A returning player who hasn't looked at the Packs sheet yet learns other packs exist (DESIGN.md "Flow", item 8). */}
+            {changePack > 0 && <ChangePackButton count={changePack} onOpen={openShelfFromLanding} />}
             <CardGuideButton set={selectedSet} />
             {/* The next goal (#212) takes the row beside the guide link. */}
             {pagesUnlocked && !saveWarningShown && milestoneGoal && (

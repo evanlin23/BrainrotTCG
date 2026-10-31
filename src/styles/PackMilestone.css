@@ -153,6 +153,34 @@ button.pack-milestone:disabled {
   grid-row: 1;
 }
 
+/* The landing's Change pack (Sets.css, DESIGN.md "Flow", item 8) takes that empty left column, beside the guide, so the
+   row gets no taller and the pack keeps its size. Where the column is too narrow for it (a phone held upright, enlarged
+   text) it takes a line of its own above the guide and the goal instead, still centred under the pack. */
+.card-guide-entry:has(> .change-pack) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.card-guide-entry:has(> .change-pack) > :not(.pack-milestone) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.card-guide-entry:has(> .change-pack) > .change-pack {
+  grid-column: 1;
+  justify-self: end;
+}
+
+@container card-guide (max-width: 36rem) {
+  .card-guide-entry:has(> .change-pack) > .change-pack {
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+  .card-guide-entry:has(> .change-pack) > :not(.change-pack) {
+    grid-row: 2;
+  }
+}
+
 /* The goal fills its column up to a cap, so on a wide screen it stays near the pack and the row reads as balanced
    around it instead of running to the screen's edge. */
 .card-guide-entry > .pack-milestone {

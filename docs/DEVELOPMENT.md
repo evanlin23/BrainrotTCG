@@ -768,6 +768,7 @@ imports dynamically):
 - `src/game/move.ts` (active receiver; `move.receive.test.ts`, which also calls `stopReceiver`)
 - `src/game/news.ts` (cached shipped-news promise)
 - `src/game/packArt.ts` (settles once per load)
+- `src/game/packsSheet.ts` (a Packs sheet opening storage refused)
 - `src/game/player.ts` (in-memory player, repair mark, held locks)
 - `src/game/ticketMiner.ts` (worker, ticket cache, job queues)
 - `src/hooks/usePackHistory.ts` (load check, stray-back flag)
