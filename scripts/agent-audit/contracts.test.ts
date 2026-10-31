@@ -93,10 +93,31 @@ describe('email redaction in retained prose', () => {
     const result = parseOutcome(raw, ['snapshot: visible accessibility tree', 'click: Open pack']);
     expect(result.observations).toBe('The page showed [email] in the header');
   });
-  it('handles long input without stalling', () => {
-    const started = Date.now();
-    clean(('a.b '.repeat(3000)) + ' at ' + 'x dot '.repeat(500));
-    expect(Date.now() - started).toBeLessThan(2000);
+  it('keeps dollar patterns in click labels literal', () => {
+    const tasks: Record<string, unknown>[] = [{ steps: ['click: Cost $1 pack', 'click: Tap $& now', 'not completed: click: Pay $$ then $` and $\''], observations: 'ok' }];
+    redactReportTasks(tasks);
+    expect(tasks[0]!.steps).toEqual(['click: Cost $1 pack', 'click: Tap $& now', "not completed: click: Pay $$ then $` and $'"]);
+  });
+  it('keeps measurements that use a spaced at sign', () => {
+    for (const prose of ['rank 3 @ 12.5 seconds', 'Hit 9 @ 4.0x speed']) expect(clean(prose)).toBe(prose);
+  });
+  it('removes invisible and bidi marks inside an address', () => {
+    for (const mark of ['\u200e', '\u200f', '\u202a', '\u202e', '\u2066', '\u2069', '\u00ad']) {
+      expect(clean(`name@exa${mark}mple.com`)).toBe('[email]');
+    }
+    expect(clean('name\u0085at example dot com')).toBe('[email]');
+  });
+  it('keeps original characters where nothing is redacted (redacted text is NFKC-folded)', () => {
+    expect(clean('Open pack\u2026 \u2122 \ufb01')).toBe('Open pack\u2026 \u2122 \ufb01');
+    expect(clean('x\u2026 name\uff20example\uff0ecom')).toBe('x... [email]');
+  });
+  it('finishes the quadratic-looking chains at the report size cap', () => {
+    // 16 KiB is the largest agent report; a backtracking blow-up would not finish at this size.
+    for (const unit of ['x dot ', 'a.b ', 'x at ', 'x [dot] ']) {
+      const started = performance.now();
+      clean(unit.repeat(Math.floor(16384 / unit.length)) + 'end');
+      expect(performance.now() - started).toBeLessThan(10000);
+    }
   });
 });
 

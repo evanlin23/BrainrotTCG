@@ -449,8 +449,11 @@ exists use it and add it to the isolation checks above. Until then the report is
 ("name at example dot com", "[at]"/"(dot)" with optional spaces, "@" with spaces, full-width
 characters, and an address broken across lines), and `redactReportTasks` runs the same redaction
 across adjacent click labels, observations and reasons just before the report is written. Plain
-prose ("meet at the dot com bubble", "look at example.com") is left alone, so an address spelled with
-no marker and an unusual top-level domain, or broken mid-word, can still get through. Read the
+prose ("meet at the dot com bubble", "look at example.com", "rank 3 @ 12.5 seconds") is left alone, so
+some forms still get through: a host written with literal dots after a written "at" ("jane at
+example.com"), "jane at example com", a space-separated name ("first last at example dot com" keeps
+"first"), and breaks inside a word or between spaced letters. A report with an address in it
+is folded to NFKC ("…" becomes "..."); text with no address keeps its own characters. Read the
 report before sharing it.
 
 Recorded runs, 2026-10-17, revision e993944, in a cloud container: base `/BrainrotTCG/`, Chromium 156
