@@ -738,7 +738,8 @@ Rules that follow:
   in the file's `afterEach`. It never assigns `Element.prototype.x = ...`: that stays on the prototype
   for every later test in the file. `src/test/isolation.test.ts` fails on `=`, `||=`, `&&=` and `??=` onto
   `.prototype.name` or `.prototype['name']`, through a cast or a `window.` prefix, on any line. It does not
-  catch `Object.assign` or `Reflect.set` onto a prototype, or a prototype held in a variable.
+  catch `Object.assign` or `Reflect.set` onto a prototype, a prototype held in a variable, an
+  `<any>X.prototype` cast, a cast whose type spans lines, or an `=` on the line after the property.
 - A top-level `vi.stubGlobal` is for a fixture the whole file shares, such as a `localStorage` backed by a
   `Map`; the file clears the data in `beforeEach`. Stubs and spies a single test needs go in that
   test or its `beforeEach`, with `vi.unstubAllGlobals()` in the file's `afterEach`.
@@ -778,8 +779,6 @@ Re-imported by the tests that need a fresh load; the others use the static impor
 - `src/game/history.ts` (decoded-history and count caches, keyed on the stored text)
 - `src/game/publishedRankings.ts` (month loaders)
 - `src/game/pulls.ts` (unshelved packs)
-- `src/game/qrCode.ts` (`decoderLoader`, an exported object whose `load` a test replaces; `profileQr.test.ts` puts the
-  real one back in `afterEach`)
 
 Put back by the module's own reset, which the files that touch it call:
 - `src/game/bestCards.ts` (`resetBestCards`), `src/game/myTickets.ts` (`resetTicketList`),
@@ -788,7 +787,8 @@ Put back by the module's own reset, which the files that touch it call:
 
 Put back through the module's public setter in the file's `afterEach`:
 - `src/utils/motion.ts` (`setMotionSetting('auto')`), `src/game/diagnostics.ts` (`setDiagnosticCapture(false)`,
-  `clearDiagnostics()`)
+  `clearDiagnostics()`), `src/game/qrCode.ts` (`decoderLoader`, an exported object whose `load` a test replaces;
+  `profileQr.test.ts` puts the real one back)
 
 Nothing to reset, because the value is built at load and never written, is keyed by its input, or only counts up:
 - `src/content/sets/index.ts` (lookup built from the sets), `src/engine/odds.ts` (memo keyed by the set

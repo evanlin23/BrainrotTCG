@@ -123,9 +123,9 @@ describe('prototype assignment', () => {
   // file, and vi.restoreAllMocks() can't put it back; vi.spyOn restores, and Object.defineProperty (for a
   // method jsdom lacks) is deleted by the file's afterEach. Caught: `=`, `||=`, `&&=` and `??=` onto
   // `.prototype.name` or `.prototype['name']`, through a cast or a `window.` prefix, on any line (a one-line
-  // hook included). Not caught: Object.assign and Reflect.set onto a prototype, and a prototype held in
-  // a variable. A comment line is skipped.
-  const assignment = /\.prototype(?:\s+as\s+[^,;\n]*?\))?(?:\.[A-Za-z_$][\w$]*|\[[^\]\n]*\])\s*(?:\|\||&&|\?\?)?(?<![=!<>])=(?![=>])/;
+  // hook included). Not caught: Object.assign and Reflect.set onto a prototype, a prototype held in
+  // a variable, an `<any>X.prototype` cast, and an `=` on the line after the property. A comment line is skipped.
+  const assignment = /\.prototype(?:\s+as\s+[^;\n]*?\))?(?:\.[A-Za-z_$][\w$]*|\[[^\]\n]*\])\s*(?:\|\||&&|\?\?)?(?<![=!<>])=(?![=>])/;
   const assignsOntoPrototype = (source: string) =>
     source.split('\n').some((line) => !/^\s*(?:\/\/|\/?\*)/.test(line) && assignment.test(line));
 
@@ -135,6 +135,7 @@ describe('prototype assignment', () => {
       'Element.prototype.scrollIntoView = scroll;',
       '(HTMLCanvasElement.prototype as any).getContext = vi.fn();',
       '(HTMLCanvasElement.prototype as unknown as { getContext: unknown }).getContext = vi.fn();',
+      '(HTMLCanvasElement.prototype as unknown as Record<string, unknown>).toBlob = vi.fn(() => undefined);',
       'window.Element.prototype.scrollIntoView = scroll;',
       "Element.prototype['scrollIntoView'] = scroll;",
       '(Element.prototype as any)["scrollIntoView"] = scroll;',
@@ -146,6 +147,7 @@ describe('prototype assignment', () => {
     ]) expect(assignsOntoPrototype(leak), leak).toBe(true);
     for (const fine of [
       "vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx);",
+      "vi.spyOn(HTMLCanvasElement.prototype as unknown as Record<string, unknown>, 'getContext');",
       "Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scroll });",
       "Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });",
       'expect(Element.prototype.scrollIntoView === scroll).toBe(true);',
