@@ -16,7 +16,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
   history.replaceState(null, '', '/');
 });
 

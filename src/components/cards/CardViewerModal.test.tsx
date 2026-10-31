@@ -25,7 +25,6 @@ describe('CardViewerModal versions presentation (issue #655)', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -166,7 +165,6 @@ describe('card close-up tilt', () => {
     act(() => root.unmount());
     host.remove();
     vi.unstubAllGlobals();
-    vi.restoreAllMocks();
   });
 
   /** Lays the card out as a 100x100 box at the origin, so a mouse at (100, 100) tilts it. */

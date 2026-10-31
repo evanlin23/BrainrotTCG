@@ -36,7 +36,6 @@ afterEach(() => {
   act(() => root.unmount());
   document.body.innerHTML = '';
   delete (HTMLImageElement.prototype as Partial<HTMLImageElement>).decode;
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });

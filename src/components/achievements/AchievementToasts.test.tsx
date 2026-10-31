@@ -64,7 +64,6 @@ afterEach(() => {
   container.remove();
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
 });
 
 describe('notices during a big pull\'s showcase', () => {

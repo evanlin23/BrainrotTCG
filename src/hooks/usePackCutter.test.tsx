@@ -559,7 +559,6 @@ describe('usePackCutter frame batching (#266)', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   it('draws the moves between two frames in one update, keeping every point', () => {

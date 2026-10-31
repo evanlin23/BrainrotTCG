@@ -39,7 +39,6 @@ beforeEach(async () => {
   recovery = await import('./collectionRecovery');
 });
 afterEach(() => {
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 

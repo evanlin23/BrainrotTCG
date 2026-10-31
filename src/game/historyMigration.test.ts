@@ -35,7 +35,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
 });
 
 function seed(pulls = [legacy(1), legacy(2, 'right-now', 3)]) {

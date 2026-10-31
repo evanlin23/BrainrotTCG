@@ -12,7 +12,6 @@ describe('storage helpers', () => {
   };
 
   beforeEach(() => {
-    vi.restoreAllMocks();
     mockLocalStorage = {
       getItem: vi.fn(),
       setItem: vi.fn(),
@@ -23,7 +22,6 @@ describe('storage helpers', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.restoreAllMocks();
   });
 
   describe('getStoredData', () => {

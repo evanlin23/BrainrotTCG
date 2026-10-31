@@ -176,8 +176,6 @@ afterEach(async () => {
   stepsBack.mockRestore();
   document.body.innerHTML = '';
   vi.unstubAllGlobals();
-  // Spies on jsdom's prototypes (media load, pause, play) must not outlive the test that set them.
-  vi.restoreAllMocks();
 });
 
 describe('optional work around a pack', () => {

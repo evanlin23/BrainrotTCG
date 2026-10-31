@@ -130,7 +130,6 @@ describe('poster image loading deadline and recovery', () => {
   afterEach(() => {
     vi.clearAllTimers();
     vi.useRealTimers();
-    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 

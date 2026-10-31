@@ -135,7 +135,6 @@ describe('repairing bad copy counts when the save loads (#1109)', () => {
     stub(new Map());
     expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
     vi.unstubAllGlobals();
-    vi.restoreAllMocks();
   });
 
   it('repairs a mixed-sign and a fully negative entry, and every reader sees the same copies', () => {
@@ -400,7 +399,6 @@ describe('migration retry and storage failure safety (#659)', () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -546,7 +544,6 @@ describe('migration retry and storage failure safety (#659)', () => {
 
 describe('nothing to migrate, or nothing readable', () => {
   afterEach(() => {
-    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -570,7 +567,6 @@ describe('v3 when scoring fails', () => {
   afterEach(() => {
     vi.doUnmock('../data/cards');
     vi.resetModules();
-    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 

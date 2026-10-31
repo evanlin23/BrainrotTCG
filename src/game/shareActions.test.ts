@@ -4,13 +4,11 @@ import { canCopyImage, canShareTo, copyImage, copyText, saveImage, shareTo } fro
 describe('shareActions', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
-    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 

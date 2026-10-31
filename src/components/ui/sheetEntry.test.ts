@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { retryMayHelp, sheetLoader } from './sheetEntry';
 
 const Screen = () => null;
@@ -27,8 +27,6 @@ it('forgets a failed request, so opening or Retry asks again', async () => {
   expect(importer).toHaveBeenCalledTimes(2);
   expect(load.loaded).toBe(Screen);
 });
-
-afterEach(() => vi.restoreAllMocks());
 
 it("leaves other screens' stylesheets alone: one still loading neither fails this screen nor is removed", async () => {
   // A warmed-up screen's stylesheet has no sheet until it arrives (#664 review: prefetch while another page loads).
