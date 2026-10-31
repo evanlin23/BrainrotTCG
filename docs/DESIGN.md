@@ -625,7 +625,8 @@ actions: **Open {set name} again** primary (it returns to the packs screen, wher
 scroller above the safe area. When another pack exists, a quiet **Try another pack** line (a 44px
 target with up to two wrapper thumbnails; the Packs sheet opens from it) sits between the cards and the
 stuck actions, so the primary stays last and lowest. When the two actions wrap on a phone, each fills its
-own row (Share above the primary), never a small Share orphaned above a wide primary. The cards are the last content: only the actions sit below them,
+own row (Share above the primary), never a small Share orphaned above a wide primary. On a short phone (up to 480px wide and 700px tall) a summary that shows **Try another pack** adds 3rem above the
+headline, so a two-line toast hangs clear of it; with one set the summary is unchanged. The cards are the last content: only the actions sit below them,
 nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP
 or level here: level-ups toast and progress lives on Profile. Keyboard focus is scrolled clear of
 the stuck actions, whose faded strip passes taps through. Focus starts on the heading.

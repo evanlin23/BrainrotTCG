@@ -220,6 +220,13 @@ function App() {
     if (open) setShelfFromSummary(false);
     setShelfOpen(open);
   }, []);
+  // The flag lasts only as long as that sheet: a close with no pick must not leave it for the next time the sheet opens another way.
+  // It is cleared after the commit, so a pick (which closes the sheet in the same batch) has already remounted the pack with it:
+  // clearing it in the close handler would drop it before that commit.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!shelfOpen) setShelfFromSummary(false);
+  }, [shelfOpen]);
 
   // Each page names the tab; back on the packs screen, focus returns to the top of it (the page's
   // own heading takes focus itself, see Page). Back over a pack, the chrome has stepped aside (on a

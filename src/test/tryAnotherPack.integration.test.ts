@@ -71,3 +71,28 @@ it('opens the Packs sheet from the summary with the selection unchanged, and a p
   expect(document.activeElement).toBe(document.querySelector('[data-pack-open]'));
   expect(localStorage.getItem(STORAGE_KEYS.SELECTED_SET)).not.toBe(before);
 });
+
+it('forgets that the summary opened the sheet when it closes with no pick: a later pick by another way does not pull focus onto the pack', async () => {
+  app = await mountedApp({ ...PLAYER, ...QUIET });
+  await toSummary();
+  await app.until('Try another pack shows and takes clicks', () => {
+    expect(tryAnother()).toBeDefined();
+    expect(document.querySelector('.summary-cards')!.hasAttribute('data-settling')).toBe(false);
+  });
+  await app.interact(() => tryAnother()!.click());
+  await app.until('the Packs sheet opens', () => expect(document.querySelector('.pack-shelf-grid')).not.toBeNull());
+  // Escape from whatever has focus, as a real key press is.
+  await app.interact(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })));
+  await app.until('the sheet closed', () => expect(document.querySelector('.pack-shelf-grid')).toBeNull());
+  expect(tryAnother()).toBeDefined();
+  // Back to the packs screen, then the picker's older/newer step (a pick that never opens the sheet, like a set link).
+  await app.interact(() => button(openAgain()).click());
+  await app.until('the packs screen is back', () => expect(document.querySelector('.set-step:not(:disabled)')).not.toBeNull());
+  const before = packLabel();
+  const step = document.querySelector<HTMLButtonElement>('.set-step:not(:disabled)')!;
+  // Nothing holds focus (a set link lands like this), the one case where a pack mounting takes it.
+  await app.interact(() => { (document.activeElement as HTMLElement | null)?.blur(); step.click(); });
+  await app.until('the other pack is waiting', () => expect(packLabel()).not.toBe(before));
+  // The old flag would have put focus on the new pack; this pick was not from the summary's sheet, so nothing moves focus.
+  expect(document.activeElement).not.toBe(document.querySelector('[data-pack-open]'));
+});

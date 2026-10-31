@@ -827,3 +827,18 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }
   expect(boxes.name.text).toBe('Best in Italian Brainrot Deep Cuts');
   expect(errors).toEqual([]);
 });
+
+// The short-phone headline clearance exists for the row "Try another pack" adds. A summary without that
+// control (one set to choose from) keeps the layout it had: no extra top padding (#898). The browser
+// always lists several sets, so the single-set summary is the same DOM with the control taken out.
+test('the short-phone headline clearance only applies to a summary that shows Try another pack, at 360x640', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+  const { errors } = await openSummary(page, baseURL!, { viewport: PHONE });
+  const padding = () => page.evaluate(() => getComputedStyle(document.querySelector('.summary-details')!).paddingTop);
+  await expect(page.locator('.summary-try-another')).toBeVisible();
+  expect(await padding()).toBe('48px');
+  await page.evaluate(() => document.querySelector('.summary-try-another')!.remove());
+  expect(await padding()).toBe('0px');
+  expect(errors).toEqual([]);
+});
