@@ -6,10 +6,11 @@ import { monitor, expectDecoded, expectRecordedPack, holdTickets, pickWithImport
 
 /**
  * Back up and Restore in Save & backup (#744, #764), through the browser's own file controls: the
- * Export download is saved to a temporary file, and that file is picked with the file chooser that
- * Import opens, either in a separate browser profile or, in the last case, in the same browser after
- * its storage is cleared. Nothing here calls the import code directly; every step goes through the
- * Settings controls, their status notes and a reload.
+ * Export download is saved to a temporary file or read in memory (the early-backup case builds its
+ * file by hand), and that file is picked with the file chooser that Import opens, in a separate
+ * browser profile or, in the last case, in the same browser after its storage is cleared. Nothing
+ * here calls the import code directly; every step goes through the Settings controls, their status
+ * notes and a reload.
  *
  * The backup holds the player's secret key. The keys here are throwaway fixtures, but the spec still
  * keeps file contents out of failure output: traces and videos (which record picked files and storage)
@@ -252,14 +253,15 @@ test('a backup restores into the same browser after its storage is cleared and r
   await expect(settings.main).toBeVisible();
   const reloaded = page.waitForEvent('load');
   await pickWithImport(page, { name: 'backup.txt', buffer: backup });
-  // No replace/keep choice, before the reload or after it.
-  await expect(settings.keep).toHaveCount(0);
-  await expect(settings.replace).toHaveCount(0);
-  await reloaded;
+  // The file is read asynchronously, so the question (if one were asked) shows up after the pick: race it
+  // against the reload and fail if it wins.
+  const outcome = await Promise.race([
+    reloaded.then(() => 'reloaded'),
+    settings.keep.or(settings.replace).first().waitFor({ timeout: 15000 }).then(() => 'asked'),
+  ]);
+  expect(outcome).toBe('reloaded');
   await expect(settings.main).toBeVisible();
   await expect(settings.restoreNote).toHaveText('Load a backup file');
-  await expect(settings.keep).toHaveCount(0);
-  await expect(settings.replace).toHaveCount(0);
   const restored = await storageOf(page);
   expect(restored[PLAYER_KEY] === exportedPlayer).toBe(true);
   expect(await snapshot(page)).toEqual(opened);
