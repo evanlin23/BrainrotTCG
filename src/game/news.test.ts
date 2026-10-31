@@ -3,13 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import shipped from '../content/news.json';
 import {
-  dismissNewsId,
-  getDismissedNewsId,
   getLatestUnreadNews,
-  isNewsDismissed,
   isValidNewsItem,
   isNewsToastId,
-  loadNews,
   markNewsRead,
   newestFirst,
   newsTag,
@@ -20,9 +16,18 @@ import {
   readNewsToasts,
 } from './news';
 
+// These keep state for the visit (a dismissal storage refused, the shipped list once loaded), so each
+// test loads its own copy of the module (docs/DEVELOPMENT.md, Test isolation).
+let dismissNewsId: typeof import('./news').dismissNewsId;
+let getDismissedNewsId: typeof import('./news').getDismissedNewsId;
+let isNewsDismissed: typeof import('./news').isNewsDismissed;
+let loadNews: typeof import('./news').loadNews;
+
 describe('news data & validation', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
+    vi.resetModules();
+    ({ dismissNewsId, getDismissedNewsId, isNewsDismissed, loadNews } = await import('./news'));
   });
 
   it('validates compliant news items', () => {
