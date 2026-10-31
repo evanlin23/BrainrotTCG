@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
+import { assertNoUnstubbedPlay } from './unstubbedPlay';
 
 // The guard for src/test/isolation.ts (not imported here: importing it would register its hooks in this file). Each pair leaves state behind in its first test and expects the
 // second to start clean, so removing the setup file (or one of its resets) fails the second test.
@@ -38,23 +39,56 @@ describe('jsdom prototype spies', { shuffle: false }, () => {
 });
 
 describe('unstubbed play()', () => {
-  it('throws a message naming the rule, and the call is recorded even when app code swallows the throw', () => {
-    const play = vi.mocked(HTMLMediaElement.prototype.play);
-    let thrown: unknown;
+  const guard = () => vi.mocked(HTMLMediaElement.prototype.play);
+  // What an event handler or effect does with the default's throw.
+  const swallowedPlay = () => {
     try {
       new Audio().play();
-    } catch (error) {
-      thrown = error;
+    } catch {
+      /* swallowed */
     }
-    expect(String(thrown)).toMatch(/play\(\) was called without a stub.*returns undefined.*stubs play\(\) itself.*Test isolation/s);
-    expect(play.mock.calls).toHaveLength(1); // what afterEach fails the test on
-    play.mockClear();
+  };
+
+  it('throws a message naming the rule', () => {
+    expect(() => new Audio().play()).toThrow(/play\(\) was called without a stub.*returns undefined.*stubs play\(\) itself.*Test isolation/s);
+    guard().mockClear();
+  });
+
+  it('fails the test for a call that app code swallowed, until the test acknowledges it', () => {
+    expect(() => assertNoUnstubbedPlay(guard())).not.toThrow();
+    swallowedPlay();
+    expect(() => assertNoUnstubbedPlay(guard())).toThrow(/1 unstubbed call\(s\).*without a stub/s);
+    swallowedPlay();
+    expect(() => assertNoUnstubbedPlay(guard())).toThrow(/2 unstubbed call\(s\)/);
+    guard().mockClear();
+    expect(() => assertNoUnstubbedPlay(guard())).not.toThrow();
+  });
+
+  it('counts a call after a *Once stub is used up, not the one the stub answered', async () => {
+    guard().mockResolvedValueOnce();
+    await new Audio().play();
+    expect(() => assertNoUnstubbedPlay(guard())).not.toThrow();
+    swallowedPlay();
+    expect(() => assertNoUnstubbedPlay(guard())).toThrow(/1 unstubbed call\(s\)/);
+    guard().mockClear();
   });
 
   it('lets a test\'s own stub win, and its calls are not failures', async () => {
     const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
     await new Audio().play();
     expect(play).toHaveBeenCalledTimes(1);
+    expect(() => assertNoUnstubbedPlay(play)).not.toThrow();
+  });
+
+  it('checks nothing when no guard was installed', () => {
+    expect(() => assertNoUnstubbedPlay(undefined)).not.toThrow();
+  });
+
+  it('is wired into the setup: armed before each test, checked before the restore in afterEach', () => {
+    const setup = import.meta.glob('./isolation.ts', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
+    const source = Object.values(setup)[0] ?? '';
+    expect(source).toMatch(/beforeEach\([\s\S]*mockImplementation\(unstubbedPlay\)/);
+    expect(source).toMatch(/afterEach\(\(\) => \{\s*try \{[^}]*assertNoUnstubbedPlay\(playGuard\);[^}]*\} finally \{[\s\S]*vi\.restoreAllMocks\(\)/);
   });
 });
 
