@@ -215,7 +215,7 @@ results rules below (#339).
   browser" too: it says what was checked and where, never whose device made the packs, so one
   line is true for the owner and a guest alike without a branch on who is looking. A shared link
   re-opens only the best packs by default and then pauses: that state shows no progress bar or
-  spinner, its footnote reads "* the pack count is the link's own; cards, holo and best score are from the N
+  spinner, its footnote reads "* the pack count is the link's own; cards, holo pulls and best score are from the N
   best packs only, and the rest of the packs are not checked", "How do we know?" says the best packs
   were re-opened in your browser and the rest are not checked until you ask (the level and pack
   count are only what the link claims), and the level stays "claimed". "Verify all N packs" (short label, the hint is

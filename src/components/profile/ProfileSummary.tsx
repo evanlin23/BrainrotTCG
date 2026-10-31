@@ -101,7 +101,7 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
           </dd>
         </div>
         <div>
-          <dt>holo{partial && '*'}</dt>
+          <dt>holo pulls{partial && '*'}</dt>
           <dd className="tabular">{stats.holos.toLocaleString()}</dd>
         </div>
         {!highlighted && (
@@ -140,7 +140,7 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
         </p>
         <p>
           <strong>packs</strong> is how many packs opened. <strong>cards</strong> is how many different cards you have out of those you can still pull.{' '}
-          <strong>holo</strong> counts every holo card pulled, repeats included.{' '}
+          <strong>holo pulls</strong> counts every holo card pulled, repeats included, so it can run past the holo bars in your binder, which count each card once.{' '}
           {!highlighted && <><strong>best score</strong> is your highest Brainrot Score in a single pack.{' '}</>}
           {droughtStats && <><strong>Packs since last</strong> tracks how many packs opened since your last hit of that rarity or Rankings qualifier (purely observational; odds are independent on every pack with no pity mechanics).{' '}</>}
           <strong>Collection score</strong> adds up the points of every card you have pulled, with no combo multipliers.

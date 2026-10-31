@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SETS } from '../../content/sets';
+import { isNewSet, SETS } from '../../content/sets';
 import { getCard } from '../../data/cards';
 import type { CollectionItem } from '../../types';
 import SetPicker from './SetPicker';
@@ -115,5 +115,27 @@ describe('SetPicker set link', () => {
     const activeTile = document.querySelector('.pack-tile.selected')!;
     expect(activeTile.querySelector('.pack-tile-progress')?.textContent).toContain(`0/${set.cards.length}`);
     expect(activeTile.querySelector('.set-badge')).toBeNull();
+  });
+});
+
+describe('SetPicker accessible name', () => {
+  const srText = () => document.querySelector('.set-current > .sr-only')!.textContent;
+
+  it('ends in a whole sentence about the packs, with nothing about a new drop when none is out (#898)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2100-01-01T00:00:00Z'));
+    render();
+    expect(srText()).toBe(`. Choose from all ${released.length} packs.`);
+  });
+
+  it('adds a full sentence, not a fragment, when a new pack is out elsewhere (#898)', () => {
+    vi.useFakeTimers();
+    const fresh = released.find((s) => isNewSet(s, Date.parse(s.releasedAt)))!;
+    vi.setSystemTime(Date.parse(fresh.releasedAt));
+    const other = released.find((s) => s.id !== fresh.id)!;
+    render(released, other.id);
+    expect(document.querySelector('.set-new-dot')).not.toBeNull();
+    expect(srText()).toBe(`. Choose from all ${released.length} packs. A new pack is out.`);
+    expect(srText()).not.toContain(', a new one');
   });
 });

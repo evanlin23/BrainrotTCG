@@ -98,9 +98,7 @@ const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }:
             <ChevronDown />
             {newElsewhere && <span className="set-new-dot" />}
           </span>
-          <span className="sr-only">
-            . All {sets.length} packs{newElsewhere ? ', a new one is out' : ''}
-          </span>
+          <span className="sr-only">{`. Choose from all ${sets.length} packs.${newElsewhere ? ' A new pack is out.' : ''}`}</span>
         </button>
         <button
           type="button"
