@@ -63,6 +63,7 @@ async function untilNewsToast(page: Page) {
  * that is not there is one that is not coming. No timed wait stands in for "no more".
  */
 async function sendAwayEveryToast(page: Page) {
+  // The fixture collection is empty, so any 5-card pack unlocks at least one first-of-a-rarity achievement, which toasts.
   await expect(page.locator('.toast')).toHaveCount(1, { timeout: 15000 });
   for (let step = 0; step < 8; step++) {
     const handle = await page.$('.toast');
@@ -344,7 +345,10 @@ test('waits for the save warning: the toast would sit over the banner and its bu
   const errors = await open(page, baseURL!, { width: 360, height: 740 });
   const banner = page.locator('.save-warning[role="alert"]');
   await expect(banner).toBeVisible();
+  // The news is asked for (and its chunk loaded) as the pack is put away; wait for that load to finish so no step races it.
+  const loaded = page.waitForEvent('requestfinished', (request) => NEWS_CHUNK.test(request.url()));
   await putPackAway(page);
+  await loaded;
   // The pack's own toasts show as they always do (the toast system's rule); the news is the one the banner holds back, so
   // send every one of them away: nothing is then left on screen, and the news, which is queued, must not take their place.
   await sendAwayEveryToast(page);
