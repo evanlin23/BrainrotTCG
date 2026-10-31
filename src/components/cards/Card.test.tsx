@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { ALL_CARDS } from '../../data/cards';
 import Card, { type CardWithMeta } from './Card';
 
@@ -10,11 +10,11 @@ import Card, { type CardWithMeta } from './Card';
 let host: HTMLDivElement;
 let root: Root;
 let reduce = false;
-const addEventListener = vi.spyOn(window, 'addEventListener');
+let addEventListener: MockInstance<typeof window.addEventListener>;
 
 beforeEach(() => {
   reduce = false;
-  addEventListener.mockClear();
+  addEventListener = vi.spyOn(window, 'addEventListener');
   // A real mouse, so the tilt would follow it unless motion is reduced.
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches: query === '(prefers-reduced-motion: reduce)' ? reduce : true,

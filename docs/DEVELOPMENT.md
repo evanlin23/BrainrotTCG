@@ -692,6 +692,32 @@ To move one, run `npm test` three times on an up-to-date branch, set each floor 
 the lowest figure, and give the old and new numbers in the PR. Lower a floor only for removed or
 unreachable code, never to land untested code.
 
+## Test isolation
+
+`src/test/isolation.ts` is the one convention, registered for every test file by `setupFiles` in
+`vite.config.ts`; its owner is the `/work` queue (tests are owned with the code they cover, and a change
+to this file needs a reviewer). After each test it restores spies (including jsdom's
+`HTMLMediaElement` `play`, `load` and `pause`), resets every `vi.fn()` (queued `*Once` values, calls and
+implementations), and puts the address back at `/BrainrotTCG/` (`history.replaceState`,
+so no history entry and no `hashchange`); the address is also set before each test and when a file loads.
+Rules that follow:
+
+- A new or edited test doesn't repeat those resets in its file's `afterEach` (many existing files still
+  do; removing them is remaining #1312 work); add only the cleanup for state the file owns,
+  such as `vi.unstubAllGlobals()` for a `vi.stubGlobal` the file makes in `beforeEach` (the setup can't
+  unstub globally: files stub `localStorage` once at module level).
+- A mock's default behaviour is set in `beforeEach` (or as the `vi.fn(impl)` argument), never once at
+  module level with `mockImplementation`, because the reset clears it after the first test.
+- A test that starts a sound stubs `play()` itself: jsdom's returns undefined, so `.catch` throws.
+- A test builds its own proof, pull or save fixture, or shares one that nothing mutates. Rendering the
+  same props twice in one test doesn't re-run an effect keyed on them; use one test per case.
+- A module that settles or caches once per load is re-imported per test (`vi.resetModules()` then a
+  dynamic import, as `src/test/mountedApp.ts` does) or exposes a reset; the setup can't do that for it.
+
+`src/test/isolation.test.ts` is the guard: each pair of tests leaves state behind and expects the next
+to start clean (it fails if the setup file is removed). Replay order bugs with the seeds in Shuffled and
+repeat runs below.
+
 ## Shuffled and repeat runs
 
 `.github/workflows/test-order.yml` runs the unit suite on a schedule (06:41 UTC) or by hand from the

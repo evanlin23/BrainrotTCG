@@ -42,11 +42,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  // Spies, the mocks' queued values and the address are reset by src/test/isolation.ts; the globals this file stubs are not.
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-  vi.mocked(previewFor).mockReset();
-  // A once-value a test queued and never consumed would answer the next test's check, so no test starts with one waiting.
-  vi.mocked(checkPull).mockReset();
 });
 
 const subtitle = async (name: string) => {
@@ -191,11 +188,16 @@ describe('PullViewerPage', () => {
     expect(text).toContain('a pack always checks out under the version it was opened in, so later versions never change it.');
   });
 
-  it('says Someone, never the raw name, when the name is missing or blocked', async () => {
-    expect(await render({}, '')).toContain('Someone pulled this pack in Original.');
-    const blocked = await render({}, 'xXfuckXx');
-    expect(blocked).toContain('Someone pulled this pack in Original.');
-    expect(blocked).not.toMatch(/fuck/i);
+  // One test per name, each with its own check and render: a second render of the same proof in one test
+  // doesn't re-run the check, so its assertions would read the first render's output.
+  it.each([
+    { case: 'missing', name: '' },
+    { case: 'blocked', name: 'xXfuckXx' },
+  ])('says Someone, never the raw name, when the name is $case', async ({ name }) => {
+    const text = await render({}, name);
+    expect(text).toContain('Someone pulled this pack in Original.');
+    expect(text).not.toMatch(/fuck/i);
+    expect(vi.mocked(checkPull)).toHaveBeenCalledTimes(1);
   });
 
   it('names nobody before the pull is verified', async () => {
