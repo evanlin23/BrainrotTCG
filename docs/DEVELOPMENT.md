@@ -729,11 +729,69 @@ Rules that follow:
 - A test builds its own proof, pull or save fixture, or shares one that nothing mutates. Rendering the
   same props twice in one test doesn't re-run an effect keyed on them; use one test per case.
 - A module that settles or caches once per load is re-imported per test (`vi.resetModules()` then a
-  dynamic import, as `src/test/mountedApp.ts` does) or exposes a reset; the setup can't do that for it.
+  dynamic import, as `src/test/mountedApp.ts` does), or the file puts its state back through the
+  module's own reset or public setter; the setup can't do that for it. Don't add a production export
+  only so a test can reset (the exports that exist for that are in the list below). The list is
+  checked, see Modules that keep state for the load.
+- A test gives a jsdom prototype a method with `vi.spyOn(Canvas.prototype, 'getContext')` (the setup
+  restores it), or with `Object.defineProperty` where jsdom has none (`scrollIntoView`) and removes it
+  in the file's `afterEach`. It never assigns `Element.prototype.x = ...`: that stays on the prototype
+  for every later test in the file. `src/test/isolation.test.ts` fails on a direct assignment.
+- A top-level `vi.stubGlobal` is for a fixture the whole file shares, such as a `localStorage` backed by a
+  `Map`; the file clears the data in `beforeEach`. Stubs and spies a single test needs go in that
+  test or its `beforeEach`, with `vi.unstubAllGlobals()` in the file's `afterEach`.
 
 `src/test/isolation.test.ts` is the guard: each pair of tests leaves state behind and expects the next
 to start clean (it fails if the setup file is removed). Replay order bugs with the seeds in Shuffled and
 repeat runs below.
+
+### Modules that keep state for the load
+
+Each file below declares state at the top level (a `let`, or a Map, Set, WeakMap, array, object or Promise
+in a lower-case `const`) that outlives one test. `onceModules.test.ts` (in `src/test`) fails when this list and
+the sources disagree, so a new module with such state is added here with the way tests start clean. That
+check reads declarations, not behaviour: it misses state kept in a class field or on an exported object,
+and it can list a lookup table. Vitest gives every test file its own module graph, so this is about tests
+in one file, not across files.
+
+Re-imported before every test (the module's own test file calls `vi.resetModules()` in `beforeEach`, then
+imports dynamically):
+- `src/game/admission.ts` (start queue, running count; other files call `resetAdmission`)
+- `src/game/finishImage.ts` (frame-mask promise, render cache; `finishImage.loading.test.ts`)
+- `src/game/hallOfFameList.ts` (in-flight load, loaded-at, last list)
+- `src/game/move.ts` (active receiver; `move.receive.test.ts`, which also calls `stopReceiver`)
+- `src/game/news.ts` (cached shipped-news promise)
+- `src/game/packArt.ts` (settles once per load)
+- `src/game/player.ts` (in-memory player, repair mark, held locks)
+- `src/game/ticketMiner.ts` (worker, ticket cache, job queues)
+- `src/hooks/usePackHistory.ts` (load check, stray-back flag)
+- `src/main.tsx` (hand-over promise)
+
+Re-imported by the tests that need a fresh load; the others use the static import and set up what they read:
+- `src/components/cards/CardImage.tsx` (retry round, off-screen observer)
+- `src/game/collectionRecovery.ts` (unsaved, dropped and discarded entries)
+- `src/game/history.ts` (decoded-history and count caches, keyed on the stored text)
+- `src/game/publishedRankings.ts` (month loaders)
+- `src/game/pulls.ts` (unshelved packs)
+
+Put back by the module's own reset, which the files that touch it call:
+- `src/game/bestCards.ts` (`resetBestCards`), `src/game/myTickets.ts` (`resetTicketList`),
+  `src/game/packStore.ts` (`resetPackStore`), `src/game/reopenCache.ts` (`__resetReopenCacheForTests`),
+  `src/game/share.ts` (`resetSubmissionsForTest`)
+
+Put back through the module's public setter in the file's `afterEach`:
+- `src/utils/motion.ts` (`setMotionSetting('auto')`), `src/game/diagnostics.ts` (`setDiagnosticCapture(false)`,
+  `clearDiagnostics()`)
+
+Nothing to reset, because the value is built at load and never written, is keyed by its input, or only counts up:
+- `src/content/sets/index.ts` (lookup built from the sets), `src/engine/odds.ts` (memo keyed by the set
+  definition), `src/game/profiles.ts` (WeakMaps keyed by the ticket list), `src/game/profileVerification.ts`
+  (a counter that makes a superseded check ignore itself)
+
+Listeners, timers and queues that unmounting or cleanup removes; the shuffled runs have found no test that
+reads them across tests (if one does, re-import the module or reset it through the first two groups):
+- `src/components/pages/SettingsPage.tsx` (pending sample timer), `src/components/ui/openSheets.ts` (open
+  sheet stack), `src/game/packCache.ts` (listeners, version, last run), `src/game/reopenJob.ts` (job, listeners)
 
 ## Shuffled and repeat runs
 

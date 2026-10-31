@@ -117,3 +117,24 @@ describe('per-file resets', () => {
     expect(Object.entries(files).filter(([, source]) => redundantHook.test(source)).map(([path]) => path)).toEqual([]);
   });
 });
+
+describe('prototype assignment', () => {
+  // `HTMLCanvasElement.prototype.getContext = vi.fn()` stays on the prototype for every later test in the
+  // file, and vi.restoreAllMocks() can't put it back; vi.spyOn restores, and Object.defineProperty (for a
+  // method jsdom lacks) is deleted by the file's afterEach.
+  const directAssignment = /^\s*[A-Z]\w*\.prototype\.\w+\s*=[^=]/m;
+
+  it('flags an assignment onto a prototype, not a spy, a defineProperty or a comparison', () => {
+    expect(directAssignment.test('    HTMLCanvasElement.prototype.getContext = vi.fn(() => ctx);')).toBe(true);
+    expect(directAssignment.test('Element.prototype.scrollIntoView = scroll;')).toBe(true);
+    expect(directAssignment.test("vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx);")).toBe(false);
+    expect(directAssignment.test("Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scroll });")).toBe(false);
+    expect(directAssignment.test('expect(Element.prototype.scrollIntoView === scroll).toBe(true);')).toBe(false);
+  });
+
+  it('no test file assigns onto a prototype', () => {
+    const files = import.meta.glob(['../**/*.test.{ts,tsx}', '../../scripts/**/*.test.ts', '!./isolation.test.ts'], { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
+    expect(Object.keys(files).length).toBeGreaterThan(100);
+    expect(Object.entries(files).filter(([, source]) => directAssignment.test(source)).map(([path]) => path)).toEqual([]);
+  });
+});
