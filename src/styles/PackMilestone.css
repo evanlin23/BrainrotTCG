@@ -153,6 +153,35 @@ button.pack-milestone:disabled {
   grid-row: 1;
 }
 
+/* The landing's Change pack (Sets.css, DESIGN.md "Flow", item 8) takes that empty left column, beside the guide, so the
+   row gets no taller and the pack keeps its size. Where the column is too narrow for it (a phone held upright) it takes a
+   line of its own above the guide and the goal instead, still centred under the pack; a row of 20rem or less (a
+   320px phone, enlarged text) has no room for that line, so it goes (below). */
+.card-guide-entry:has(> .change-pack) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.card-guide-entry:has(> .change-pack) > :not(.pack-milestone) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.card-guide-entry:has(> .change-pack) > .change-pack {
+  grid-column: 1;
+  justify-self: end;
+}
+
+@container card-guide (max-width: 36rem) {
+  .card-guide-entry:has(> .change-pack) > .change-pack {
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+  .card-guide-entry:has(> .change-pack) > :not(.change-pack) {
+    grid-row: 2;
+  }
+}
+
 /* The goal fills its column up to a cap, so on a wide screen it stays near the pack and the row reads as balanced
    around it instead of running to the screen's edge. */
 .card-guide-entry > .pack-milestone {
@@ -162,10 +191,16 @@ button.pack-milestone:disabled {
 }
 
 /* The row (Scoring.css) is the container, so the thresholds follow the text size as well as the width. A row this
-   narrow (a 320px phone, enlarged text) shows no goal rather than shift or squeeze the guide. */
+   narrow (a 320px phone, enlarged text) shows no goal rather than shift or squeeze the guide, and no Change pack:
+   its own line would shrink a pack that small until a swipe across it no longer reaches the tear's minimum
+   (usePackCutter's MIN_CUT_PX). The Packs sheet is still a tap away in the picker. */
 @container card-guide (max-width: 20rem) {
-  .pack-milestone {
+  .pack-milestone,
+  .card-guide-entry > .change-pack {
     display: none;
+  }
+  .card-guide-entry:has(> .change-pack) > :not(.change-pack) {
+    grid-row: 1;
   }
 }
 
@@ -203,9 +238,18 @@ button.pack-milestone:disabled {
 }
 
 /* A phone on its side (the app's own short-screen cut-off, index.css) has no room for the pack as it is:
-   the goal waits for a taller screen rather than shrink it. */
+   the goal waits for a taller screen rather than shrink it. So does Change pack where it can't share the row
+   (a row up to 36rem, as on a 568x320 phone): its own line there would cost the pack 44px of a 320px screen. */
 @media (max-width: 899px) and (max-height: 520px) {
   .pack-milestone {
     display: none;
+  }
+  @container card-guide (max-width: 36rem) {
+    .card-guide-entry > .change-pack {
+      display: none;
+    }
+    .card-guide-entry:has(> .change-pack) > :not(.change-pack) {
+      grid-row: 1;
+    }
   }
 }

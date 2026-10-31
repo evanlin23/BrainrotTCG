@@ -31,13 +31,16 @@ from a 390 px wide screen.
    from the tear until the pack is put away) opens the selected set's card guide. The row carries no
    news: the latest unread entry arrives as a toast (see What's new, below). The next goal (#212) takes
    its place in the same row, to the right of the Card guide link, which stays centred under the pack
-   with the goal or without it (the row is three columns, the guide alone in the middle): one two-line, 44px chip (a small card-back picture when the reward is a
+   with the goal or without it (the row is three columns, the guide alone in the middle; the left column
+   is empty but for **Change pack**, item 8 of the Flow below): one two-line, 44px chip (a small card-back picture when the reward is a
    card back, the name, a percentage or count, and "Cosmetic, odds unchanged" or the cards still to
    go), a link to Profile rewards or the binder. Where a level holds two rewards (12: Gold foil and
    Meme Historian; 20: Prismatic card back and Aura Farmer) the chip names the choosable cosmetic
    (with its card-back picture when it is a card back) and not the title that equips itself; the
    Profile "Next:" line names both (#212). The chip comes from the same verified-pack level and set
-   counts the profile shows, adds no height, never moves and has no animation, and hides on a phone on its
+   counts the profile shows, adds no height and has no animation. It keeps its place, except on an upright
+   phone, where it drops a line with the guide while **Change pack** (item 8 of the Flow) shows and moves back
+   up once the Packs sheet is first opened. It hides on a phone on its
    side and in a row of 20rem or less (a 320px phone, enlarged text), rather
    than shift or squeeze the guide. In a row up to 34rem (every phone) the column beside the centred
    guide is small, so the chip shrinks to one line, the name (an ellipsis if long), the percentage and
@@ -183,8 +186,26 @@ results line (`PackSummaryUI.tsx`) that goes.
      only when another set is available (the same list the picker uses, so draft or hidden sets count
      only when the picker would show them). The primary becomes **Open {set name} again**, for players
      chasing that set. It is never shown mid-reveal.
-   - *Next, the landing.* A **Change pack · N available** control under the pack, for a returning player
-     who has not yet looked at the picker. Not built yet; it is the next slice.
+   - *The landing.* A quiet ghost **Change pack · N available** control (44px target, named "Change pack,
+     N available") leads the row under the sealed pack, so it comes right after the pack in the keyboard
+     order, outside the pack's stage (a press on it never starts a tear). N is the same list the picker
+     uses, less the selected set; with no other set there is no control. It shows only to a returning
+     player (one who has saved a pack or owns a card; `showAllPages` alone shows the tabs, not this) who has never opened the Packs sheet on this device: opening the sheet from
+     anywhere (the era picker, the summary's control or this one) hides it for good, kept in a device
+     flag outside the save (`PACKS_SHEET_SEEN`, game/packsSheet.ts; storage that refuses it still hides it
+     for the visit). It is hidden from the tear until the pack is put away, so never mid-reveal or on the
+     summary. A pick lands focus on the pack, and so does a close with no pick, since the control has gone.
+     Where the row has room (a wide phone on its side, a desktop) it takes the row's empty left column,
+     beside the centred guide, so the row and the pack keep their size; on an upright phone (a row up to
+     36rem) it takes a line of its own above the guide and the goal, and the pack fits the 44px less. A phone
+     on its side never gives the pack that line: where its row is too narrow to share (a 568x320 phone) the
+     control is not shown, as the goal is not there. Nor is it in a row of 20rem or less (a 320px phone),
+     where that line would shrink the pack until a swipe across it fell short of the tear. The limit is in
+     rem, so it follows the text size: on a phone, text enlarged past these points hides the control (a 360px
+     phone above about 103%, 390px above about 111%, 430px above about 122%). That is an accepted trade: the era
+     picker opens the same sheet.
+     The label wraps inside the button rather than run past it. It has no animation; under reduced motion
+     its state changes are instant (`tests/browser/change-pack.spec.ts`).
 
 ### Guardrails
 

@@ -120,9 +120,10 @@ for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 
     if (percent !== 100) await scaleText(page, percent);
     const toast = newsToast(page);
     await expect(toast).toBeVisible();
-    // The chip beside the Card guide link is gone: that row carries the guide and the next goal, no news.
+    // The chip beside the Card guide link is gone: that row carries the guide, the next goal and (until the
+    // Packs sheet is opened) Change pack, no news.
     await expect(page.locator('.news-banner')).toHaveCount(0);
-    await expect(page.locator('.card-guide-entry > :not(.card-guide-link, .pack-milestone)')).toHaveCount(0);
+    await expect(page.locator('.card-guide-entry > :not(.card-guide-link, .pack-milestone, .change-pack)')).toHaveCount(0);
     await expect(page.locator('.card-guide-entry > .card-guide-link')).toHaveCount(1);
     // Unread news never hides the next goal (it did while the chip took the row first): on every phone with room for it.
     if (width > 320) await expect(page.locator('.card-guide-entry .pack-milestone')).toBeVisible();
