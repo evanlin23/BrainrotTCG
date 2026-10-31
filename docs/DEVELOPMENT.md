@@ -713,7 +713,19 @@ Rules that follow:
   unstub globally: files stub `localStorage` once at module level).
 - A mock's default behaviour is set in `beforeEach` (or as the `vi.fn(impl)` argument), never once at
   module level with `mockImplementation`, because the reset clears it after the first test.
-- A test that starts a sound stubs `play()` itself: jsdom's returns undefined, so `.catch` throws.
+- A test that starts a sound stubs `play()` itself
+  (`vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()`): jsdom's returns undefined, so
+  `.catch` throws. The setup enforces this (`src/test/isolation.ts`, with the logic in
+  `src/test/unstubbedPlay.ts`). Before each test it spies `HTMLMediaElement.prototype.play` with a default
+  that throws a message naming this rule, and in `afterEach` it fails any test that reached that default,
+  because app code can swallow the throw. A test's own stub (`mockResolvedValue`, `mockImplementation` or a
+  `*Once` value) answers instead, and its calls are fine. A test that calls play() without a stub on
+  purpose clears the call with `mockClear()` (only `src/test/isolation.test.ts` does). Limits: node-environment
+  files get no guard; a test or `beforeAll` that already put a mock on `play` keeps it and the guard stays
+  out of the way; and a `vi.resetAllMocks()` in a test body, or in a file `afterEach` that runs before the
+  shared one, forgets the unstubbed calls already recorded in that test (a swallowed call followed by it
+  passes) and takes the guard off for the rest of it. `vi.restoreAllMocks()` keeps earlier calls; only
+  later ones go unguarded.
 - A test builds its own proof, pull or save fixture, or shares one that nothing mutates. Rendering the
   same props twice in one test doesn't re-run an effect keyed on them; use one test per case.
 - A module that settles or caches once per load is re-imported per test (`vi.resetModules()` then a
