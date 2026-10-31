@@ -29,16 +29,16 @@ function redactEmails(text: string): string {
     // A newline here is a field boundary from redactAcrossFields; keep it so fields stay aligned.
     const boundaries = '\n'.repeat(match.split('\n').length - 1);
     // A bracketed or "@" form is certain, but its top-level domain must be letters ("3 @ 12.5 seconds" is not an address).
-    if (/[[({<@]/.test(match)) return /(?:^|[\s.])[a-z]{2,}$/i.test(match) ? '[email]' + boundaries : match;
+    if (/[[({<@]/.test(match)) return /(?<![a-z0-9-])[a-z]{2,}$/i.test(match) ? '[email]' + boundaries : match;
     const host = /\s+at\s+([a-z0-9-]+)/i.exec(match)?.[1]?.toLowerCase() ?? '';
     const tld = match.split(/\s+dot\s+|\./i).at(-1)?.toLowerCase() ?? '';
     return /\sdot\s/i.test(match) && knownTlds.has(tld) && !proseHosts.has(host) ? '[email]' + boundaries : match;
   });
 }
 // Control characters (line breaks included) become spaces before matching, so an address broken
-// across lines is one address. Zero-width, soft-hyphen and bidi marks are dropped.
+// across lines is one address. Invisible format characters (zero-width, soft hyphen, bidi, invisible operators), U+034F and variation selectors are dropped.
 function stripped(value: unknown): string {
-  return String(value).replace(/[\u00ad\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/g, '').split('').map((character) => character.charCodeAt(0) < 32 || character === '\u0085' ? ' ' : character).join('');
+  return String(value).replace(/[\p{Cf}\u034f\ufe00-\ufe0f]/gu, '').split('').map((character) => character.charCodeAt(0) < 32 || character === '\u0085' ? ' ' : character).join('');
 }
 export function clean(value: unknown): string {
   const kept = stripped(value).replace(/https?:\/\/[^\s]+/g, '[URL]').replace(/[a-f0-9]{32,}/gi, '[opaque value]');
@@ -51,7 +51,10 @@ export function clean(value: unknown): string {
 /** Redacts addresses written out across adjacent already-cleaned fields (one field per element). */
 export function redactAcrossFields(fields: string[]): string[] {
   if (fields.some((field) => field.includes('\n'))) throw Error('Fields must be cleaned first');
-  return redactEmails(fields.join('\n')).split('\n').map((field) => field.trim());
+  // Match on the NFKC-folded text; a field keeps its own characters unless something in it was redacted.
+  const folded = fields.map((field) => field.normalize('NFKC'));
+  const redacted = redactEmails(folded.join('\n')).split('\n');
+  return redacted.map((field, index) => field === folded[index] ? fields[index]! : field.trim());
 }
 const stepPrefix = /^((?:not completed: )?click: )(.*)$/s;
 /** Final pass over a report's participant text: click labels, observations and reasons, so an address split between them is still removed. */

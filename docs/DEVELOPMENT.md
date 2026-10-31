@@ -452,7 +452,7 @@ across adjacent click labels, observations and reasons just before the report is
 prose ("meet at the dot com bubble", "look at example.com", "rank 3 @ 12.5 seconds") is left alone, so
 some forms still get through: a host written with literal dots after a written "at" ("jane at
 example.com"), "jane at example com", a space-separated name ("first last at example dot com" keeps
-"first"), and breaks inside a word or between spaced letters. A report with an address in it
+"first"), and breaks inside a word or between spaced letters. A field with an address in it
 is folded to NFKC ("…" becomes "..."); text with no address keeps its own characters. Read the
 report before sharing it.
 

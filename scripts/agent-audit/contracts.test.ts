@@ -48,6 +48,13 @@ describe('email redaction in retained prose', () => {
     'name (at) example (dot) org',
     'name {at} example {dot} net',
     'name [ at ] example [ dot ] co [dot] uk',
+    'name[at]example[dot]com',
+    'name(at)example(dot)com',
+    'name{at}example{dot}org',
+    'name@example[dot]com',
+    'first[dot]last[at]example[dot]com',
+    'name <at> example <dot> com',
+    'Pull 1 @ pack.com',
     'name @ example.com',
     'name@ example.com',
     'name\nat example\ndot\ncom',
@@ -58,7 +65,8 @@ describe('email redaction in retained prose', () => {
     'na\u200bme@exa\u200bmple.com',
   ])('removes %j', (written) => {
     const text = clean(`My address is ${written}, thanks.`);
-    expect(text).toBe('My address is [email], thanks.');
+    expect(text).toBe(written.startsWith('Pull') ? 'My address is Pull [email], thanks.' : 'My address is [email], thanks.');
+    expect(clean(`Write ${written}.`)).toBe(written.startsWith('Pull') ? 'Write Pull [email].' : 'Write [email].');
   });
   it('keeps ordinary prose that uses at, dot or a bare domain', () => {
     for (const prose of [
@@ -93,6 +101,14 @@ describe('email redaction in retained prose', () => {
     const result = parseOutcome(raw, ['snapshot: visible accessibility tree', 'click: Open pack']);
     expect(result.observations).toBe('The page showed [email] in the header');
   });
+  it('removes full-width addresses split across fields', () => {
+    expect(redactAcrossFields(['name\uff20', 'example\uff0ecom is shown'])).toEqual(['[email]', 'is shown']);
+    expect(redactAcrossFields(['name \uff41\uff54', 'example \uff44\uff4f\uff54 com'])).toEqual(['[email]', '']);
+    expect(redactAcrossFields(['Open pack\u2026', 'name at', 'example dot com'])).toEqual(['Open pack\u2026', '[email]', '']);
+    const tasks: Record<string, unknown>[] = [{ steps: ['click: name\uff20'], observations: 'example\uff0ecom is shown' }];
+    redactReportTasks(tasks);
+    expect(tasks[0]).toEqual({ steps: ['click: [email]'], observations: 'is shown' });
+  });
   it('keeps dollar patterns in click labels literal', () => {
     const tasks: Record<string, unknown>[] = [{ steps: ['click: Cost $1 pack', 'click: Tap $& now', 'not completed: click: Pay $$ then $` and $\''], observations: 'ok' }];
     redactReportTasks(tasks);
@@ -102,7 +118,7 @@ describe('email redaction in retained prose', () => {
     for (const prose of ['rank 3 @ 12.5 seconds', 'Hit 9 @ 4.0x speed']) expect(clean(prose)).toBe(prose);
   });
   it('removes invisible and bidi marks inside an address', () => {
-    for (const mark of ['\u200e', '\u200f', '\u202a', '\u202e', '\u2066', '\u2069', '\u00ad']) {
+    for (const mark of ['\u2061', '\u2064', '\u061c', '\u034f', '\ufe0f', '\ufe00', '\u200e', '\u200f', '\u202a', '\u202e', '\u2066', '\u2069', '\u00ad']) {
       expect(clean(`name@exa${mark}mple.com`)).toBe('[email]');
     }
     expect(clean('name\u0085at example dot com')).toBe('[email]');
