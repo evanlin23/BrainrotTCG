@@ -628,7 +628,7 @@ test.describe('offline mid-session', () => {
     await packsScreen(page);
     // The first saved pack is also the first time the news chunk is asked for (a fresh player never loads it
     // online): offline it gives no news, so there is no news toast, and nothing else breaks.
-    const newsChunk = /\/news-[^/]+\.js$/;
+    const newsChunk = /\/assets\/news-[^/]+\.js$/;
     await expect.poll(() => cut.some((url) => newsChunk.test(url))).toBe(true);
     await expect(page.locator('.toast').filter({ hasText: "What's new" })).toHaveCount(0);
     await nav(page).getByRole('button', { name: 'Cards', exact: true }).click();
@@ -648,9 +648,8 @@ test.describe('offline mid-session', () => {
       ...cut.flatMap((url) => [`net::ERR_INTERNET_DISCONNECTED ${url}`, 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED']),
       ...finishes(),
     ].sort();
-    await expect.poll(() => JSON.stringify([...errors].sort()) === JSON.stringify(expected())).toBe(true);
+    await expect(async () => { expect([...errors].sort()).toEqual(expected()); }).toPass({ timeout: 5000 });
     for (const finish of finishes()) expect(cut.some((url) => finish.includes(new URL(url).pathname)), finish).toBe(true);
-    expect([...errors].sort()).toEqual(expected());
   });
 });
 
