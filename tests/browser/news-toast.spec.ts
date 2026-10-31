@@ -63,7 +63,7 @@ async function untilNewsToast(page: Page) {
  * that is not there is one that is not coming. No timed wait stands in for "no more".
  */
 async function sendAwayEveryToast(page: Page) {
-  // The fixture player has no achievements saved, so a pack of the default set always unlocks at least Baby Steps (first_pack).
+  // The fixture collection is empty, so any 5-card pack unlocks at least one first-of-a-rarity achievement, which toasts.
   await expect(page.locator('.toast')).toHaveCount(1, { timeout: 15000 });
   for (let step = 0; step < 8; step++) {
     const handle = await page.$('.toast');
