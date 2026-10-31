@@ -9,11 +9,56 @@ export const tasks = {
   recovery: 'Explore whether you can comfortably use this game with a keyboard and recover when something is confusing. Do not change browser settings or import/export anything.',
 } as const;
 export type Task = keyof typeof tasks;
+// Email redaction. The pinned runner gives the player the signed-in account's context, so a
+// narration may write the address out ("name at example dot com", "name [at] example [dot] com",
+// "name @ example.com") or break it across lines or fields. Plain-word "at" and "dot" are ordinary
+// prose, so a match with no bracket or "@" marker counts only when it ends in a well-known TLD and
+// the host is not a stopword ("meet at the dot com" survives).
+const bracketOpen = '[\\[({<]';
+const bracketClose = '[\\])}>]';
+const spelledDot = `(?:\\s*${bracketOpen}\\s*dot\\s*${bracketClose}\\s*|\\s+dot\\s+)`;
+const spelledAt = `(?:\\s*${bracketOpen}\\s*at\\s*${bracketClose}\\s*|\\s*@\\s*|\\s+at\\s+)`;
+const writtenEmail = new RegExp(
+  `(?<![\\w.+-])[\\w.+-]+(?:${spelledDot}[\\w.+-]+)*${spelledAt}[a-z0-9-]+(?:(?:${spelledDot}|\\.)[a-z0-9-]+)+(?![\\w-])`, 'gi');
+const knownTlds = new Set(['com', 'org', 'net', 'edu', 'gov', 'mil', 'int', 'io', 'co', 'uk', 'us', 'ca', 'de', 'fr', 'au', 'in', 'jp', 'cn', 'ru', 'br', 'nl', 'se', 'no', 'ch', 'info', 'biz', 'dev', 'app', 'ai', 'me', 'tv', 'xyz', 'online', 'tech', 'site']);
+const proseHosts = new Set(['the', 'a', 'an', 'this', 'that', 'these', 'those', 'my', 'your', 'our', 'their', 'its', 'his', 'her', 'one', 'each', 'every', 'some', 'any', 'it', 'there', 'here', 'what', 'which', 'home', 'work', 'school']);
+function redactEmails(text: string): string {
+  return text.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, '[email]').replace(writtenEmail, (match) => {
+    // A newline here is a field boundary from redactAcrossFields; keep it so fields stay aligned.
+    const boundaries = '\n'.repeat(match.split('\n').length - 1);
+    if (/[[({<@]/.test(match)) return '[email]' + boundaries;
+    const host = /\s+at\s+([a-z0-9-]+)/i.exec(match)?.[1]?.toLowerCase() ?? '';
+    const tld = match.split(/\s+dot\s+|\./i).at(-1)?.toLowerCase() ?? '';
+    return /\sdot\s/i.test(match) && knownTlds.has(tld) && !proseHosts.has(host) ? '[email]' + boundaries : match;
+  });
+}
+function plainText(value: unknown): string {
+  // NFKC folds full-width "@" and "." and similar; control characters, line breaks included, become
+  // spaces before matching so an address broken across lines is still one address.
+  return String(value).normalize('NFKC').replace(/[\u200b-\u200d\u2060\ufeff]/g, '').split('').map((character) => character.charCodeAt(0) < 32 ? ' ' : character).join('');
+}
 export function clean(value: unknown): string {
-  return String(value).replace(/https?:\/\/[^\s]+/g, '[URL]')
-    .replace(/[a-f0-9]{32,}/gi, '[opaque value]')
-    .replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, '[email]')
-    .split('').map((character) => character.charCodeAt(0) < 32 ? ' ' : character).join('').slice(0, 1200);
+  return redactEmails(plainText(value).replace(/https?:\/\/[^\s]+/g, '[URL]').replace(/[a-f0-9]{32,}/gi, '[opaque value]')).slice(0, 1200);
+}
+/** Redacts addresses written out across adjacent already-cleaned fields (one field per element). */
+export function redactAcrossFields(fields: string[]): string[] {
+  if (fields.some((field) => field.includes('\n'))) throw Error('Fields must be cleaned first');
+  return redactEmails(fields.join('\n')).split('\n').map((field) => field.trim());
+}
+const stepPrefix = /^((?:not completed: )?click: )(.*)$/s;
+/** Final pass over a report's participant text: click labels, observations and reasons, so an address split between them is still removed. */
+export function redactReportTasks(tasks: unknown[]): void {
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object') continue;
+    const record = task as { steps?: unknown; observations?: unknown; reason?: unknown };
+    const steps = Array.isArray(record.steps) ? record.steps as string[] : [];
+    const clicks = steps.flatMap((step, index) => typeof step === 'string' && stepPrefix.test(step) ? [index] : []);
+    const fields = [...clicks.map((index) => steps[index]!.replace(stepPrefix, '$2')), typeof record.observations === 'string' ? record.observations : '', typeof record.reason === 'string' ? record.reason : ''];
+    const redacted = redactAcrossFields(fields);
+    clicks.forEach((index, position) => { steps[index] = steps[index]!.replace(stepPrefix, `$1${redacted[position]}`); });
+    if (typeof record.observations === 'string') record.observations = redacted[clicks.length];
+    if (typeof record.reason === 'string') record.reason = redacted[clicks.length + 1];
+  }
 }
 export function parseOptions(args: string[]) {
   const selected: Task[] = [];

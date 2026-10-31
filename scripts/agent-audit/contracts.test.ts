@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { describe, expect, it } from 'vitest';
 import { bridgeHandler, browserCommand, stepBudget } from './browser';
-import { agentEnvironment, clean, instructionFiles, isBasePath, parseOptions, parseOutcome, uncommittedBuildInputs } from './contracts';
+import { agentEnvironment, clean, instructionFiles, isBasePath, parseOptions, parseOutcome, redactAcrossFields, redactReportTasks, uncommittedBuildInputs } from './contracts';
 
 describe('local audit evidence contracts', () => {
   it('supports root and prefixed hosting while refusing URL/path escapes', () => {
@@ -37,6 +37,66 @@ describe('local audit evidence contracts', () => {
     expect(text).not.toContain('hi@example');
     expect(text).not.toContain('010101');
     expect(text).not.toContain('\n');
+  });
+});
+
+describe('email redaction in retained prose', () => {
+  it.each([
+    'name at example dot com',
+    'Name AT Example DOT Edu',
+    'name [at] example [dot] com',
+    'name (at) example (dot) org',
+    'name {at} example {dot} net',
+    'name [ at ] example [ dot ] co [dot] uk',
+    'name @ example.com',
+    'name@ example.com',
+    'name\nat example\ndot\ncom',
+    'name at\n\nexample dot com',
+    'first dot last at example dot com',
+    'first [dot] last [at] example [dot] com',
+    'name＠example．com',
+    'na\u200bme@exa\u200bmple.com',
+  ])('removes %j', (written) => {
+    const text = clean(`My address is ${written}, thanks.`);
+    expect(text).toBe('My address is [email], thanks.');
+  });
+  it('keeps ordinary prose that uses at, dot or a bare domain', () => {
+    for (const prose of [
+      'Meet at the dot in the corner, then look at the dot com bubble.',
+      'The card looks great at a small size. The red dot is a nice touch.',
+      'I stopped at the pack screen and the dot on the progress bar moved at once.',
+      'I arrived at home dot com was not mentioned.',
+      'Visit us at example.com for more, or look at it later.',
+      'Shown at 10.30 [at] the top (dot) of the page',
+      'Tap the dot at the end. Com Dot Com.',
+    ]) expect(clean(prose)).toBe(prose);
+  });
+  it('still redacts an address after prose that uses at and dot', () => {
+    expect(clean('Meet at the dot com bubble, email name at example dot com now')).toBe('Meet at the dot com bubble, email [email] now');
+  });
+  it('removes an address split across adjacent fields and keeps the field count', () => {
+    expect(redactAcrossFields(['Contact name at', 'example dot', 'com for help', 'unrelated'])).toEqual(['Contact [email]', '', 'for help', 'unrelated']);
+    expect(redactAcrossFields(['Plain field', 'at the dot'])).toEqual(['Plain field', 'at the dot']);
+    expect(() => redactAcrossFields(['a\nb'])).toThrow();
+  });
+  it('sweeps click labels, observations and reasons of a report', () => {
+    const tasks: Record<string, unknown>[] = [
+      { task: 'opening', steps: ['snapshot: visible accessibility tree', 'not completed: click: Open pack', 'click: name at', 'press: Enter'], observations: 'example dot com showed up', reason: 'Task incomplete' },
+      { task: 'sharing', outcome: 'unrun', reason: 'Not started' },
+    ];
+    redactReportTasks([...tasks, null, 'x']);
+    expect(tasks[0]).toEqual({ task: 'opening', steps: ['snapshot: visible accessibility tree', 'not completed: click: Open pack', 'click: [email]', 'press: Enter'], observations: 'showed up', reason: 'Task incomplete' });
+    expect(tasks[1]).toEqual({ task: 'sharing', outcome: 'unrun', reason: 'Not started' });
+  });
+  it('removes written-out forms from a parsed agent report', () => {
+    const raw = JSON.stringify({ outcome: 'completed', observations: 'The page showed name [at] example [dot] edu in the header' });
+    const result = parseOutcome(raw, ['snapshot: visible accessibility tree', 'click: Open pack']);
+    expect(result.observations).toBe('The page showed [email] in the header');
+  });
+  it('handles long input without stalling', () => {
+    const started = Date.now();
+    clean(('a.b '.repeat(3000)) + ' at ' + 'x dot '.repeat(500));
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 });
 
