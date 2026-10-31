@@ -201,8 +201,8 @@ results line (`PackSummaryUI.tsx`) that goes.
      on its side never gives the pack that line: where its row is too narrow to share (a 568x320 phone) the
      control is not shown, as the goal is not there. Nor is it in a row of 20rem or less (a 320px phone),
      where that line would shrink the pack until a swipe across it fell short of the tear. The limit is in
-     rem, so it follows the text size: on a phone any enlarged text hides the control (a 360px phone above
-     about 103%, 390px above about 111%, 430px above about 122%). That is an accepted trade: the era
+     rem, so it follows the text size: on a phone, text enlarged past these points hides the control (a 360px
+     phone above about 103%, 390px above about 111%, 430px above about 122%). That is an accepted trade: the era
      picker opens the same sheet.
      The label wraps inside the button rather than run past it. It has no animation; under reduced motion
      its state changes are instant (`tests/browser/change-pack.spec.ts`).

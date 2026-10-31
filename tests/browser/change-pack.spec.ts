@@ -142,7 +142,7 @@ for (const size of TIGHT) {
 }
 
 test('leaves the smallest pack it shows beside still opening with a swipe along its tear line', { tag: '@mobile-only' }, async ({ page, baseURL, hasTouch }) => {
-  // 360 x 568 is the smallest upright phone with a row over 20rem at 100% text, so its own line costs this pack most.
+  // 360 x 568 is the smallest common upright phone with a row over 20rem at 100% text, so its own line costs this pack most.
   const errors = await landing(page, baseURL!, { width: 360, height: 568 });
   await expect(page.locator('button.change-pack')).toBeVisible();
   const packBox = (await page.locator('.pack-shell').boundingBox())!;
