@@ -87,7 +87,7 @@ describe('unstubbed play()', () => {
   it('is wired into the setup: armed before each test, checked before the restore in afterEach', () => {
     const setup = import.meta.glob('./isolation.ts', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
     const source = Object.values(setup)[0] ?? '';
-    expect(source).toMatch(/beforeEach\([\s\S]*mockImplementation\(unstubbedPlay\)/);
+    expect(source).toMatch(/beforeEach\([\s\S]*playGuard = vi\.spyOn\(HTMLMediaElement\.prototype, 'play'\)\.mockImplementation\(unstubbedPlay\)/);
     expect(source).toMatch(/afterEach\(\(\) => \{\s*try \{[^}]*assertNoUnstubbedPlay\(playGuard\);[^}]*\} finally \{[\s\S]*vi\.restoreAllMocks\(\)/);
   });
 });

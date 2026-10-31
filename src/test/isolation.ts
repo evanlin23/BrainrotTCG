@@ -20,8 +20,9 @@ resetAddress();
 // rule and, because that throw can be swallowed too, fails the test in afterEach. A test's own
 // spyOn(...).mockResolvedValue() (or mockImplementation, or a *Once value) answers instead and wins.
 // Limits: no guard in a node-environment file, nor when a test or beforeAll already put a mock on play();
-// and a vi.resetAllMocks() or vi.restoreAllMocks() in a test body, or in a file afterEach that runs
-// before this one, takes the guard off for the rest of that test.
+// and a vi.resetAllMocks() in a test body, or in a file afterEach that runs before this one, forgets the
+// unstubbed calls already recorded in that test (a swallowed call followed by it passes) and takes the
+// guard off for the rest of it. vi.restoreAllMocks() keeps earlier calls; only later ones go unguarded.
 let playGuard: MockInstance | undefined;
 
 beforeEach(() => {
