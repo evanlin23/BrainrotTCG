@@ -5,10 +5,11 @@ import { join } from 'node:path';
 import { monitor, expectDecoded, expectRecordedPack, holdTickets, pickWithImport, releaseTickets, sameStorage, settingsOf, snapshot, storageOf } from './support';
 
 /**
- * Back up and Restore in Save & backup (#744), through the browser's own file controls: the Export
- * download is saved to a temporary file, and that file is picked with the file chooser that Import
- * opens, in a separate browser profile. Nothing here calls the import code directly; every step goes
- * through the Settings controls, their status notes and a reload.
+ * Back up and Restore in Save & backup (#744, #764), through the browser's own file controls: the
+ * Export download is saved to a temporary file, and that file is picked with the file chooser that
+ * Import opens, either in a separate browser profile or, in the last case, in the same browser after
+ * its storage is cleared. Nothing here calls the import code directly; every step goes through the
+ * Settings controls, their status notes and a reload.
  *
  * The backup holds the player's secret key. The keys here are throwaway fixtures, but the spec still
  * keeps file contents out of failure output: traces and videos (which record picked files and storage)
@@ -197,11 +198,12 @@ test('an early backup without a player key restores into a new player through Im
   expect(errors).toEqual([]);
 });
 
-test('a backup restores into the same browser after its storage is wiped and reloaded, with no replacement question, and the next pack follows on (#764)', async ({ page, baseURL }) => {
-  // What the other cases don't cover: the same browser wiped completely (localStorage.clear(), not a
-  // second profile), reloaded to a profile with no progress, then restored from a version 2 file that
-  // carries a player key. That profile has nothing to replace, so Import must not ask, and the restored
-  // ticket counter must hand out ticket 1 next.
+test('a backup restores into the same browser after its storage is cleared and reloaded, with no replacement question, and the next pack follows on (#764)', async ({ page, baseURL }) => {
+  // What the other cases don't cover: the same browser with its storage cleared (localStorage.clear(),
+  // not a second profile), reloaded to a profile with no progress, then restored from a version 2 file
+  // that carries a player key. The reload is not an empty profile: monitor() reseeds its fixture player
+  // (same key, nextNonce 0) when storage has none. That profile has nothing to replace, so Import must
+  // not ask, and the restored ticket counter must hand out ticket 1 next.
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   const packShell = page.locator('.pack-shell');
@@ -231,7 +233,7 @@ test('a backup restores into the same browser after its storage is wiped and rel
   await expect(level).toBeVisible();
   const levelBefore = await level.innerText();
 
-  // Wipe everything and load again: a profile with no progress and a ticket counter back at 0.
+  // Clear everything and load again: a profile with no progress and a ticket counter back at 0 (the fixture player is reseeded).
   await page.evaluate(() => localStorage.clear());
   await holdTickets(page);
   // './' drops the hash, so this is a real load; going straight to '#/profile' would keep the live page.
@@ -240,7 +242,9 @@ test('a backup restores into the same browser after its storage is wiped and rel
   await page.goto('./#/profile');
   await expect(profile).toContainText('No packs yet');
   const fresh = await storageOf(page);
-  expect(JSON.parse(fresh[PLAYER_KEY] ?? '{}')).toMatchObject({ nextNonce: 0 });
+  // Parse first and compare the number alone, so a failure doesn't print the player (and its key).
+  const freshNonce = (JSON.parse(fresh[PLAYER_KEY] ?? '{}') as { nextNonce?: unknown }).nextNonce;
+  expect(freshNonce).toBe(0);
   expect(fresh[PLAYER_KEY] === exportedPlayer).toBe(false);
 
   // Restore: no question, the page reloads with the file's player.
@@ -248,9 +252,14 @@ test('a backup restores into the same browser after its storage is wiped and rel
   await expect(settings.main).toBeVisible();
   const reloaded = page.waitForEvent('load');
   await pickWithImport(page, { name: 'backup.txt', buffer: backup });
+  // No replace/keep choice, before the reload or after it.
+  await expect(settings.keep).toHaveCount(0);
+  await expect(settings.replace).toHaveCount(0);
   await reloaded;
   await expect(settings.main).toBeVisible();
   await expect(settings.restoreNote).toHaveText('Load a backup file');
+  await expect(settings.keep).toHaveCount(0);
+  await expect(settings.replace).toHaveCount(0);
   const restored = await storageOf(page);
   expect(restored[PLAYER_KEY] === exportedPlayer).toBe(true);
   expect(await snapshot(page)).toEqual(opened);
