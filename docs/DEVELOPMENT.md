@@ -441,6 +441,21 @@ runner counts responses and stops the process group when the cap is passed; it a
 session reports any tool outside the allowlist. To move the pin, re-check every flag in
 `claude --help` first, then update `claudeVersion`.
 
+Account context and email: the pinned runner (2.1.314) gives the signed-in reviewer the account's
+context, including an email address, and the flags above don't drop it. Whether a flag or env var can
+suppress that block has not been checked yet: check it at the next pin bump (#1310), and if one
+exists use it and add it to the isolation checks above. Until then the report is redacted instead:
+`clean()` in `scripts/agent-audit/contracts.ts` strips literal addresses and written-out forms
+("name at example dot com", "[at]"/"(dot)" with optional spaces, "@" with spaces, full-width
+characters, and an address broken across lines), and `redactReportTasks` runs the same redaction
+across adjacent click labels, observations and reasons just before the report is written. Plain
+prose ("meet at the dot com bubble", "look at example.com", "rank 3 @ 12.5 seconds") is left alone, so
+some forms still get through: a host written with literal dots after a written "at" ("jane at
+example.com"), "jane at example com", a space-separated name ("first last at example dot com" keeps
+"first"), and breaks inside a word or between spaced letters. A field with an address in it
+is folded to NFKC ("…" becomes "..."); text with no address keeps its own characters. Read the
+report before sharing it.
+
 Recorded runs, 2026-10-17, revision e993944, in a cloud container: base `/BrainrotTCG/`, Chromium 156
 at 393x727 with touch and reduced motion, external requests blocked, model claude-opus-5-5.
 

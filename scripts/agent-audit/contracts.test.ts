@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { describe, expect, it } from 'vitest';
 import { bridgeHandler, browserCommand, stepBudget } from './browser';
-import { agentEnvironment, clean, instructionFiles, isBasePath, parseOptions, parseOutcome, uncommittedBuildInputs } from './contracts';
+import { agentEnvironment, clean, instructionFiles, isBasePath, parseOptions, parseOutcome, redactAcrossFields, redactReportTasks, uncommittedBuildInputs } from './contracts';
 
 describe('local audit evidence contracts', () => {
   it('supports root and prefixed hosting while refusing URL/path escapes', () => {
@@ -37,6 +37,103 @@ describe('local audit evidence contracts', () => {
     expect(text).not.toContain('hi@example');
     expect(text).not.toContain('010101');
     expect(text).not.toContain('\n');
+  });
+});
+
+describe('email redaction in retained prose', () => {
+  it.each([
+    'name at example dot com',
+    'Name AT Example DOT Edu',
+    'name [at] example [dot] com',
+    'name (at) example (dot) org',
+    'name {at} example {dot} net',
+    'name [ at ] example [ dot ] co [dot] uk',
+    'name[at]example[dot]com',
+    'name(at)example(dot)com',
+    'name{at}example{dot}org',
+    'name@example[dot]com',
+    'first[dot]last[at]example[dot]com',
+    'name <at> example <dot> com',
+    'Pull 1 @ pack.com',
+    'name @ example.com',
+    'name@ example.com',
+    'name\nat example\ndot\ncom',
+    'name at\n\nexample dot com',
+    'first dot last at example dot com',
+    'first [dot] last [at] example [dot] com',
+    'name＠example．com',
+    'na\u200bme@exa\u200bmple.com',
+  ])('removes %j', (written) => {
+    const text = clean(`My address is ${written}, thanks.`);
+    expect(text).toBe(written.startsWith('Pull') ? 'My address is Pull [email], thanks.' : 'My address is [email], thanks.');
+    expect(clean(`Write ${written}.`)).toBe(written.startsWith('Pull') ? 'Write Pull [email].' : 'Write [email].');
+  });
+  it('keeps ordinary prose that uses at, dot or a bare domain', () => {
+    for (const prose of [
+      'Meet at the dot in the corner, then look at the dot com bubble.',
+      'The card looks great at a small size. The red dot is a nice touch.',
+      'I stopped at the pack screen and the dot on the progress bar moved at once.',
+      'I arrived at home dot com was not mentioned.',
+      'Visit us at example.com for more, or look at it later.',
+      'Shown at 10.30 [at] the top (dot) of the page',
+      'Tap the dot at the end. Com Dot Com.',
+    ]) expect(clean(prose)).toBe(prose);
+  });
+  it('still redacts an address after prose that uses at and dot', () => {
+    expect(clean('Meet at the dot com bubble, email name at example dot com now')).toBe('Meet at the dot com bubble, email [email] now');
+  });
+  it('removes an address split across adjacent fields and keeps the field count', () => {
+    expect(redactAcrossFields(['Contact name at', 'example dot', 'com for help', 'unrelated'])).toEqual(['Contact [email]', '', 'for help', 'unrelated']);
+    expect(redactAcrossFields(['Plain field', 'at the dot'])).toEqual(['Plain field', 'at the dot']);
+    expect(() => redactAcrossFields(['a\nb'])).toThrow();
+  });
+  it('sweeps click labels, observations and reasons of a report', () => {
+    const tasks: Record<string, unknown>[] = [
+      { task: 'opening', steps: ['snapshot: visible accessibility tree', 'not completed: click: Open pack', 'click: name at', 'press: Enter'], observations: 'example dot com showed up', reason: 'Task incomplete' },
+      { task: 'sharing', outcome: 'unrun', reason: 'Not started' },
+    ];
+    redactReportTasks([...tasks, null, 'x']);
+    expect(tasks[0]).toEqual({ task: 'opening', steps: ['snapshot: visible accessibility tree', 'not completed: click: Open pack', 'click: [email]', 'press: Enter'], observations: 'showed up', reason: 'Task incomplete' });
+    expect(tasks[1]).toEqual({ task: 'sharing', outcome: 'unrun', reason: 'Not started' });
+  });
+  it('removes written-out forms from a parsed agent report', () => {
+    const raw = JSON.stringify({ outcome: 'completed', observations: 'The page showed name [at] example [dot] edu in the header' });
+    const result = parseOutcome(raw, ['snapshot: visible accessibility tree', 'click: Open pack']);
+    expect(result.observations).toBe('The page showed [email] in the header');
+  });
+  it('removes full-width addresses split across fields', () => {
+    expect(redactAcrossFields(['name\uff20', 'example\uff0ecom is shown'])).toEqual(['[email]', 'is shown']);
+    expect(redactAcrossFields(['name \uff41\uff54', 'example \uff44\uff4f\uff54 com'])).toEqual(['[email]', '']);
+    expect(redactAcrossFields(['Open pack\u2026', 'name at', 'example dot com'])).toEqual(['Open pack\u2026', '[email]', '']);
+    const tasks: Record<string, unknown>[] = [{ steps: ['click: name\uff20'], observations: 'example\uff0ecom is shown' }];
+    redactReportTasks(tasks);
+    expect(tasks[0]).toEqual({ steps: ['click: [email]'], observations: 'is shown' });
+  });
+  it('keeps dollar patterns in click labels literal', () => {
+    const tasks: Record<string, unknown>[] = [{ steps: ['click: Cost $1 pack', 'click: Tap $& now', 'not completed: click: Pay $$ then $` and $\''], observations: 'ok' }];
+    redactReportTasks(tasks);
+    expect(tasks[0]!.steps).toEqual(['click: Cost $1 pack', 'click: Tap $& now', "not completed: click: Pay $$ then $` and $'"]);
+  });
+  it('keeps measurements that use a spaced at sign', () => {
+    for (const prose of ['rank 3 @ 12.5 seconds', 'Hit 9 @ 4.0x speed']) expect(clean(prose)).toBe(prose);
+  });
+  it('removes invisible and bidi marks inside an address', () => {
+    for (const mark of ['\u2061', '\u2064', '\u061c', '\u034f', '\ufe0f', '\ufe00', '\u200e', '\u200f', '\u202a', '\u202e', '\u2066', '\u2069', '\u00ad']) {
+      expect(clean(`name@exa${mark}mple.com`)).toBe('[email]');
+    }
+    expect(clean('name\u0085at example dot com')).toBe('[email]');
+  });
+  it('keeps original characters where nothing is redacted (redacted text is NFKC-folded)', () => {
+    expect(clean('Open pack\u2026 \u2122 \ufb01')).toBe('Open pack\u2026 \u2122 \ufb01');
+    expect(clean('x\u2026 name\uff20example\uff0ecom')).toBe('x... [email]');
+  });
+  it('finishes the quadratic-looking chains at the report size cap', () => {
+    // 16 KiB is the largest agent report; a backtracking blow-up would not finish at this size.
+    for (const unit of ['x dot ', 'a.b ', 'x at ', 'x [dot] ']) {
+      const started = performance.now();
+      clean(unit.repeat(Math.floor(16384 / unit.length)) + 'end');
+      expect(performance.now() - started).toBeLessThan(10000);
+    }
   });
 });
 
