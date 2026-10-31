@@ -38,7 +38,9 @@ from a 390 px wide screen.
    Meme Historian; 20: Prismatic card back and Aura Farmer) the chip names the choosable cosmetic
    (with its card-back picture when it is a card back) and not the title that equips itself; the
    Profile "Next:" line names both (#212). The chip comes from the same verified-pack level and set
-   counts the profile shows, adds no height, never moves and has no animation, and hides on a phone on its
+   counts the profile shows, adds no height and has no animation. It keeps its place, except on an upright
+   phone, where it drops a line with the guide while **Change pack** (item 8 of the Flow) shows and moves back
+   up once the Packs sheet is first opened. It hides on a phone on its
    side and in a row of 20rem or less (a 320px phone, enlarged text), rather
    than shift or squeeze the guide. In a row up to 34rem (every phone) the column beside the centred
    guide is small, so the chip shrinks to one line, the name (an ellipsis if long), the percentage and
@@ -188,15 +190,18 @@ results line (`PackSummaryUI.tsx`) that goes.
      N available") leads the row under the sealed pack, so it comes right after the pack in the keyboard
      order, outside the pack's stage (a press on it never starts a tear). N is the same list the picker
      uses, less the selected set; with no other set there is no control. It shows only to a returning
-     player (the tabs show) who has never opened the Packs sheet on this device: opening the sheet from
+     player (one who has saved a pack or owns a card; `showAllPages` alone shows the tabs, not this) who has never opened the Packs sheet on this device: opening the sheet from
      anywhere (the era picker, the summary's control or this one) hides it for good, kept in a device
      flag outside the save (`PACKS_SHEET_SEEN`, game/packsSheet.ts; storage that refuses it still hides it
      for the visit). It is hidden from the tear until the pack is put away, so never mid-reveal or on the
      summary. A pick lands focus on the pack, and so does a close with no pick, since the control has gone.
      Where the row has room (a phone on its side, a desktop) it takes the row's empty left column, beside
-     the centred guide, so the row and the pack keep their size; on an upright phone or with enlarged text
-     (a row up to 36rem) it takes a line of its own above the guide and the goal, and the pack fits the
-     44px less. It has no animation (`tests/browser/change-pack.spec.ts`).
+     the centred guide, so the row and the pack keep their size; on an upright phone (a row up to 36rem)
+     it takes a line of its own above the guide and the goal, and the pack fits the 44px less. In a row of
+     20rem or less (a 320px phone, enlarged text) it is not shown, as the goal is not: there that line would
+     shrink the pack until a swipe across it fell short of the tear, and the picker still opens the sheet.
+     The label wraps inside the button rather than run past it. It has no animation; under reduced motion
+     its state changes are instant (`tests/browser/change-pack.spec.ts`).
 
 ### Guardrails
 

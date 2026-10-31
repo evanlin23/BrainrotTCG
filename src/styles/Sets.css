@@ -342,7 +342,8 @@
   min-height: var(--touch-target);
   max-width: 100%;
   font-size: var(--text-sm);
-  /* Large text wraps the label inside the button instead of clipping it. */
+  /* Large text wraps the label inside the button instead of running past it: .btn sets nowrap. */
+  white-space: normal;
   line-height: 1.2;
   text-align: center;
 }

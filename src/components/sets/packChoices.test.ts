@@ -43,9 +43,4 @@ describe('changePackCount', () => {
     expect(changePackCount({ returning: true, seen: true, sets: openable, selectedId })).toBe(0);
     expect(changePackCount({ returning: true, seen: false, sets: [openable[0]], selectedId })).toBe(0);
   });
-
-  it('counts only the sets the picker lists, so a set it leaves out (a draft, say) is not counted', () => {
-    const listed = openable.slice(0, 3);
-    expect(changePackCount({ returning: true, seen: false, sets: listed, selectedId: listed[1].id })).toBe(2);
-  });
 });

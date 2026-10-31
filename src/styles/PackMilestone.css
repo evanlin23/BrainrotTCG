@@ -154,8 +154,9 @@ button.pack-milestone:disabled {
 }
 
 /* The landing's Change pack (Sets.css, DESIGN.md "Flow", item 8) takes that empty left column, beside the guide, so the
-   row gets no taller and the pack keeps its size. Where the column is too narrow for it (a phone held upright, enlarged
-   text) it takes a line of its own above the guide and the goal instead, still centred under the pack. */
+   row gets no taller and the pack keeps its size. Where the column is too narrow for it (a phone held upright) it takes a
+   line of its own above the guide and the goal instead, still centred under the pack; a row of 20rem or less (a
+   320px phone, enlarged text) has no room for that line, so it goes (below). */
 .card-guide-entry:has(> .change-pack) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -190,10 +191,16 @@ button.pack-milestone:disabled {
 }
 
 /* The row (Scoring.css) is the container, so the thresholds follow the text size as well as the width. A row this
-   narrow (a 320px phone, enlarged text) shows no goal rather than shift or squeeze the guide. */
+   narrow (a 320px phone, enlarged text) shows no goal rather than shift or squeeze the guide, and no Change pack:
+   its own line would shrink a pack that small until a swipe across it no longer reaches the tear's minimum
+   (usePackCutter's MIN_CUT_PX). The Packs sheet is still a tap away in the picker. */
 @container card-guide (max-width: 20rem) {
-  .pack-milestone {
+  .pack-milestone,
+  .card-guide-entry > .change-pack {
     display: none;
+  }
+  .card-guide-entry:has(> .change-pack) > :not(.change-pack) {
+    grid-row: 1;
   }
 }
 
