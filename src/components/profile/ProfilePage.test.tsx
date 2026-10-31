@@ -636,6 +636,16 @@ describe('Best pack highlight', () => {
     for (const word of ['packs', 'cards', 'holo', 'best score', 'Collection score']) expect(text).toContain(word);
   });
 
+  it('labels the holo stat as copies and says how it differs from the binder bars (#898)', () => {
+    act(() => root.render(<ProfileSummary stats={{ ...statsWith([five]), holos: 84 }} />));
+    const labels = [...document.querySelectorAll('.profile-stats dt')].map((dt) => dt.textContent);
+    expect(labels).toContain('holo pulls');
+    expect(labels).not.toContain('holo');
+    const how = document.querySelector('details.profile-how')!.textContent ?? '';
+    expect(how).toContain('holo pulls counts every holo card pulled, repeats included');
+    expect(how).toContain('binder, which count each card once');
+  });
+
   it('places <dt> before <dd> in every .profile-stats pair so screen readers announce label before count (#1275)', () => {
     act(() => root.render(<ProfileSummary stats={statsWith([five])} />));
     const pairs = container.querySelectorAll('.profile-stats > div');
