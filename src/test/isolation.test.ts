@@ -48,3 +48,15 @@ describe('module-level mocks', { shuffle: false }, () => {
     expect(queued()).toBeUndefined();
   });
 });
+
+describe('per-file resets', () => {
+  // A hook whose whole body is mock resets the setup already does after every test. (A reset in a
+  // beforeEach, in a test body or beside other teardown is a different thing and is not flagged.)
+  const redundantHook = /\bafterEach\(\s*(?:async\s*)?\(\)\s*=>\s*(?:\{\s*(?:vi\.(?:restore|reset|clear)AllMocks\(\);\s*)+\}|vi\.(?:restore|reset|clear)AllMocks\(\))\s*\)/;
+
+  it('no test file keeps an afterEach that only repeats them', () => {
+    const files = import.meta.glob(['../**/*.test.{ts,tsx}', '../../scripts/**/*.test.ts', '!./isolation.test.ts'], { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
+    expect(Object.keys(files).length).toBeGreaterThan(100);
+    expect(Object.entries(files).filter(([, source]) => redundantHook.test(source)).map(([path]) => path)).toEqual([]);
+  });
+});

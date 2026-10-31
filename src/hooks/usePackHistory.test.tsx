@@ -67,7 +67,6 @@ beforeEach(async () => {
 afterEach(() => {
   act(() => root?.unmount());
   root = null;
-  vi.restoreAllMocks();
   delete (window as { navigation?: unknown }).navigation;
 });
 

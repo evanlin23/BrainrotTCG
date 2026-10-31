@@ -60,7 +60,6 @@ afterEach(async () => {
   const { stopReceiver } = await import('./move');
   stopReceiver();
   vi.useRealTimers();
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   Object.defineProperty(window, 'opener', { value: null, configurable: true });

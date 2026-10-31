@@ -32,7 +32,6 @@ describe('reopenCache', () => {
   afterEach(() => {
     resetReopenCache();
     vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   it('still reads entries saved under `${id}@${version}|${public key}|${nonce}`', () => {

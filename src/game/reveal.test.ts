@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as engine from '../engine';
 import { isBigPull, isSpecialReveal, isTakeoverReveal, markNew, nextSpecialRevealIndex, revealOrder, takeoverReason } from './reveal';
 
 describe('reveal order', () => {
-  afterEach(() => vi.restoreAllMocks());
   it('shows the most valuable card last, otherwise pack order', () => {
     const cards = [
       { id: 'a', rarity: 'RARE' as const, isHolo: false },

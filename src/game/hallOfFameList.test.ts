@@ -18,7 +18,6 @@ const mockSuccessResponse = (entries: unknown = [{ id: 'entry-1', proof: 'proof1
 describe('loadHallOfFame', () => {
   beforeEach(() => {
     vi.resetModules();
-    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 

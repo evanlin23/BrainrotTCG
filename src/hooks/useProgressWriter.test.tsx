@@ -37,7 +37,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   act(() => root.unmount());
-  vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
 

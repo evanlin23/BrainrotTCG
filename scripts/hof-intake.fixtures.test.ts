@@ -102,7 +102,6 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
   // The scripts catch some network errors, so a refused request is only caught here.
   expect(net.blocked).toEqual([]);
 });

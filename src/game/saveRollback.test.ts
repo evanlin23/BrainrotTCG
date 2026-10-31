@@ -48,7 +48,6 @@ beforeEach(async () => {
   player = await import('./player');
 });
 afterEach(() => {
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 

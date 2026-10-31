@@ -70,7 +70,6 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
 });
 
 describe('ticket miner lanes', () => {

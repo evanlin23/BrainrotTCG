@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ALL_CARDS, type Card } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { hydrateCard, hydrateCollection, runMigrations } from '../utils/migrations';
@@ -53,7 +53,6 @@ describe('bringing a save over', () => {
     confirm.mockClear();
     confirm.mockReturnValue(true);
   });
-  afterEach(() => vi.restoreAllMocks());
 
   it('takes a save into an empty address without asking', () => {
     expect(importSave(OLD)).toBe('saved');

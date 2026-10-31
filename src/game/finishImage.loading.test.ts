@@ -42,7 +42,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 

@@ -46,7 +46,6 @@ afterEach(() => {
   container.remove();
   resetReopenCache();
   vi.useRealTimers();
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
   window.location.hash = '';

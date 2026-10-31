@@ -93,7 +93,6 @@ afterEach(() => {
   container = null;
   vi.clearAllTimers();
   vi.useRealTimers();
-  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
