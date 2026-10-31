@@ -238,9 +238,18 @@ button.pack-milestone:disabled {
 }
 
 /* A phone on its side (the app's own short-screen cut-off, index.css) has no room for the pack as it is:
-   the goal waits for a taller screen rather than shrink it. */
+   the goal waits for a taller screen rather than shrink it. So does Change pack where it can't share the row
+   (a row up to 36rem, as on a 568x320 phone): its own line there would cost the pack 44px of a 320px screen. */
 @media (max-width: 899px) and (max-height: 520px) {
   .pack-milestone {
     display: none;
+  }
+  @container card-guide (max-width: 36rem) {
+    .card-guide-entry > .change-pack {
+      display: none;
+    }
+    .card-guide-entry:has(> .change-pack) > :not(.change-pack) {
+      grid-row: 1;
+    }
   }
 }

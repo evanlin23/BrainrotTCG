@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectStill, monitor, recordShownToasts, scaleText } from './support';
+import { expectStill, fingerFor, monitor, recordShownToasts, scaleText } from './support';
 import { STORAGE_KEYS } from '../../src/constants/config';
 
 /**
@@ -7,8 +7,8 @@ import { STORAGE_KEYS } from '../../src/constants/config';
  * opened the Packs sheet: a 44px target in the row under the pack, after the pack in the keyboard order,
  * clear of the pack, its swipe cue, the Card guide and the next-goal chip, and still under reduced motion.
  * Where that row has room it takes the row's empty left column, so the pack keeps its size; on an upright
- * phone it takes a line of its own; in a row of 20rem or less (a 320px phone, enlarged text) it is not shown,
- * since that line would shrink the pack below a swipe that opens it. A phone shows the whole pack; a desktop's larger pack scrolls in its stage. Phone runs are Pixel 5 emulation (touch), not a physical phone; 200%
+ * phone it takes a line of its own; in a row of 20rem or less (a 320px phone, enlarged text), or on a phone on
+ * its side too narrow to share the row, it is not shown, since that line would shrink a pack with no room to give. A phone shows the whole pack; a desktop's larger pack scrolls in its stage. Phone runs are Pixel 5 emulation (touch), not a physical phone; 200%
  * text is emulated by doubling the root font size the rem tokens use.
  */
 
@@ -65,6 +65,7 @@ const SIZES = [
   { name: 'a 360 x 640 phone', tag: '@mobile-only', width: 360, height: 640, textZoom: 100, sharesRow: false },
   { name: 'a 390 x 844 phone', tag: '@mobile-only', width: 390, height: 844, textZoom: 100, sharesRow: false },
   { name: 'a 640 x 360 phone on its side', tag: '@mobile-only', width: 640, height: 360, textZoom: 100, sharesRow: true },
+  { name: 'a 740 x 360 phone on its side', tag: '@mobile-only', width: 740, height: 360, textZoom: 100, sharesRow: true },
   { name: 'a 1280 x 800 desktop', tag: '@desktop-only', width: 1280, height: 800, textZoom: 100, sharesRow: true },
   { name: 'a 1280 x 800 desktop at 200% text', tag: '@desktop-only', width: 1280, height: 800, textZoom: 200, sharesRow: true },
 ] as const;
@@ -114,8 +115,10 @@ for (const size of SIZES) {
 }
 
 // A row of 20rem or less: on a 360px phone at 200% text the label alone is wider than the row (#898 review), and on a
-// 320px phone the extra line left a pack too narrow for a swipe across it to reach the tear's minimum.
+// 320px phone the extra line left a pack too narrow for a swipe across it to reach the tear's minimum. A phone on its
+// side whose row is too narrow to share (568 x 320, as pack-fit.spec checks) has no 44px to give the pack either.
 const TIGHT = [
+  { name: 'a 568 x 320 phone on its side', width: 568, height: 320, textZoom: 100 },
   { name: 'a 320 x 568 phone', width: 320, height: 568, textZoom: 100 },
   { name: 'a 320 x 568 phone at 200% text', width: 320, height: 568, textZoom: 200 },
   { name: 'a 360 x 640 phone at 200% text', width: 360, height: 640, textZoom: 200 },
@@ -137,6 +140,23 @@ for (const size of TIGHT) {
     expect(errors).toEqual([]);
   });
 }
+
+test('leaves the smallest pack it shows beside still opening with a swipe along its tear line', { tag: '@mobile-only' }, async ({ page, baseURL, hasTouch }) => {
+  // 360 x 568 is the smallest upright phone with a row over 20rem at 100% text, so its own line costs this pack most.
+  const errors = await landing(page, baseURL!, { width: 360, height: 568 });
+  await expect(page.locator('button.change-pack')).toBeVisible();
+  const packBox = (await page.locator('.pack-shell').boundingBox())!;
+  const tearY = packBox.y + packBox.height * 0.19;
+  const xAt = (fraction: number) => packBox.x + packBox.width * fraction;
+  // The same swipe as pages.spec's 320px check: 40% of the pack's width, more than the tear's 32px minimum here.
+  expect(packBox.width * 0.4).toBeGreaterThan(32);
+  const finger = await fingerFor(page, hasTouch);
+  await finger.press(xAt(0.3), tearY);
+  for (let step = 1; step <= 6; step++) await finger.move(xAt(0.3 + (0.4 * step) / 6), tearY);
+  await finger.release();
+  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  expect(errors).toEqual([]);
+});
 
 test('wraps a label wider than its room inside the button', { tag: '@mobile-only' }, async ({ page, baseURL }) => {
   const errors = await landing(page, baseURL!, { width: 390, height: 844 });
