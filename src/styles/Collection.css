@@ -106,21 +106,7 @@
 }
 
 .collection-select {
-  max-width: 100%;
-  min-height: var(--touch-target);
-  padding: 0 var(--space-3);
   border-radius: var(--radius-pill);
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-base);
-  cursor: pointer;
-}
-
-.collection-select:focus-visible {
-  border-color: var(--brand);
-  outline: var(--focus-outline);
 }
 
 .collection-pill-btn {
