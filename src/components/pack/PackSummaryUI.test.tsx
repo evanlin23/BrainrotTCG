@@ -325,6 +325,34 @@ describe('record lines (#1287)', () => {
   });
 });
 
+describe('the stuck actions\' height', () => {
+  it('is published on the list, so scrolling something into view stops above the actions however tall they are', () => {
+    const observed: Element[] = [];
+    let notify = () => {};
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { notify = callback; }
+      observe(element: Element) { observed.push(element); }
+      disconnect() {}
+    });
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(120);
+    try {
+      act(() => root.unmount());
+      root = createRoot(container);
+      act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} />));
+      const list = container.querySelector<HTMLElement>('.summary-content')!;
+      expect(observed).toEqual([container.querySelector('.summary-actions')]);
+      expect(list.style.getPropertyValue('--summary-actions-height')).toBe('120px');
+      // Large text makes them taller: the padding follows.
+      height.mockReturnValue(314);
+      act(() => notify());
+      expect(list.style.getPropertyValue('--summary-actions-height')).toBe('314px');
+    } finally {
+      height.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('Try another pack (#898)', () => {
   const openable = SETS.filter(isOpenable);
   const shown = (extra: Partial<ComponentProps<typeof SummaryScreen>> = {}) => {
@@ -332,8 +360,8 @@ describe('Try another pack (#898)', () => {
     root = createRoot(container);
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} {...extra} />));
   };
-  const tryAnother = () => [...container.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((b) => b.textContent?.includes('Try another pack'));
-  const actions = () => [...container.querySelectorAll('.summary-actions button')].map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim());
+  const tryAnother = () => [...container.querySelectorAll<HTMLButtonElement>('.summary-try-another')].find((b) => b.textContent?.includes('Try another pack'));
+  const actions = () => [...container.querySelectorAll('.summary-try-another, .summary-actions button')].map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim());
 
   it('names the primary for the set it opens again, and keeps it the last and only primary action', () => {
     shown({ packChoices: { sets: openable, collection: {}, onOpen: () => {} } });
@@ -344,13 +372,18 @@ describe('Try another pack (#898)', () => {
     expect(container.querySelector('.summary-actions')!.nextElementSibling).toBeNull();
   });
 
-  it('leads the actions with a control whose name counts the other packs, and opens the Packs sheet from it', () => {
+  it('puts a control between the cards and the stuck actions, whose name counts the other packs, and opens the Packs sheet from it', () => {
     const onOpen = vi.fn();
     shown({ packChoices: { sets: openable, collection: {}, onOpen } });
     expect(openable.length).toBeGreaterThan(1);
     const others = openable.filter((s) => s.id !== set.id).length;
     expect(actions()).toEqual(['Try another pack' + `, ${others} other ${others === 1 ? 'pack' : 'packs'} to choose from`, 'Share', `Open ${set.name} again`]);
     const button = tryAnother()!;
+    // Outside the stuck row, so that row keeps the height it had before: only Share and the primary are in it.
+    expect(button.closest('.summary-actions')).toBeNull();
+    expect(button.previousElementSibling).toBe(container.querySelector('.summary-cards'));
+    expect(button.nextElementSibling).toBe(container.querySelector('.summary-actions'));
+    expect([...container.querySelectorAll('.summary-actions button')].map((b) => b.textContent?.trim())).toEqual(['Share', `Open ${set.name} again`]);
     expect(button.textContent, 'the visible words are the start of the accessible name').toBe('Try another pack');
     expect(button.querySelectorAll('img')).toHaveLength(Math.min(2, others));
     expect(button.querySelector('.summary-try-thumbs')!.getAttribute('aria-hidden')).toBe('true');
@@ -365,6 +398,15 @@ describe('Try another pack (#898)', () => {
     expect(tryAnother()!.getAttribute('aria-label')).toBe('Try another pack, 1 other pack to choose from');
     expect(tryAnother()!.textContent).toBe('Try another pack');
     expect(tryAnother()!.querySelectorAll('img')).toHaveLength(1);
+  });
+
+  it('sizes the wrapper thumbnails up front, so their load never moves the layout', () => {
+    shown({ packChoices: { sets: openable, collection: {}, onOpen: () => {} } });
+    for (const img of tryAnother()!.querySelectorAll('img')) {
+      expect(img.getAttribute('width')).toBe('16');
+      expect(img.getAttribute('height')).toBe('28');
+      expect(img.getAttribute('loading')).toBeNull();
+    }
   });
 
   it('shows nothing new, and no layout change, with one available set or no choices at all', () => {

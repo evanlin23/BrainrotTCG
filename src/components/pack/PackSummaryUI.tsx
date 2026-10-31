@@ -23,6 +23,10 @@ import '../../styles/PackSummary.css';
 
 const Motion = motion;
 
+// The wrapper thumbnails render at a fixed size (the art is 300x533), so their load never changes the layout.
+const THUMB_H = 28;
+const THUMB_W = 16;
+
 /** What "Try another pack" needs: the sets the picker lists (oldest first), the player's cards, and how to open the Packs sheet. */
 export interface PackChoices {
   sets: SetDefinition[];
@@ -67,6 +71,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
   const cardsRef = useRef<HTMLUListElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   useHoldUntilDecoded(cardsRef, holdOptional);
   // A click that was meant for the last card (the player is clicking in one spot, #627) lands here as the
   // summary appears: it must not open a card up close, the Card guide, the share sheet or send a Hall of
@@ -90,6 +95,18 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
     const before = actions.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_PRECEDING;
     event.currentTarget.scrollBy({ top: before ? box.bottom - stuck.top + 8 : box.top - stuck.bottom - 8 });
   };
+  // Whatever scrolls something into view (a click's auto-scroll, a screen reader's focus) stops clear of the
+  // stuck actions however tall they are: the list's scroll padding follows their real height.
+  useEffect(() => {
+    const content = contentRef.current;
+    const actions = actionsRef.current;
+    if (!content || !actions || typeof ResizeObserver === 'undefined') return;
+    const publish = () => content.style.setProperty('--summary-actions-height', `${actions.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(actions);
+    return () => observer.disconnect();
+  }, []);
   const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
   // Read as the summary first renders, so a record line shows from the first paint and nothing moves after.
   const others = packChoices ? otherPackChoices(packChoices.sets, set.id, packChoices.collection) : null;
@@ -97,7 +114,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
-      <div className="summary-content" onFocus={clearActions} onClickCapture={blockClicks}>
+      <div className="summary-content" ref={contentRef} onFocus={clearActions} onClickCapture={blockClicks}>
         <div className="summary-details">
           <PackHeadline cards={openedCards} headingRef={headingRef} record={record}>
             {pack && <SummaryHallOfFame pack={pack} score={packScore} onOpenRankingsHelp={onOpenRankingsHelp} />}
@@ -133,26 +150,27 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
             ))}
           </ul>
 
+          {/* Other eras exist: a quiet way into the Packs sheet. It sits between the cards and the stuck actions, so it adds no height to what sticks and the primary stays last. */}
+          {packChoices && others && others.count > 0 && (
+            <button
+              type="button"
+              className="summary-try-another btn btn--ghost"
+              onClick={packChoices.onOpen}
+              aria-haspopup="dialog"
+              // The visible words first, then how many there are to choose from.
+              aria-label={`Try another pack, ${others.count} other ${others.count === 1 ? 'pack' : 'packs'} to choose from`}
+            >
+              <span className="summary-try-thumbs" aria-hidden="true">
+                {others.preview.map((other) => (
+                  <img key={other.id} src={packThumbUrl(other.id)} alt="" width={THUMB_W} height={THUMB_H} draggable="false" />
+                ))}
+              </span>
+              Try another pack
+            </button>
+          )}
+
           {/* Right after the result, and stuck to the bottom so they never scroll away. */}
           <div className="summary-actions" ref={actionsRef}>
-            {/* Other eras exist: a quiet way into the Packs sheet, above the row so the primary stays last. */}
-            {packChoices && others && others.count > 0 && (
-              <button
-                type="button"
-                className="summary-try-another btn btn--ghost"
-                onClick={packChoices.onOpen}
-                aria-haspopup="dialog"
-                // The visible words first, then how many there are to choose from.
-                aria-label={`Try another pack, ${others.count} other ${others.count === 1 ? 'pack' : 'packs'} to choose from`}
-              >
-                <span className="summary-try-thumbs" aria-hidden="true">
-                  {others.preview.map((other) => (
-                    <img key={other.id} src={packThumbUrl(other.id)} alt="" loading="lazy" draggable="false" />
-                  ))}
-                </span>
-                Try another pack
-              </button>
-            )}
             {onShare && (
               <button type="button" className="btn btn--secondary btn--lg" onClick={onShare}>
                 <Share2 aria-hidden="true" /> Share

@@ -90,6 +90,8 @@ interface PackOpenerProps {
   set: SetDefinition;
   /** The other packs the summary can point to ("Try another pack"); left out, it doesn't. */
   packChoices?: PackChoices;
+  /** Mounted by a pick from the summary's Packs sheet: the opener it came from has gone, so the new sealed pack takes focus. */
+  focusPackOnMount?: boolean;
   disabled?: boolean;
   /** No new pack may start (the save changed in another tab); one already opening still finishes. */
   openBlocked?: boolean;
@@ -123,7 +125,7 @@ interface PackOpenerProps {
   onOpenRankingsHelp?: () => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, packChoices, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true, onOpenSave, onOpenRankingsHelp }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, packChoices, focusPackOnMount = false, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true, onOpenSave, onOpenRankingsHelp }: PackOpenerProps) => {
   // Where the pack is, from the tear to the packs screen (packLifecycle.ts). What the stage doesn't say is
   // the reveal's own state below: which card is up, what is locked, what is being celebrated.
   const [stage, send] = usePackLifecycle();
@@ -395,7 +397,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   });
 
   /** Set when the player goes back to the sealed pack, so the pack takes focus once it's there. */
-  const focusOpenRef = useRef(false);
+  const focusOpenRef = useRef(focusPackOnMount);
 
   const retryOpen = useCallback(() => {
     if (refusal === 'blocked') {

@@ -11,7 +11,7 @@ afterEach(async () => { await app?.dispose(); app = undefined; });
 
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].reverse()
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label)!;
-const tryAnother = () => [...document.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((el) => el.textContent?.startsWith('Try another pack'));
+const tryAnother = () => [...document.querySelectorAll<HTMLButtonElement>('.summary-try-another')].find((el) => el.textContent?.startsWith('Try another pack'));
 const packLabel = () => document.querySelector('[data-pack-open]')?.getAttribute('aria-label')?.match(/^Open pack, (.+)$/)?.[1] ?? null;
 const PLAYER = { 'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Try another fixture', nextNonce: 0, createdAt: 1 }) };
 const QUIET = { [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }) };
@@ -67,5 +67,7 @@ it('opens the Packs sheet from the summary with the selection unchanged, and a p
     expect(packLabel()).not.toBeNull();
   });
   expect(packLabel()).not.toBe(SETS.find((s) => s.id === DEFAULT_SET_ID)!.name);
+  // The summary and the control that opened the sheet are gone: the new sealed pack takes focus, not the page.
+  expect(document.activeElement).toBe(document.querySelector('[data-pack-open]'));
   expect(localStorage.getItem(STORAGE_KEYS.SELECTED_SET)).not.toBe(before);
 });

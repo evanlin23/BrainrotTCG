@@ -136,9 +136,12 @@
   text-align: center;
 }
 
-/* Focus brought into view by the keyboard stops above the stuck actions, not under them. */
+/*
+ * Anything brought into view (keyboard focus, a click's auto-scroll) stops above the stuck actions, not
+ * under them. The summary publishes their real height; one row's worth until it has.
+ */
 .pack-summary .summary-content {
-  scroll-padding-bottom: calc(var(--touch-target) + var(--space-3) + var(--space-2));
+  scroll-padding-bottom: var(--summary-actions-height, calc(var(--touch-target) + var(--space-3) + var(--space-2)));
 }
 
 /*
@@ -225,27 +228,37 @@
     gap: var(--space-2);
   }
 
+  /* Both grow, the primary far more: side by side Share stays narrow, and a wrapped button fills its row. */
   .pack-summary .summary-actions .btn--secondary {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
   }
 
   .pack-summary .summary-actions .btn--primary {
-    flex: 1 1 auto;
+    flex: 6 1 auto;
   }
 }
 
 /*
- * "Try another pack": a quiet line that leads the actions (the primary stays last and lowest), on a row
- * of its own so it never competes with Share or the primary. A 44px target; the wrapper thumbnails are
- * decoration, small enough not to repeat the Packs sheet's metadata. Nothing moves.
+ * "Try another pack": a quiet, centred line between the cards and the stuck actions (not inside them, so
+ * the stuck area keeps its size and covers no more of the page). A 44px target; the wrapper thumbnails
+ * are decoration at a fixed size, small enough not to repeat the Packs sheet's metadata. Nothing moves.
  */
-.pack-summary .summary-actions .summary-try-another {
-  flex: 1 0 100%;
+.pack-summary .summary-try-another {
+  display: flex;
+  /* The summary's details are a column that may shrink its items: this one keeps its own height. */
+  flex: none;
   gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
   min-height: var(--touch-target);
-  padding-block: 0;
+  margin: var(--space-1) auto 0;
+  padding-block: var(--space-1);
   color: var(--text-muted);
   font-size: var(--text-sm);
+  /* Large text wraps the label inside the button instead of clipping it. */
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
 }
 
 .summary-try-thumbs {
@@ -255,8 +268,10 @@
 
 .summary-try-thumbs img {
   display: block;
-  width: auto;
-  height: 1.75rem;
-  aspect-ratio: 300 / 533;
+  flex: none;
+  /* In pixels, as the markup says: large text grows the label, not the decoration. */
+  width: 16px;
+  height: 28px;
+  object-fit: contain;
   border-radius: var(--radius-sm);
 }

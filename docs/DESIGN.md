@@ -177,8 +177,9 @@ results line (`PackSummaryUI.tsx`) that goes.
    knowing others exist. Two entry points, built one slice at a time, both opening the **existing
    Packs sheet** (the one the era picker opens; no second picker, no automatic set switching, the
    selected set stays until the player picks another):
-   - *Now, the summary.* A quiet **Try another pack** control sits in the summary's actions area,
-     above the Share and primary row, with up to two small wrapper thumbnails of other sets. It shows
+   - *Now, the summary.* A quiet **Try another pack** control sits between the cards and
+     the stuck actions (so the stuck area stays the size it was), with up to two small wrapper
+     thumbnails of other sets at a fixed size. It shows
      only when another set is available (the same list the picker uses, so draft or hidden sets count
      only when the picker would show them). The primary becomes **Open {set name} again**, for players
      chasing that set. It is never shown mid-reveal.
@@ -622,8 +623,9 @@ compact row (each a button that opens the card up close, with a ⤢ corner, in r
 shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
 actions: **Open {set name} again** primary (it returns to the packs screen, where the next sealed pack waits; opening it is a swipe or Open pack away), **Share** secondary, stuck to the bottom of the summary's
 scroller above the safe area. When another pack exists, a quiet **Try another pack** line (a 44px
-target with up to two wrapper thumbnails; the Packs sheet opens from it) leads the actions, above Share
-and the primary, so the primary stays last and lowest. The cards are the last content: only the actions sit below them,
+target with up to two wrapper thumbnails; the Packs sheet opens from it) sits between the cards and the
+stuck actions, so the primary stays last and lowest. When the two actions wrap on a phone, each fills its
+own row (Share above the primary), never a small Share orphaned above a wide primary. The cards are the last content: only the actions sit below them,
 nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP
 or level here: level-ups toast and progress lives on Profile. Keyboard focus is scrolled clear of
 the stuck actions, whose faded strip passes taps through. Focus starts on the heading.
