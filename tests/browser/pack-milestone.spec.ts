@@ -28,11 +28,11 @@ const layout = (page: Page) => page.evaluate(() => {
 /** The pack falls in on load: wait until it stops moving before measuring anything. */
 const settled = (page: Page) => expectStill(page.locator('.pack-display'), 'the pack has settled');
 
-/** Every cosmetic goal a player can be shown, worked out by the real rules (a set with no cards has no set goal to get in the way). */
+/** Every cosmetic goal a player can be shown (one per name and kind: Prismatic is both a card back and a pack foil, so the name alone would drop one), worked out by the real rules (a set with no cards has no set goal to get in the way). */
 const COSMETIC_GOALS = Array.from({ length: 31 }, (_, i) => getNextMilestone(
   { xp: xpForLevel(i + 1), uniqueBySet: {}, holoUniqueBySet: {} },
   { cards: [] } as unknown as SetDefinition,
-)).filter((goal, i, all) => goal.kind === 'cosmetic' && all.findIndex((g) => g.targetName === goal.targetName) === i);
+)).filter((goal, i, all) => goal.kind === 'cosmetic' && all.findIndex((g) => g.targetName === goal.targetName && g.targetKind === goal.targetKind) === i);
 
 /** Puts a goal's words into the chip on the page (and its card-back picture, if it has one), at its worst case of "99%". */
 const show = (page: Page, goal: NextMilestoneGoal) => page.locator('.pack-milestone').evaluate((chip, g) => {
@@ -172,8 +172,10 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
         if (picture) expect(picture, `${reward.targetName} picture`).toEqual({ height: 28, ratio: 0.671 });
       }
       // The Prismatic back loops its colours wherever it is shown (that loop is held, #1164): never inside the chip.
-      // No goal ever names it (a title shares its level), so it is put in by hand, as the pictures above are.
-      await show(page, { ...COSMETIC_GOALS.find((reward) => reward.preview)!, targetName: 'Prismatic', preview: { kind: 'card-back', id: 'prism' } });
+      // A goal does name it (#212: at level 20 the card back leads the title that shares its level), so it is among the rewards above too.
+      const prism = COSMETIC_GOALS.find((reward) => reward.preview?.id === 'prism');
+      expect(prism, 'the Prismatic card back is a goal a player can be shown').toBeDefined();
+      await show(page, prism!);
       expect((await fits(page)).animations, 'the Prismatic back is still in the chip').toBe(0);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);

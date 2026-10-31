@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Lock } from 'lucide-react';
 import CardBackSwatch from '../ui/CardBackSwatch';
-import { CARD_BACKS, PACK_FOILS, nextReward, usable, type Reward } from '../../game/progression';
+import { CARD_BACKS, PACK_FOILS, nextRewards, usable, type Reward } from '../../game/progression';
 import type { Settings } from '../../types';
 import '../../styles/Profile.css';
 
@@ -15,13 +15,20 @@ interface RewardsPanelProps {
 
 /** What your level has unlocked: pick a card back and a pack foil; the next unlock is named. */
 const RewardsPanel = ({ level, settings, onSettingsChange, packImage }: RewardsPanelProps) => {
-  const next = nextReward(level);
+  const next = nextRewards(level);
   return (
     <div className="rewards">
       <p className="rewards-next">
-        {next ? (
+        {next.length ? (
           <>
-            Next: <strong>{next.name}</strong> ({next.kind}) at level {next.level}
+            Next:{' '}
+            {next.map((r, i) => (
+              <span key={`${r.kind}-${r.id}`}>
+                {i > 0 && ' and '}
+                <strong>{r.name}</strong> ({r.kind})
+              </span>
+            ))}{' '}
+            at level {next[0].level}
           </>
         ) : (
           'Every reward unlocked.'
