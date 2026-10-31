@@ -16,7 +16,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  history.replaceState(null, '', '/');
 });
 
 const show = (state: DocumentVisibilityState) => {

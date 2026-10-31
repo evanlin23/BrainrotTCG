@@ -123,8 +123,8 @@ describe('poster image loading deadline and recovery', () => {
       textBaseline: 'alphabetic',
     };
 
-    HTMLCanvasElement.prototype.getContext = vi.fn(() => mockCtx) as unknown as typeof HTMLCanvasElement.prototype.getContext;
-    HTMLCanvasElement.prototype.toBlob = vi.fn((cb: BlobCallback) => cb(new Blob(['png'], { type: 'image/png' })));
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => mockCtx) as unknown as typeof HTMLCanvasElement.prototype.getContext);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((cb: BlobCallback) => cb(new Blob(['png'], { type: 'image/png' })));
   });
 
   afterEach(() => {

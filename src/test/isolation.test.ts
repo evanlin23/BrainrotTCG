@@ -117,3 +117,50 @@ describe('per-file resets', () => {
     expect(Object.entries(files).filter(([, source]) => redundantHook.test(source)).map(([path]) => path)).toEqual([]);
   });
 });
+
+describe('prototype assignment', () => {
+  // `HTMLCanvasElement.prototype.getContext = vi.fn()` stays on the prototype for every later test in the
+  // file, and vi.restoreAllMocks() can't put it back; vi.spyOn restores, and Object.defineProperty (for a
+  // method jsdom lacks) is deleted by the file's afterEach. Caught: `=`, `||=`, `&&=` and `??=` onto
+  // `.prototype.name` or `.prototype['name']`, through a cast or a `window.` prefix, on any line (a one-line
+  // hook included). Not caught: Object.assign and Reflect.set onto a prototype, a prototype held in
+  // a variable, an `<any>X.prototype` cast, and an `=` on the line after the property. A comment line is skipped.
+  const assignment = /\.prototype(?:\s+as\s+[^;\n]*?\))?(?:\.[A-Za-z_$][\w$]*|\[[^\]\n]*\])\s*(?:\|\||&&|\?\?)?(?<![=!<>])=(?![=>])/;
+  const assignsOntoPrototype = (source: string) =>
+    source.split('\n').some((line) => !/^\s*(?:\/\/|\/?\*)/.test(line) && assignment.test(line));
+
+  it('flags an assignment onto a prototype in each form, not a spy, a defineProperty or a comparison', () => {
+    for (const leak of [
+      '    HTMLCanvasElement.prototype.getContext = vi.fn(() => ctx);',
+      'Element.prototype.scrollIntoView = scroll;',
+      '(HTMLCanvasElement.prototype as any).getContext = vi.fn();',
+      '(HTMLCanvasElement.prototype as unknown as { getContext: unknown }).getContext = vi.fn();',
+      '(HTMLCanvasElement.prototype as unknown as Record<string, unknown>).toBlob = vi.fn(() => undefined);',
+      'window.Element.prototype.scrollIntoView = scroll;',
+      "Element.prototype['scrollIntoView'] = scroll;",
+      '(Element.prototype as any)["scrollIntoView"] = scroll;',
+      'Element.prototype.scrollIntoView ||= scroll;',
+      'Element.prototype.scrollIntoView &&= scroll;',
+      'Element.prototype.scrollIntoView ??= scroll;',
+      'beforeEach(() => { Element.prototype.scrollIntoView = scroll; });',
+      'Storage.prototype.setItem = realSetItem;',
+    ]) expect(assignsOntoPrototype(leak), leak).toBe(true);
+    for (const fine of [
+      "vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx);",
+      "vi.spyOn(HTMLCanvasElement.prototype as unknown as Record<string, unknown>, 'getContext');",
+      "Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scroll });",
+      "Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });",
+      'expect(Element.prototype.scrollIntoView === scroll).toBe(true);',
+      'expect(Element.prototype.scrollIntoView).not.toBe(scroll);',
+      'const real = Storage.prototype.setItem;',
+      '// HTMLCanvasElement.prototype.getContext = vi.fn() leaks',
+      ' * Element.prototype.scrollIntoView = scroll',
+    ]) expect(assignsOntoPrototype(fine), fine).toBe(false);
+  });
+
+  it('no test file assigns onto a prototype', () => {
+    const files = import.meta.glob(['../**/*.test.{ts,tsx}', '../../scripts/**/*.test.ts', '!./isolation.test.ts'], { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
+    expect(Object.keys(files).length).toBeGreaterThan(100);
+    expect(Object.entries(files).filter(([, source]) => assignsOntoPrototype(source)).map(([path]) => path)).toEqual([]);
+  });
+});
