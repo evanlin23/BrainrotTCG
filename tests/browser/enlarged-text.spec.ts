@@ -106,7 +106,9 @@ for (const width of [320, 390]) {
       // A new player: no saved packs, so Profile shows its empty state.
       const errors = await monitor(page, baseURL!);
       await page.goto('./#/profile');
-      const action = pageNamed(page, 'Profile').getByRole('button', { name: 'Open your first pack', exact: true });
+      const profile = pageNamed(page, 'Profile');
+      await profile.locator('.profile-fold-toggle').filter({ hasText: 'Level, stats and collection' }).click();
+      const action = profile.getByRole('button', { name: 'Open your first pack', exact: true });
       await expect(action).toBeVisible();
       await scaleText(page, percent);
       await action.scrollIntoViewIfNeeded();

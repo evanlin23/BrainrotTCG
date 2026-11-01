@@ -171,6 +171,9 @@ const contrast = (a: number[], b: number[]) => {
 
 /** The thumb's mean colour, from its pixels, and the first opaque colour behind it. */
 async function thumbAndBackdrop(thumb: Locator) {
+  // A locator screenshot only scrolls into the viewport; a fixed bottom nav can still cover it.
+  // Centre the actual thumbnail before measuring its painted pixels, rather than the nav over it.
+  await thumb.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
   const { channels } = await sharp(await thumb.screenshot()).removeAlpha().stats();
   const backdrop = await thumb.evaluate((element) => {
     for (let node: Element | null = element.parentElement; node; node = node.parentElement) {
