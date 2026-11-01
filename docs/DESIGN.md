@@ -427,7 +427,13 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   "Card back and foil" (`#rewards`, a closed `<details>` whose summary counts what is unlocked;
   level-up toasts open it); All packs (a pack that set an all-time best when it opened keeps a solid
   medal on its row, a best in its set an outlined one, `packMedals`); then a one-line "Saved in this browser · Back up" footnote.
-  Sections share one left edge and `--space-6` between them. Its shareable image is the "Profile
+  The name and Player ID stay visible. Best pack and card; level, stats and collection; Personal
+  records; Achievements; Card back and foil; All packs; Best cards; and any legacy best pack each
+  sit behind an independent, initially closed section header. Headers use full-width native
+  disclosures with chevrons, like the collection's set toggles. Closing a section preserves its
+  contents and ongoing reads. Achievement and reward navigation requests open their target again,
+  including the full achievements list. Reward availability and the pack count stay in their headers.
+  Sections share one left edge with a quiet separator. Its shareable image is the "Profile
   card"; "Player ID" stays the name of the key's fingerprint, as on proofs. Leaving Profile saves a
   changed name, unless saving that same name just failed.
 - **Rankings** (`pages/HallOfFamePage.tsx`): tabs Today (the default) and All-time, 20 rows at a

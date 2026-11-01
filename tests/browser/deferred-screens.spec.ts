@@ -173,6 +173,7 @@ const SHEETS: {
     chunk: 'ShareSheet',
     open: async (page, navigate) => {
       const main = await profilePage(page, navigate);
+      await main.locator('.pulls-history > details > summary').click();
       const row = main.locator('.pulls-history .pull-row').first();
       await row.click();
       return row;
@@ -185,6 +186,7 @@ const SHEETS: {
     open: async (page, navigate) => {
       // A card of the player's own pack, from My pulls: its share sheet loads on demand.
       const main = await profilePage(page, navigate);
+      await main.locator('.pulls-history > details > summary').click();
       await main.locator('.pulls-history .pull-row').first().click();
       const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
       await pull.getByText('Share an individual card', { exact: true }).click();

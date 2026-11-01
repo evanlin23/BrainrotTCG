@@ -92,7 +92,7 @@ const render = async (stats: BestPackStats = statsFor(getPlayer().publicKeyHex),
   await act(async () => root.render(<BestHighlights stats={stats} refreshKey="a" expecting={expecting} onSharePack={onSharePack} />));
 };
 const highlight = (name: string) =>
-  [...container.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h2')?.textContent === name)!;
+  [...container.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h3')?.textContent === name)!;
 const text = (name: string) => highlight(name)?.textContent ?? '';
 const verified = (name: string) => highlight(name).querySelector('.profile-verified') !== null;
 
@@ -255,7 +255,7 @@ describe('states', () => {
     expect(checkBestPack.mock.calls[1][0]).toEqual(checkBestPack.mock.calls[0][0]);
     expect(verified('Best pack')).toBe(true);
     // The pressed button is gone: focus stays in the highlight, on its heading.
-    expect(document.activeElement).toBe(highlight('Best pack').querySelector('h2'));
+    expect(document.activeElement).toBe(highlight('Best pack').querySelector('h3'));
     // The card was never checked again.
     expect(checkBestCard).toHaveBeenCalledTimes(1);
   });

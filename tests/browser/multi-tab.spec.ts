@@ -280,6 +280,7 @@ test.describe('two tabs at once, emulated Chromium (not real devices)', () => {
 
     const badge = async (page: Page) => {
       await page.goto('./#/profile');
+      await page.locator('.pulls-history > details > summary').click();
       const row = page.getByRole('main', { name: 'Profile', exact: true }).locator('.pulls-history .pull-row').first();
       await expect(row).toBeVisible();
       // A marker that a reload would clear: the badge must change in this same document.

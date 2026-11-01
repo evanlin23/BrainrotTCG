@@ -131,6 +131,7 @@ for (const [name, width, height, bigText] of VIEWS) {
     await page.setViewportSize({ width, height });
     const errors = await monitor(page, baseURL!, 1, { returning: true });
     await page.goto('./#/profile');
+    await page.locator('.profile-fold-toggle').filter({ hasText: 'Level, stats and collection' }).click();
     await expect(page.locator('.profile-how summary')).toBeVisible();
     if (bigText) await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
 

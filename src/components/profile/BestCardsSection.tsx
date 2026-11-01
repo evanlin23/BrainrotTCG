@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import CardImage from '../cards/CardImage';
+import ProfileSection from './ProfileSection';
 import CardViewerModal from '../cards/CardViewerModal';
 import { getLatestSet, setCode } from '../../content/sets';
 import { getCard, type Card } from '../../data/cards';
@@ -168,10 +169,7 @@ const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChang
   if (rows.length === 0 && !lost && (!cacheReady || rebuilding)) return null;
 
   return (
-    <section ref={sectionRef} aria-labelledby="best-cards-title" className="best-cards">
-      <h2 id="best-cards-title" ref={titleRef} tabIndex={-1} className="section-title best-cards-title">
-        Best cards
-      </h2>
+    <ProfileSection title="Best cards" titleId="best-cards-title" titleRef={titleRef} sectionRef={sectionRef} className="best-cards">
       {lost && (
         <div className="pulls-note" role="status">
           <p>
@@ -241,7 +239,7 @@ const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChang
         </>
       )}
       {viewing && <CardViewerModal card={viewing.card} canShare pack={viewing.ref} onClose={() => setViewing(null)} />}
-    </section>
+    </ProfileSection>
   );
 };
 

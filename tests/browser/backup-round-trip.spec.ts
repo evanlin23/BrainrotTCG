@@ -231,6 +231,8 @@ test('a backup restores into the same browser after its storage is cleared and r
   await page.goto('./#/profile');
   const profile = page.getByRole('main', { name: 'Profile', exact: true });
   const level = profile.locator('.profile-level');
+  const levelToggle = profile.locator('.profile-fold-toggle').filter({ hasText: 'Level, stats and collection' });
+  await levelToggle.click();
   await expect(level).toBeVisible();
   const levelBefore = await level.innerText();
 
@@ -241,6 +243,7 @@ test('a backup restores into the same browser after its storage is cleared and r
   await page.goto('./');
   await expect(packShell).toBeVisible();
   await page.goto('./#/profile');
+  await levelToggle.click();
   await expect(profile).toContainText('No packs yet');
   const fresh = await storageOf(page);
   // Parse first and compare the number alone, so a failure doesn't print the player (and its key).
@@ -266,6 +269,7 @@ test('a backup restores into the same browser after its storage is cleared and r
   expect(restored[PLAYER_KEY] === exportedPlayer).toBe(true);
   expect(await snapshot(page)).toEqual(opened);
   await page.goto('./#/profile');
+  await levelToggle.click();
   await expect(level).toBeVisible();
   expect(await level.innerText()).toBe(levelBefore);
 

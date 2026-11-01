@@ -13,7 +13,7 @@ let onSettingsChange: ReturnType<typeof vi.fn<(settings: Settings) => void>>;
 const render = (level: number | null, openRequest?: number) =>
   act(() => root.render(<RewardsSection level={level} settings={DEFAULT_SETTINGS} onSettingsChange={onSettingsChange} openRequest={openRequest} />));
 const details = () => document.querySelector<HTMLDetailsElement>('#rewards details')!;
-const summary = () => document.querySelector('#rewards summary')!.textContent;
+const summary = () => document.querySelector('#rewards .profile-fold-note')!.textContent;
 const TOTAL = CARD_BACKS.length + PACK_FOILS.length;
 
 beforeEach(() => {
@@ -83,7 +83,8 @@ describe('the card back and foil section', () => {
 
   it('shows a loading note instead of the rewards while the level is unknown', () => {
     render(null);
-    expect(document.querySelector('#rewards details')).toBeNull();
+    expect(details().open).toBe(false);
+    expect(summary()).toBe('Loading…');
     expect(document.body.textContent).toContain("Reading your saved packs… Your card backs and foils will show once they're in.");
     render(1);
     expect(document.querySelector('.rewards')).not.toBeNull();

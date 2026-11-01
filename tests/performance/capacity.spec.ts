@@ -435,6 +435,7 @@ test.describe('reconstruction', () => {
     const historyBefore = (await snapshot(page)).history;
 
     // Active: the player asks for them.
+    await profile.locator('.profile-fold-toggle').filter({ hasText: 'Level, stats and collection' }).click();
     await profile.getByRole('button', { name: 'Re-open them', exact: true }).click();
     await page.waitForFunction((nonces) => nonces.every((n) => window.capacity.jobs.some((job) => job.kind === 'done' && job.nonce === n)), uncachedNonces, { timeout: 90_000 });
     await expect(profile).not.toContainText("don't have their cards on this device");

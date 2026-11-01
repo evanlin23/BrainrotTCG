@@ -56,6 +56,7 @@ test.describe('critical states', () => {
     await page.goto('./#/profile');
     const main = page.getByRole('main', { name: 'Profile', exact: true });
     await expect(main).toBeVisible();
+    await main.locator('.pulls-history > details > summary').click();
     await main.locator('.pulls-history .pull-row').first().click();
     const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
     await expect(pull.locator('.sheet--deferred')).toHaveCount(0);
