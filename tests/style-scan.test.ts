@@ -212,3 +212,57 @@ it('keeps the canvas palette in step with tokens.css', () => {
   expect(same(tokens['--foil'])).toBe(
     'linear-gradient(var(--foil-angle),var(--foil-pink),var(--brand)30%,var(--foil-mint)55%,var(--foil-blue)80%,var(--foil-violet))');
 });
+
+it('styles select dropdowns in base.css and keeps other stylesheets from overriding core styles', () => {
+  const selectRule = rule('styles/base.css', 'select');
+  expect(selectRule).toMatch(/appearance:\s*none/);
+  expect(selectRule).toMatch(/-webkit-appearance:\s*none/);
+  expect(selectRule).toMatch(/color-scheme:\s*dark/);
+  expect(selectRule).toMatch(/--select-chevron:\s*16px/);
+  expect(selectRule).toMatch(/padding:\s*0\s+calc\(var\(--space-2\)\s*\+\s*var\(--select-chevron\)\s*\+\s*var\(--space-2\)\)\s*0\s*var\(--space-3\)/);
+
+  // Chevron stroke matches --text-muted
+  const strokeMatch = /stroke="(?:%23|#)([0-9a-fA-F]{6})"/.exec(selectRule);
+  expect(strokeMatch).toBeTruthy();
+  expect(`#${strokeMatch![1].toLowerCase()}`).toBe(token('--text-muted'));
+
+  // Forced colors restore native dropdown parsed by brace matching
+  const baseCss = sheets.find((s) => s.path === 'styles/base.css')!.css;
+  const mediaIndex = baseCss.indexOf('@media (forced-colors: active)');
+  expect(mediaIndex).toBeGreaterThan(-1);
+  let depth = 0;
+  let mediaBlock = '';
+  for (let i = baseCss.indexOf('{', mediaIndex); i < baseCss.length; i++) {
+    if (baseCss[i] === '{') depth++;
+    else if (baseCss[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        mediaBlock = baseCss.slice(mediaIndex, i + 1);
+        break;
+      }
+    }
+  }
+  expect(mediaBlock).toMatch(/select\s*\{[^}]*appearance:\s*auto/);
+
+  // Scan every other stylesheet: any rule targeting select or .collection-select can only override border-radius or width
+  const violations: string[] = [];
+  for (const { path, css } of sheets) {
+    if (path === 'styles/base.css') continue;
+    const cleanCss = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const [, selectorStr, body] of cleanCss.matchAll(/(?:^|[{}])\s*([^{}]+?)\s*\{([^{}]+)\}/g)) {
+      if (selectorStr.trim().startsWith('@')) continue;
+      const selectors = selectorStr.split(',').map((s) => s.trim());
+      const targetsSelect = selectors.some((s) => {
+        const stripped = s.replace(/:[\w-]+(?:\([^)]*\))?/g, '').trim();
+        return /(?:^|[\s>+~])(?:select(?:\.[a-zA-Z0-9_-]+)*|\.collection-select)$/.test(stripped);
+      });
+      if (!targetsSelect) continue;
+      for (const [, prop] of body.matchAll(/(?:^|[;{\s])([\w-]+)\s*:/g)) {
+        if (prop !== 'border-radius' && prop !== 'width') {
+          violations.push(`${path}: ${selectorStr.trim()} sets ${prop}`);
+        }
+      }
+    }
+  }
+  expect(violations).toEqual([]);
+});
