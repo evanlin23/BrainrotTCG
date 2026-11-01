@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Check, ChevronRight, Share2 } from 'lucide-react';
+import ProfileSection from '../profile/ProfileSection';
 import { getSet } from '../../content/sets';
 import { ACHIEVEMENTS, type Achievement } from '../../data/achievements';
 import type { AchievementData } from '../../types';
@@ -106,8 +107,7 @@ const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull,
 
   return (
     <>
-      <section id="achievements" className="achievements profile-section" aria-labelledby="achievements-title">
-        <h2 id="achievements-title" className="section-title" tabIndex={-1}>Achievements</h2>
+      <ProfileSection id="achievements" title="Achievements" titleId="achievements-title" className="achievements profile-section" note={`${unlocked.length}/${ACHIEVEMENTS.length} unlocked`} openRequest={openRequest}>
         <p className="achievements-count tabular">
           {unlocked.length}/{ACHIEVEMENTS.length} unlocked · {percent}%
         </p>
@@ -155,7 +155,7 @@ const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull,
             </section>
           )}
         </details>
-      </section>
+      </ProfileSection>
 
       {selected?.pack && (
         <Sheet

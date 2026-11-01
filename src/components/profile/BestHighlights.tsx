@@ -130,9 +130,9 @@ const Highlight = <S, V>({ title, titleRef, state, what, onRetry, waiting, card,
   const quiet = state.status === 'available' || waiting;
   return (
     <section aria-labelledby={id} className="profile-highlight">
-      <h2 id={id} ref={titleRef} tabIndex={-1} className="section-title profile-heading">
+      <h3 id={id} ref={titleRef} tabIndex={-1} className="section-title profile-heading">
         {title}
-      </h2>
+      </h3>
       {/* Only the state is live (checking, then verified or why not), so a settled check doesn't read out the whole row. */}
       <p className={quiet ? 'sr-only' : 'pulls-note profile-highlight-note'}>
         <span role="status">{waiting ? `Checking ${what} against its ticket…` : stateText(state, what)}</span>

@@ -225,6 +225,7 @@ test.describe('with motion reduced, so a placeholder holds one still wash', () =
     await page.goto('./#/profile');
     const main = page.getByRole('main', { name: 'Profile', exact: true });
     const thumbs = main.locator('.pulls-history .pull-row').first().locator('.pull-row-thumbs img.card-image');
+    await main.locator('.pulls-history > details > summary').click();
     await expect(thumbs.first()).toBeVisible();
     await expect.poll(() => art.requests()).toBeGreaterThan(0);
     const count = await thumbs.count();

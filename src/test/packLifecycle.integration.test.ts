@@ -100,7 +100,7 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
   await app.reload();
   await app.interact(() => button('Profile').click());
   await app.until('new App graph hydrates the recorded profile', () => {
-    expect(document.querySelector('.pulls-history-title')?.textContent).toBe('All packs · 1');
+    expect(document.querySelector('#pulls-history-title')?.textContent).toBe('All packs · 1');
     const images = [...document.querySelectorAll<HTMLImageElement>('.pulls-history .pull-row-thumbs img')];
     // The gold card asks for its ready-made gold thumbnail; the plain ones for their art.
     expect(images.map((image) => new URL(image.src).pathname.split('/').pop())).toEqual([

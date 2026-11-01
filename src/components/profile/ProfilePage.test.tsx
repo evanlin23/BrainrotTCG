@@ -311,7 +311,8 @@ describe('the page', () => {
     localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: 'cd'.repeat(32), name: 'Original Player', nextNonce: 4, createdAt: 1 }));
     render();
     const headings = [...document.querySelectorAll('h2')].map((el) => el.textContent);
-    expect(headings).toEqual(expect.arrayContaining(['Level and stats', 'Achievements', 'Card back and foil']));
+    expect(headings).toEqual(expect.arrayContaining(['Best pack and card', 'Level, stats and collection', 'Achievements', 'Card back and foil']));
+    expect([...document.querySelectorAll<HTMLDetailsElement>('.profile-fold > details')].every((fold) => !fold.open)).toBe(true);
     // The name heads the page, once: no subtitle repeats it.
     expect(headings[0]).toBe('Original Player');
     expect(document.querySelector('.page-subtitle')).toBeNull();
@@ -393,7 +394,8 @@ describe('the page', () => {
 
 describe('folded sections', () => {
   const unlocked = Object.fromEntries(ACHIEVEMENTS.slice(0, 5).map((a, i) => [a.id, 1000 + i]));
-  const all = () => document.querySelector<HTMLDetailsElement>('#achievements details')!;
+  const all = () => document.querySelector<HTMLDetailsElement>('#achievements .achievements-all')!;
+  const achievements = () => document.querySelector<HTMLDetailsElement>('#achievements > details')!;
   const rewards = () => document.querySelector<HTMLDetailsElement>('#rewards details')!;
   const names = (el: Element) => [...el.querySelectorAll('.achievement-name')].map((n) => n.textContent);
 
@@ -404,6 +406,7 @@ describe('folded sections', () => {
     const recent = section.querySelector('.achievements-group')!;
     expect(names(recent)).toEqual(ACHIEVEMENTS.slice(2, 5).map((a) => a.name).reverse());
     expect(all().open).toBe(false);
+    expect(achievements().open).toBe(false);
     expect(all().querySelector('summary')!.textContent).toBe(`Show all achievements (${ACHIEVEMENTS.length})`);
     expect(names(all())).toEqual(expect.arrayContaining(ACHIEVEMENTS.slice(0, 2).map((a) => a.name)));
   });
@@ -411,21 +414,25 @@ describe('folded sections', () => {
   it('opens Show all when a link or toast asks for #achievements, and again for a later request', () => {
     render({ unlockedAchievements: unlocked, section: { id: 'achievements', n: 1 } });
     expect(all().open).toBe(true);
+    expect(achievements().open).toBe(true);
     expect(rewards().open).toBe(false);
     act(() => {
       all().open = false;
       all().dispatchEvent(new Event('toggle'));
+      achievements().open = false;
+      achievements().dispatchEvent(new Event('toggle'));
     });
     render({ unlockedAchievements: unlocked, section: { id: 'achievements', n: 2 } });
     expect(all().open).toBe(true);
+    expect(achievements().open).toBe(true);
   });
 
   it('keeps the card backs and foils folded, with a summary of what is unlocked, until asked for', () => {
     render();
     expect(rewards().open).toBe(false);
-    expect(rewards().querySelector('summary')!.textContent).toMatch(/^\d+ of \d+ unlocked$/);
+    expect(rewards().querySelector('.profile-fold-note')!.textContent).toMatch(/^\d+ of \d+ unlocked$/);
     render({ level: 99 });
-    expect(rewards().querySelector('summary')!.textContent).toBe('Every reward unlocked');
+    expect(rewards().querySelector('.profile-fold-note')!.textContent).toBe('Every reward unlocked');
     render({ section: { id: 'rewards', n: 1 } });
     expect(rewards().open).toBe(true);
   });
@@ -518,7 +525,7 @@ describe('Best pack highlight', () => {
     await act(async () => {});
   };
   const section = (title: string) =>
-    [...document.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h2')?.textContent === title);
+    [...document.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h3')?.textContent === title);
   const bestRow = () => section('Best pack')?.querySelector('.pull-row') ?? null;
   const bestBadges = () => [...(section('Best pack')?.querySelectorAll('.pull-row-sent') ?? [])].map((el) => el.textContent);
 
@@ -526,7 +533,7 @@ describe('Best pack highlight', () => {
     myStats.mockReturnValue(statsWith([five]));
     await renderSettled({ stats: keep(five).stats });
     const highlights = document.querySelector('.profile-highlights')!;
-    const levelHeading = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'Level and stats')!;
+    const levelHeading = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'Level, stats and collection')!;
     expect(highlights.compareDocumentPosition(levelHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(bestRow()?.querySelector('.profile-verified')?.textContent).toContain('Verified');
     expect(bestRow()?.querySelector('.pull-row-hand')?.firstChild?.textContent).toBe(five.score.hand.name);

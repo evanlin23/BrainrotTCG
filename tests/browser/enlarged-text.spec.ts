@@ -181,6 +181,7 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }
       await page.goto('./#/profile');
       const book = pageNamed(page, 'Profile').getByRole('region', { name: 'Personal records', exact: true });
       await expect(book).toBeVisible();
+      await book.locator(':scope > details > summary').click();
       await expect(book).toContainText('Beat 10 packs to set it');
       await expect(book).toContainText('Beat 1,020 to set it');
       await scaleText(page, percent);
@@ -189,7 +190,7 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }
       await unclipped(book);
       // It sits between the stats and Achievements, under the page's one heading level.
       const headings = await pageNamed(page, 'Profile').getByRole('heading', { level: 2 }).allTextContents();
-      expect(headings.indexOf('Personal records')).toBeGreaterThan(headings.indexOf('Level and stats'));
+      expect(headings.indexOf('Personal records')).toBeGreaterThan(headings.indexOf('Level, stats and collection'));
       expect(headings.indexOf('Personal records')).toBeLessThan(headings.indexOf('Achievements'));
       expect(errors).toEqual([]);
     });
@@ -212,6 +213,7 @@ test('Profile: a history row keeps its medal inside a 360x740 phone at 200% text
   }, { keys: STORAGE_KEYS, prefix: PLAYER_KEY_PREFIX });
   await page.goto('./#/profile');
   const history = pageNamed(page, 'Profile').locator('.pulls-history');
+  await history.locator(':scope > details > summary').click();
   const medalled = history.locator('.pull-row').filter({ has: page.locator('.pull-row-medal') });
   await expect(medalled).toHaveCount(1);
   await expect(medalled).toContainText('1,020');

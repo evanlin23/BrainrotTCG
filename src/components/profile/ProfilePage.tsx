@@ -8,6 +8,7 @@ import { tabPanelProps } from '../ui/tabPanel';
 import BestCardsSection from './BestCardsSection';
 import BestHighlights from './BestHighlights';
 import ProfileSummary from './ProfileSummary';
+import ProfileSection from './ProfileSection';
 import PackCacheNote from './PackCacheNote';
 import PlayerSection from './PlayerSection';
 import PullRow from './PullRow';
@@ -240,86 +241,89 @@ const ProfilePage = ({
       <div className="profile-page pulls-page">
         <PlayerSection onRenamed={setPlayer} canSave={canSave} onSaveFailed={onSaveFailed} />
 
-        <BestHighlights
-          stats={stats}
-          refreshKey={`${packCache}:${reopenRuns}:${bestCardsRuns}`}
-          expecting={bestCardExpected}
-          onSharePack={onSharePack}
-          packBadge={(ref) => {
-            const entry = entryOf(ref);
-            return entry && <SubmittedBadge entry={entry} />;
-          }}
-        />
-
-        <h2 className="sr-only">Level and stats</h2>
-        {mine && !summary ? (
-          <PackCacheNote
-            what="your level and stats"
-            onFailed={
-              <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
-                Re-open the packs instead
-              </button>
-            }
+        <ProfileSection title="Best pack and card">
+          <BestHighlights
+            stats={stats}
+            refreshKey={`${packCache}:${reopenRuns}:${bestCardsRuns}`}
+            expecting={bestCardExpected}
+            onSharePack={onSharePack}
+            packBadge={(ref) => {
+              const entry = entryOf(ref);
+              return entry && <SubmittedBadge entry={entry} />;
+            }}
           />
-        ) : mine && summary ? (
-          <ProfileSummary
-            stats={summary}
-            highlighted
-            droughtStats={droughtStats}
-            actions={
-              <>
-                <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing || !!mine?.filled}>
-                  <Link2 aria-hidden="true" />
-                  {preparing ?? (copied ? 'Link copied' : readyUrl ? 'Copy link now' : 'Copy profile link')}
+        </ProfileSection>
+
+        <ProfileSection title="Level, stats and collection">
+          {mine && !summary ? (
+            <PackCacheNote
+              what="your level and stats"
+              onFailed={
+                <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
+                  Re-open the packs instead
                 </button>
-                <button type="button" className="btn btn--secondary btn--sm" onClick={shareCard} disabled={!!preparing || !!mine?.filled}>
-                  <IdCard aria-hidden="true" /> Profile card
-                </button>
-              </>
-            }
-          />
-        ) : (
-          <div className="pulls-empty">
-            <p>No packs yet. Your level, stats, best pack and best card show up here.</p>
-            <button type="button" className="btn btn--primary" onClick={onOpenPacks}>
-              Open your first pack
-            </button>
-          </div>
-        )}
-
-
-        {linkError && (
-          <p className="pulls-note" role="alert">
-            Couldn't make your profile link: {linkError} If a pack is still opening in this or another tab, try again once it
-            finishes.
-          </p>
-        )}
-
-        {mine && mine.filled > 0 && (
-          <p className="pulls-note">
-            Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
-            These local totals are partial. A complete profile link or card cannot be created from this save. Keep a private export
-            (open Settings, then Save & backup); if you have an older complete backup, it may contain the missing records.
-          </p>
-        )}
-
-        {reopen?.running ? (
-          <p className="pulls-note" role="status">
-            Re-opening your packs in the background: {reopen.done.toLocaleString()} of {reopen.total.toLocaleString()}. You can leave
-            this page and keep playing; if you close the tab, it carries on next time.
-          </p>
-        ) : (
-          unopened > 0 && (
-            <p className="pulls-note">
-              {unopened.toLocaleString()} pack{unopened === 1 ? " in your history doesn't" : "s in your history don't"} have
-              {unopened === 1 ? ' its' : ' their'} cards on this device, so the numbers above leave {unopened === 1 ? 'it' : 'them'} out
-              for now.{reopen?.error ? " Re-opening stopped with an error." : ''}{' '}
-              <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
-                {reopen?.error ? 'Try again' : 'Re-open them'}
+              }
+            />
+          ) : mine && summary ? (
+            <ProfileSummary
+              stats={summary}
+              highlighted
+              droughtStats={droughtStats}
+              actions={
+                <>
+                  <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing || !!mine?.filled}>
+                    <Link2 aria-hidden="true" />
+                    {preparing ?? (copied ? 'Link copied' : readyUrl ? 'Copy link now' : 'Copy profile link')}
+                  </button>
+                  <button type="button" className="btn btn--secondary btn--sm" onClick={shareCard} disabled={!!preparing || !!mine?.filled}>
+                    <IdCard aria-hidden="true" /> Profile card
+                  </button>
+                </>
+              }
+            />
+          ) : (
+            <div className="pulls-empty">
+              <p>No packs yet. Your level, stats, best pack and best card show up here.</p>
+              <button type="button" className="btn btn--primary" onClick={onOpenPacks}>
+                Open your first pack
               </button>
+            </div>
+          )}
+
+
+          {linkError && (
+            <p className="pulls-note" role="alert">
+              Couldn't make your profile link: {linkError} If a pack is still opening in this or another tab, try again once it
+              finishes.
             </p>
-          )
-        )}
+          )}
+
+          {mine && mine.filled > 0 && (
+            <p className="pulls-note">
+              Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
+              These local totals are partial. A complete profile link or card cannot be created from this save. Keep a private export
+              (open Settings, then Save & backup); if you have an older complete backup, it may contain the missing records.
+            </p>
+          )}
+
+          {reopen?.running ? (
+            <p className="pulls-note" role="status">
+              Re-opening your packs in the background: {reopen.done.toLocaleString()} of {reopen.total.toLocaleString()}. You can leave
+              this page and keep playing; if you close the tab, it carries on next time.
+            </p>
+          ) : (
+            unopened > 0 && (
+              <p className="pulls-note">
+                {unopened.toLocaleString()} pack{unopened === 1 ? " in your history doesn't" : "s in your history don't"} have
+                {unopened === 1 ? ' its' : ' their'} cards on this device, so the numbers above leave {unopened === 1 ? 'it' : 'them'} out
+                for now.{reopen?.error ? " Re-opening stopped with an error." : ''}{' '}
+                <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
+                  {reopen?.error ? 'Try again' : 'Re-open them'}
+                </button>
+              </p>
+            )
+          )}
+        </ProfileSection>
 
         {history.length > 0 && <RecordBook book={records} cardsPending={mine?.cache === 'loading'} />}
 
@@ -338,17 +342,13 @@ const ProfilePage = ({
         />
 
         {stats.highestPackLegacy && stats.highestPackCards?.length ? (
-          <section className="pulls-legacy">
-            <h2 className="section-title pulls-history-title">Best before verifiable pulls</h2>
+          <ProfileSection className="pulls-legacy" title="Best before verifiable pulls">
             <PackCardViewer cards={stats.highestPackCards} displayMode="grid" canShareCards />
-          </section>
+          </ProfileSection>
         ) : null}
 
         {history.length > 0 && (
-          <section aria-labelledby="pulls-history-title" className="pulls-history">
-            <h2 id="pulls-history-title" ref={historyTitleRef} tabIndex={-1} className="section-title pulls-history-title">
-              All packs · {history.length.toLocaleString()}
-            </h2>
+          <ProfileSection title={`All packs · ${history.length.toLocaleString()}`} titleId="pulls-history-title" titleRef={historyTitleRef} className="pulls-history">
             <Tabs
               idBase={tabsId}
               label="Sort packs"
@@ -398,7 +398,7 @@ const ProfilePage = ({
                 </button>
               )}
             </div>
-          </section>
+          </ProfileSection>
         )}
 
         {mine && (
