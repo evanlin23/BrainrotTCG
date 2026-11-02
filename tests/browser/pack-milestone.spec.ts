@@ -53,7 +53,7 @@ const MASTER_GOALS = (() => {
 /** Puts a goal's words into the chip on the page (and its card-back picture, if it has one), at its worst case of "99%", or a master set's own count. */
 const show = (page: Page, goal: NextMilestoneGoal) => page.locator('.pack-milestone').evaluate((chip, g) => {
   chip.querySelector('.pack-milestone-target')!.textContent = g.targetName;
-  chip.querySelector('.pack-milestone-kind')!.textContent = ` ${g.targetKind}`;
+  chip.querySelector('.pack-milestone-kind')!.textContent = g.targetKind ? ` ${g.targetKind}` : '';
   chip.querySelector('.pack-milestone-detail')!.textContent = g.detail;
   const progress = chip.querySelector('.pack-milestone-progress')!;
   // A goal's own count, the way the component draws it (with its unit in a span of its own), else the worst case of "99%".
