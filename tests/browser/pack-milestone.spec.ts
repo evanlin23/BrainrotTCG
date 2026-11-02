@@ -279,6 +279,28 @@ for (const [width, height, percent] of [[768, 1024, 125], [768, 1024, 150], [768
       // One line, or two while they fit: past a point the cue is dropped, never cut.
       expect([1, 2].includes(held.lines - 1)).toBe(true);
     }
+    // A master set's count keeps its unit at every enlarged size (#898): whole, in the chip's height, the name giving way to it.
+    for (const master of MASTER_GOALS) {
+      await show(page, master);
+      const laid = await goal.evaluate((chip) => {
+        const rect = (selector: string) => chip.querySelector(selector)!.getBoundingClientRect();
+        const chipBox = chip.getBoundingClientRect();
+        const [text, progress, unit] = [rect('.pack-milestone-text'), rect('.pack-milestone-progress'), rect('.pack-milestone-unit')];
+        const bottom = chipBox.bottom;
+        return {
+          unitShown: getComputedStyle(chip.querySelector('.pack-milestone-unit')!).display !== 'none' && unit.width > 0,
+          countWhole: progress.right <= chipBox.right + 0.5 && unit.right <= progress.right + 0.5,
+          clipped: chip.scrollHeight > chip.clientHeight || chip.scrollWidth > chip.clientWidth,
+          clear: bottom - Math.max(progress.bottom, text.bottom) >= 3,
+          height: chipBox.height,
+          nameWidth: Math.floor(text.width),
+        };
+      });
+      expect(laid.nameWidth, `${master.targetName} ${master.progressText} name width at ${percent}% text`).toBeGreaterThanOrEqual(30);
+      expect({ ...laid, nameWidth: 0 }, `${master.targetName} ${master.progressText} at ${percent}% text`).toEqual({
+        unitShown: true, countWhole: true, clipped: false, clear: true, height: 44, nameWidth: 0,
+      });
+    }
     expect(errors).toEqual([]);
   });
 }

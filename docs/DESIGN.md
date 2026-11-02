@@ -44,8 +44,10 @@ from a 390 px wide screen.
    side and in a row of 20rem or less (a 320px phone, enlarged text), rather
    than shift or squeeze the guide. In a row up to 34rem (every phone) the column beside the centred
    guide is small, so the chip shrinks to one line, the name (an ellipsis if long), the percentage and
-   the progress bar (a count with a unit, "8/12 holos", takes the second line under the name, so the name keeps the column; at enlarged text it goes back beside the name and drops its unit, which the accessible name keeps); the picture and the cue line are not drawn there, but the cue stays in its accessible
-   name and tooltip. From 34rem it is the whole chip, capped at 18rem wide so on a desktop it stays near
+   the progress bar; the picture and the cue line are not drawn there, but the cue stays in its accessible
+   name and tooltip. A master set's count, "8/12 holos", is too wide to sit beside the name there, so it takes
+   the second line under the name; at 125% text or more, where two lines no longer fit, it sits beside the name
+   again with its unit, and the name ellipsizes further, so the unit is never dropped (#898). From 34rem it is the whole chip, capped at 18rem wide so on a desktop it stays near
    the pack instead of running to the screen's edge. Past about 125% text the two lines no longer fit in 44px, so
    the cue line gives way and the name and progress stay on one line (`tests/browser/pack-milestone.spec.ts`
    measures every reward's name at 580 and 600px and the compact chip at 360 and 390px, its text at 125% to 200% on 768 and 1280px, and

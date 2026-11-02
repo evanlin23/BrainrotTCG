@@ -222,25 +222,19 @@ button.pack-milestone:disabled {
 /* A count with a unit ("8/12 holos", #898) is too wide to sit beside the name in that column: it would leave the
    set name a few pixels. The count goes on a line of its own under the name, in the room the cue line leaves
    (the cue is not drawn here), so the unit is read once and the name keeps the whole column. Past about 125% text
-   two lines no longer fit in 44px, so the count goes back beside the name and the unit gives way (the accessible
-   name still says it). */
+   two lines no longer fit in 44px, so the count goes back beside the name, unit and all, and it is the name that
+   gives way (an ellipsis): the unit is what tells a master set's count from set completion, so it is never hidden. */
 @container card-guide (max-width: 34rem) {
   .card-guide-entry > .pack-milestone:has(.pack-milestone-unit) .pack-milestone-line {
     flex-direction: column;
     align-items: stretch;
     gap: 0;
   }
-}
-
-@container card-guide (max-width: 34rem) {
   @container pack-milestone (max-height: 2.2rem) {
     .card-guide-entry > .pack-milestone:has(.pack-milestone-unit) .pack-milestone-line {
       flex-direction: row;
       align-items: baseline;
       gap: var(--space-2);
-    }
-    .card-guide-entry > .pack-milestone .pack-milestone-unit {
-      display: none;
     }
   }
 }

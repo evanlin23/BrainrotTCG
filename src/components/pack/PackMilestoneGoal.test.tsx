@@ -103,6 +103,8 @@ describe('PackMilestoneGoal', () => {
     expect(container.querySelector('button.pack-milestone')!.getAttribute('aria-label')).toBe(
       'Next goal: Six Seven Season master set, 8 of 12 holos. 4 to go. View binder.',
     );
+    // The tooltip names the unit too, not only the cue.
+    expect(container.querySelector('button.pack-milestone')!.getAttribute('title')).toBe('Six Seven Season master set: 8 of 12 holos, 4 to go');
   });
 
   it('is plain text with no button once everything is done', () => {

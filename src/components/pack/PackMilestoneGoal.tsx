@@ -17,6 +17,8 @@ const PackMilestoneGoal = ({ goal, onNavigate, disabled = false }: PackMilestone
   const { action } = goal;
   const name = goal.targetKind ? `${goal.targetName} (${goal.targetKind})` : goal.targetName;
   const label = `Next goal: ${name}, ${goal.progressLabel}. ${goal.detail}.${action ? ` ${action.text}.` : ''}`;
+  // A count with a unit (a master set's holos) keeps it in the tooltip too: the cue alone would read "4 to go".
+  const title = `${name}: ${goal.progressUnit ? `${goal.progressLabel}, ` : ''}${goal.detail}`;
   const body = (
     <>
       {goal.preview && <CardBackSwatch id={goal.preview.id} />}
@@ -40,14 +42,14 @@ const PackMilestoneGoal = ({ goal, onNavigate, disabled = false }: PackMilestone
       type="button"
       className="pack-milestone"
       aria-label={label}
-      title={`${name}: ${goal.detail}`}
+      title={title}
       disabled={disabled}
       onClick={() => onNavigate(action.target)}
     >
       {body}
     </button>
   ) : (
-    <div className="pack-milestone" role="group" aria-label={label} title={`${name}: ${goal.detail}`}>
+    <div className="pack-milestone" role="group" aria-label={label} title={title}>
       {body}
     </div>
   );
