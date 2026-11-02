@@ -26,7 +26,7 @@ const PackMilestoneGoal = ({ goal, onNavigate, disabled = false }: PackMilestone
             <strong className="pack-milestone-target">{goal.targetName}</strong>
             {goal.targetKind && <span className="pack-milestone-kind"> {goal.targetKind}</span>}
           </span>
-          <span className="pack-milestone-progress" aria-hidden="true">{goal.progressText}</span>
+          <span className="pack-milestone-progress" aria-hidden="true">{goal.progressText}{goal.progressUnit && <span className="pack-milestone-unit"> {goal.progressUnit}</span>}</span>
         </span>
         <span className="pack-milestone-detail" aria-hidden="true">{goal.detail}</span>
       </span>

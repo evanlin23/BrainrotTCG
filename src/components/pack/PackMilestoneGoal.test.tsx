@@ -3,7 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PackMilestoneGoal from './PackMilestoneGoal';
-import type { NextMilestoneGoal } from '../../game/nextMilestone';
+import type { SetDefinition } from '../../engine';
+import { getNextMilestone, type NextMilestoneGoal } from '../../game/nextMilestone';
 
 let root: Root;
 let container: HTMLElement;
@@ -41,15 +42,11 @@ const binder: NextMilestoneGoal = {
   action: { text: 'View binder', target: 'cards' },
 };
 
-const master: NextMilestoneGoal = {
-  kind: 'set-master',
-  targetName: 'Six Seven Season master set',
-  detail: '8/12 as holos, 4 to go',
-  progressText: '8/12 holos',
-  progressLabel: '8 of 12 holos',
-  progressPct: 66,
-  action: { text: 'View binder', target: 'cards' },
-};
+// Built by the rules that build it on the pack screen, so a change to the goal's words is seen here too.
+const master = getNextMilestone(
+  { xp: 0, uniqueBySet: { 'six-seven-season': 12 }, holoUniqueBySet: { 'six-seven-season': 8 } },
+  { id: 'six-seven-season', name: 'Six Seven Season', cards: Array.from({ length: 12 }, (_, i) => ({ id: `c${i}` })) } as unknown as SetDefinition,
+);
 
 const done: NextMilestoneGoal = {
   kind: 'done',
@@ -102,8 +99,9 @@ describe('PackMilestoneGoal', () => {
   it('names the unit of a master set count on screen and in the accessible name (#898)', () => {
     render(master);
     expect(container.querySelector('.pack-milestone-progress')!.textContent).toBe('8/12 holos');
+    expect(container.querySelector('.pack-milestone-detail')!.textContent).toBe('4 to go');
     expect(container.querySelector('button.pack-milestone')!.getAttribute('aria-label')).toBe(
-      'Next goal: Six Seven Season master set, 8 of 12 holos. 8/12 as holos, 4 to go. View binder.',
+      'Next goal: Six Seven Season master set, 8 of 12 holos. 4 to go. View binder.',
     );
   });
 

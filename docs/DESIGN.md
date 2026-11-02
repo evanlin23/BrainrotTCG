@@ -34,7 +34,7 @@ from a 390 px wide screen.
    with the goal or without it (the row is three columns, the guide alone in the middle; the left column
    is empty but for **Change pack**, item 8 of the Flow below): one two-line, 44px chip (a small card-back picture when the reward is a
    card back, the name, a percentage or count, and "Cosmetic, odds unchanged" or the cards still to
-   go; a master set count names its unit, "8/12 holos", so it is not read as set completion, #898), a link to Profile rewards or the binder. Where a level holds two rewards (12: Gold foil and
+   go), a link to Profile rewards or the binder. A master set's count names its unit once, beside the count ("8/12 holos", with "4 to go" under it), so it is not read as set completion (#898); a Complete goal's bare count is plainly cards. Where a level holds two rewards (12: Gold foil and
    Meme Historian; 20: Prismatic card back and Aura Farmer) the chip names the choosable cosmetic
    (with its card-back picture when it is a card back) and not the title that equips itself; the
    Profile "Next:" line names both (#212). The chip comes from the same verified-pack level and set
@@ -44,7 +44,7 @@ from a 390 px wide screen.
    side and in a row of 20rem or less (a 320px phone, enlarged text), rather
    than shift or squeeze the guide. In a row up to 34rem (every phone) the column beside the centred
    guide is small, so the chip shrinks to one line, the name (an ellipsis if long), the percentage and
-   the progress bar; the picture and the cue line are not drawn there, but the cue stays in its accessible
+   the progress bar (a count with a unit, "8/12 holos", takes the second line under the name, so the name keeps the column; at enlarged text it goes back beside the name and drops its unit, which the accessible name keeps); the picture and the cue line are not drawn there, but the cue stays in its accessible
    name and tooltip. From 34rem it is the whole chip, capped at 18rem wide so on a desktop it stays near
    the pack instead of running to the screen's edge. Past about 125% text the two lines no longer fit in 44px, so
    the cue line gives way and the name and progress stay on one line (`tests/browser/pack-milestone.spec.ts`
