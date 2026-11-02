@@ -4,11 +4,11 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 
 /**
  * Profile sections start folded, but a save or trust notice must never wait inside a closed one: a role=alert in a
- * closed fold is never announced. The saved packs failing to read opens Level and Card back and foil, and says so
- * in their headers.
+ * closed fold is never announced. The saved packs failing to read opens Level, which holds the one alert and its
+ * retry; Card back and foil stays closed and says so in its header.
  */
 
-test('a failed read of the saved packs shows its alert, with the sections that hold it open', async ({ page, baseURL }) => {
+test('a failed read of the saved packs announces it once, in the open Level section', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   // Two packs whose cards this device lost (history keeps hand and score only), and a pack store that will not open.
@@ -31,12 +31,17 @@ test('a failed read of the saved packs shows its alert, with the sections that h
 
   const alert = profile.getByRole('alert').filter({ hasText: "Couldn't read your saved packs on this device just now" });
   await expect(alert.first()).toBeVisible({ timeout: 15000 });
-  // Level, stats and collection and Card back and foil each hold one, and each says so in its header.
-  await expect(alert).toHaveCount(2);
+  // One failure, one announcement: Level holds it open with the retry, and its header doesn't repeat it.
+  await expect(alert).toHaveCount(1);
+  await expect(profile.getByRole('alert')).toHaveCount(1);
   const level = profile.locator('.profile-fold').filter({ has: page.getByRole('heading', { name: 'Level, stats and collection', exact: true }) });
-  await expect(level.locator('summary .profile-fold-note')).toHaveText("Couldn't read your saved packs");
-  await expect(profile.locator('#rewards summary .profile-fold-note')).toHaveText("Couldn't read your saved packs");
+  await expect(level.locator('> details')).toHaveJSProperty('open', true);
+  await expect(level.locator('summary .profile-fold-note')).toHaveCount(0);
+  await expect(level.getByRole('alert')).toHaveCount(1);
   await expect(level.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
+  // Card back and foil stays closed and says why in its header.
+  await expect(profile.locator('#rewards > details')).toHaveJSProperty('open', false);
+  await expect(profile.locator('#rewards summary .profile-fold-note')).toHaveText("Couldn't read your saved packs");
   expect(errors.filter((error) => !error.includes('Reading saved packs failed'))).toEqual([]);
 });
 

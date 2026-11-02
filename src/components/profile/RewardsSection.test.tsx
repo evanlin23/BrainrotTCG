@@ -32,12 +32,12 @@ afterEach(() => {
 });
 
 describe('the card back and foil section', () => {
-  it('opens with the failure in its header, not Loading…, when the saved packs could not be read', () => {
+  it('stays closed with the failure in its header, not Loading…, when the saved packs could not be read', () => {
     vi.spyOn(packCache, 'myPackCacheState').mockReturnValue('failed');
     render(null);
-    expect(details().open).toBe(true);
+    // Level holds the one alert and its retry; this section only says so, and doesn't open by itself.
+    expect(details().open).toBe(false);
     expect(summary()).toBe("Couldn't read your saved packs");
-    expect(details().querySelector('[role="alert"]')).not.toBeNull();
   });
 
   it('is titled once and folded away, with a summary that counts what is unlocked', () => {

@@ -137,16 +137,17 @@ const headerNote = (details: HTMLDetailsElement | null) => details?.querySelecto
 const levelFold = () => [...document.querySelectorAll<HTMLDetailsElement>('.profile-fold > details')].find((d) => d.querySelector('h2')?.textContent === 'Level, stats and collection')!;
 
 describe('notices are never hidden in a closed fold', () => {
-  it('opens Level and Rewards, and says why in their headers, when the saved packs could not be read', () => {
+  it('opens Level alone for a failed read: one alert, and Rewards says so in its closed header', () => {
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'failed' });
     myPackCacheState.mockReturnValue('failed');
     myStats.mockReturnValue(null);
     render({ level: null });
-    const alerts = [...document.querySelectorAll<HTMLElement>('[role="alert"]')];
-    expect(alerts.length).toBeGreaterThan(0);
-    for (const a of alerts) expect(foldOf(a)?.open).toBe(true);
-    expect(headerNote(levelFold())).toBe("Couldn't read your saved packs");
-    expect(fold('#rewards').open).toBe(true);
+    const alerts = [...document.querySelectorAll<HTMLElement>('[role="alert"]')].filter((a) => foldOf(a)?.open);
+    expect(alerts).toHaveLength(1);
+    expect(foldOf(alerts[0])).toBe(levelFold());
+    // The open body says it, so the header doesn't repeat it.
+    expect(headerNote(levelFold())).toBeUndefined();
+    expect(fold('#rewards').open).toBe(false);
     expect(headerNote(fold('#rewards'))).toBe("Couldn't read your saved packs");
   });
 
@@ -165,7 +166,8 @@ describe('notices are never hidden in a closed fold', () => {
     render();
     const note = [...document.querySelectorAll('.pulls-note')].find((n) => n.textContent?.includes('These local totals are partial'));
     expect(foldOf(note ?? null)?.open).toBe(true);
-    expect(headerNote(levelFold())).toBe('Totals are partial');
+    expect(levelFold().open).toBe(true);
+    expect(headerNote(levelFold())).toBeUndefined();
   });
 
   it('opens Level for a profile link that failed, even after the player closed it', async () => {
@@ -189,6 +191,11 @@ describe('notices are never hidden in a closed fold', () => {
     reopenStatus.mockReturnValue({ running: false, done: 0, total: 2, error: 'Stopped.' });
     render();
     expect(levelFold().open).toBe(true);
+    expect(headerNote(levelFold())).toBeUndefined();
+    act(() => {
+      levelFold().open = false;
+      levelFold().dispatchEvent(new Event('toggle'));
+    });
     expect(headerNote(levelFold())).toBe('Re-opening stopped');
   });
 });

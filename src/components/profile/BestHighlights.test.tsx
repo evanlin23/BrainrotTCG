@@ -247,9 +247,18 @@ describe('states', () => {
     checkBestPack.mockImplementationOnce((source) => Promise.resolve({ status: 'failed', source, reason: 'error' }));
     await render();
     expect(text('Best pack')).toContain("Couldn't check your best pack just now.");
-    // The failure isn't left in a closed fold: it opens, and its header says so.
+    // The failure isn't left in a closed fold: it opens, and the header says nothing the body doesn't while open.
     expect(fold().open).toBe(true);
+    expect(fold().querySelector('summary .profile-fold-note')).toBeNull();
+    act(() => {
+      fold().open = false;
+      fold().dispatchEvent(new Event('toggle'));
+    });
     expect(fold().querySelector('summary .profile-fold-note')?.textContent).toBe("Couldn't check");
+    act(() => {
+      fold().open = true;
+      fold().dispatchEvent(new Event('toggle'));
+    });
     expect(verified('Best pack')).toBe(false);
     expect(verified('Best card')).toBe(true);
 
@@ -271,7 +280,7 @@ describe('states', () => {
     await render();
     expect(text('Best pack')).toContain('Not verified');
     expect(fold().open).toBe(true);
-    expect(fold().querySelector('summary .profile-fold-note')?.textContent).toBe('Not verified');
+    expect(fold().querySelector('summary .profile-fold-note')).toBeNull();
     expect(highlight('Best pack').querySelector('button')).toBeNull();
     expect(highlight('Best pack').querySelector('.pull-row')).toBeNull();
     expect(verified('Best card')).toBe(true);

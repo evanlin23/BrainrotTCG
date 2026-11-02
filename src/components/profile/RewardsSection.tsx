@@ -30,7 +30,7 @@ const rewardsSummary = (level: number): string => {
 /** The card backs and pack foils your level unlocked, folded away until asked for. */
 export default function RewardsSection({ level, settings, onSettingsChange, openRequest }: RewardsSectionProps) {
   usePackCacheVersion();
-  // A failed read says so in the header and opens the fold, which holds the alert and its retry.
+  // A failed read says so in the header, not Loading…. Only Level opens for it: one failure, one alert.
   const failed = level === null && myPackCacheState() === 'failed';
   return (
     <ProfileSection
@@ -40,6 +40,7 @@ export default function RewardsSection({ level, settings, onSettingsChange, open
       className="profile-section profile-rewards"
       note={level === null ? 'Loading…' : rewardsSummary(level)}
       attention={failed ? "Couldn't read your saved packs" : null}
+      headerOnly
       openRequest={openRequest}
     >
       {level === null ? (

@@ -58,7 +58,8 @@ it('opens when a notice needs attention, says so in its header, lets the player 
     expect(note()).toBe('3 of 9 unlocked');
     render('Needs attention', { note: '3 of 9 unlocked' });
     expect(fold().open).toBe(true);
-    expect(note()).toBe('Needs attention');
+    // The open body states it, so the header says nothing, not even the usual note.
+    expect(note()).toBeUndefined();
     act(() => {
       fold().open = false;
       fold().dispatchEvent(new Event('toggle'));
@@ -76,6 +77,16 @@ it('opens when a notice needs attention, says so in its header, lets the player 
     act(() => second.render(<ProfileSection title="Totals" attention="Couldn't read">Body</ProfileSection>));
     expect(fold().open).toBe(true);
     act(() => second.unmount());
+
+    // A header-only section says so when closed, and never opens by itself.
+    const third = createRoot(container);
+    act(() => third.render(<ProfileSection title="Totals" attention="Couldn't read" headerOnly>Body</ProfileSection>));
+    expect(fold().open).toBe(false);
+    expect(note()).toBe("Couldn't read");
+    act(() => third.render(<ProfileSection title="Totals" attention={null} headerOnly>Body</ProfileSection>));
+    act(() => third.render(<ProfileSection title="Totals" attention="Couldn't read again" headerOnly>Body</ProfileSection>));
+    expect(fold().open).toBe(false);
+    act(() => third.unmount());
   } finally {
     container.remove();
     vi.unstubAllGlobals();

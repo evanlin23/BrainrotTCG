@@ -749,7 +749,6 @@ export async function recordShownToasts(page: Page, { hold = false } = {}) {
   return () => page.evaluate(() => (window as unknown as { __shownToasts: string[] }).__shownToasts.slice());
 }
 
-/** Scales the root font like a player's text-size setting, and waits for fonts to settle. */
 /**
  * Opens a Profile section's fold if it is closed. A section with a notice to show opens itself, so a bare click on
  * its header would close it again; and a section closed again later hides its content from getByRole and visibility.
@@ -761,6 +760,7 @@ export async function openFold(section: Locator) {
   await expect(fold).toHaveJSProperty('open', true);
 }
 
+/** Scales the root font like a player's text-size setting, and waits for fonts to settle. */
 export async function scaleText(page: Page, percent: number) {
   await page.addStyleTag({ content: `html { font-size: ${percent}% !important; }` });
   await page.evaluate(() => document.fonts.ready);
