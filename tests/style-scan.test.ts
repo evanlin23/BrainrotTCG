@@ -36,6 +36,27 @@ const rule = (path: string, selector: string) => {
   return new RegExp(`(?:^|\\})\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
 };
 
+/** Declarations that a rule targeting a select sets beyond border-radius and width, as "file: selector sets property". */
+const selectOverrides = (path: string, css: string): string[] => {
+  const found: string[] = [];
+  // `[^{}]` can't cross a brace and nothing is consumed beyond the rule's own `}`, so rules that
+  // follow each other, or sit inside @media and @container, are all seen.
+  for (const [, prelude, body] of css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    // A statement at-rule (@import, @layer a;) before the selector isn't part of it.
+    const selectorStr = prelude.slice(prelude.lastIndexOf(';') + 1).trim();
+    if (selectorStr.startsWith('@')) continue;
+    const targetsSelect = selectorStr.split(',').some((selector) => {
+      const stripped = selector.replace(/:[\w-]+(?:\([^)]*\))?/g, '').trim();
+      return /(?:^|[\s>+~])(?:select(?:\.[a-zA-Z0-9_-]+)*|\.collection-select)$/.test(stripped);
+    });
+    if (!targetsSelect) continue;
+    for (const [, prop] of body.matchAll(/(?:^|[;{\s])([\w-]+)\s*:/g)) {
+      if (prop !== 'border-radius' && prop !== 'width') found.push(`${path}: ${selectorStr} sets ${prop}`);
+    }
+  }
+  return found;
+};
+
 const PX: Record<string, number> = { px: 1, rem: 16, em: 16, '%': 0.16 };
 const LENGTH = /^(\d*\.?\d+)(px|rem|em|%)$/;
 const FLUID = /^\d*\.?\d+(vw|vh|vmin|vmax|svh|dvh|lvh|cqw|cqh|cqi|cqb|cqmin|cqmax)$/;
@@ -245,24 +266,17 @@ it('styles select dropdowns in base.css and keeps other stylesheets from overrid
   expect(mediaBlock).toMatch(/select\s*\{[^}]*appearance:\s*auto/);
 
   // Scan every other stylesheet: any rule targeting select or .collection-select can only override border-radius or width
-  const violations: string[] = [];
-  for (const { path, css } of sheets) {
-    if (path === 'styles/base.css') continue;
-    const cleanCss = css.replace(/\/\*[\s\S]*?\*\//g, '');
-    for (const [, selectorStr, body] of cleanCss.matchAll(/(?:^|[{}])\s*([^{}]+?)\s*\{([^{}]+)\}/g)) {
-      if (selectorStr.trim().startsWith('@')) continue;
-      const selectors = selectorStr.split(',').map((s) => s.trim());
-      const targetsSelect = selectors.some((s) => {
-        const stripped = s.replace(/:[\w-]+(?:\([^)]*\))?/g, '').trim();
-        return /(?:^|[\s>+~])(?:select(?:\.[a-zA-Z0-9_-]+)*|\.collection-select)$/.test(stripped);
-      });
-      if (!targetsSelect) continue;
-      for (const [, prop] of body.matchAll(/(?:^|[;{\s])([\w-]+)\s*:/g)) {
-        if (prop !== 'border-radius' && prop !== 'width') {
-          violations.push(`${path}: ${selectorStr.trim()} sets ${prop}`);
-        }
-      }
-    }
-  }
+  const violations = sheets.filter(({ path }) => path !== 'styles/base.css').flatMap(({ path, css }) => selectOverrides(path, css));
   expect(violations).toEqual([]);
+});
+
+it('scans every rule for select overrides, including consecutive and nested ones', () => {
+  expect(selectOverrides('x.css', '.x { display: block } .y select { height: 30px }')).toEqual(['x.css: .y select sets height']);
+  expect(selectOverrides('x.css', '.a { color: red }\n.b { color: red }\n.c select { padding: 0 }\n.d select { margin: 0 }'))
+    .toEqual(['x.css: .c select sets padding', 'x.css: .d select sets margin']);
+  expect(selectOverrides('x.css', '@media (width < 400px) { .a { color: red } select { height: 30px } }')).toEqual(['x.css: select sets height']);
+  expect(selectOverrides('x.css', '@media (width < 400px) { .a { color: red } @container (width < 1px) { .b { top: 0 } .collection-select { gap: 0 } } }'))
+    .toEqual(['x.css: .collection-select sets gap']);
+  expect(selectOverrides('x.css', '@import url(a.css);\n.y select { height: 30px }')).toEqual(['x.css: .y select sets height']);
+  expect(selectOverrides('x.css', '.x { display: block } .y select { width: 100%; border-radius: 0 } .z { top: 0 }')).toEqual([]);
 });
