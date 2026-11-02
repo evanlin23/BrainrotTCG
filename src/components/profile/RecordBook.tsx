@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import ProfileSection from './ProfileSection';
 import { getLatestSet } from '../../content/sets';
 import type { RecordBook as Records, Standing } from '../../game/personalRecords';
 import '../../styles/Profile.css';
@@ -62,11 +62,9 @@ const RecordRow = ({ label, standing, format, none, pending }: RecordProps) => (
  * sets the bar. Derived from this player's history on each read (personalRecords' recordBook).
  */
 const RecordBook = ({ book, cardsPending = false }: RecordBookProps) => {
-  const titleId = useId();
   const empty = book.bestPackBySet.length === 0 && !book.mostHolos && !book.mostPacksInADay && !book.longestDroughtBroken;
   return (
-    <section className="record-book profile-section" aria-labelledby={titleId}>
-      <h2 id={titleId} className="section-title">Personal records</h2>
+    <ProfileSection title="Personal records" className="record-book profile-section">
       {empty && !cardsPending ? (
         <p className="record-book-note">No records yet. Your first pack sets the bar, and a later pack that beats it sets a record.</p>
       ) : (
@@ -98,7 +96,7 @@ const RecordBook = ({ book, cardsPending = false }: RecordBookProps) => {
           </p>
         </>
       )}
-    </section>
+    </ProfileSection>
   );
 };
 

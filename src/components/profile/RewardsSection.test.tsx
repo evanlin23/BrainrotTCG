@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CARD_BACKS, PACK_FOILS } from '../../game/progression';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import type { Settings } from '../../types';
+import * as packCache from '../../game/packCache';
 import RewardsSection from './RewardsSection';
 
 let root: Root;
@@ -13,7 +14,7 @@ let onSettingsChange: ReturnType<typeof vi.fn<(settings: Settings) => void>>;
 const render = (level: number | null, openRequest?: number) =>
   act(() => root.render(<RewardsSection level={level} settings={DEFAULT_SETTINGS} onSettingsChange={onSettingsChange} openRequest={openRequest} />));
 const details = () => document.querySelector<HTMLDetailsElement>('#rewards details')!;
-const summary = () => document.querySelector('#rewards summary')!.textContent;
+const summary = () => document.querySelector('#rewards .profile-fold-note')!.textContent;
 const TOTAL = CARD_BACKS.length + PACK_FOILS.length;
 
 beforeEach(() => {
@@ -27,9 +28,18 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('the card back and foil section', () => {
+  it('stays closed with the failure in its header, not Loading…, when the saved packs could not be read', () => {
+    vi.spyOn(packCache, 'myPackCacheState').mockReturnValue('failed');
+    render(null);
+    // Level holds the one alert and its retry; this section only says so, and doesn't open by itself.
+    expect(details().open).toBe(false);
+    expect(summary()).toBe("Couldn't read your saved packs");
+  });
+
   it('is titled once and folded away, with a summary that counts what is unlocked', () => {
     render(1);
     expect(document.querySelector('#rewards h2')!.textContent).toBe('Card back and foil');
@@ -83,7 +93,8 @@ describe('the card back and foil section', () => {
 
   it('shows a loading note instead of the rewards while the level is unknown', () => {
     render(null);
-    expect(document.querySelector('#rewards details')).toBeNull();
+    expect(details().open).toBe(false);
+    expect(summary()).toBe('Loading…');
     expect(document.body.textContent).toContain("Reading your saved packs… Your card backs and foils will show once they're in.");
     render(1);
     expect(document.querySelector('.rewards')).not.toBeNull();

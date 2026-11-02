@@ -269,6 +269,7 @@ test('Profile sorts best pulls first and names the filter for Rankings', async (
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
   await main.getByRole('button', { name: 'Profile', exact: true }).click();
   const myCards = page.getByRole('main', { name: 'Profile', exact: true });
+  await myCards.locator('.pulls-history > details > summary').click();
 
   const tabs = myCards.getByRole('tablist', { name: 'Sort packs', exact: true }).getByRole('tab');
   await expect(tabs).toHaveText(['Best', 'Newest', 'For Rankings · 0']);

@@ -87,6 +87,7 @@ test('shares a card from My pulls, with its link, image and ticket', { tag: '@cr
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   const main = await profile(page);
   await expect(main).toContainText('All packs · 1');
+  await main.locator('.pulls-history > details > summary').click();
   await main.locator('.pulls-history .pull-row').first().click();
   const { sheet, shareButton, viewer } = await shareCardFromPull(page);
   await expectCopies(page, sheet);
@@ -109,6 +110,7 @@ test('shares a card from the verified Best pack highlight', async ({ page, baseU
   }, STORAGE_KEYS.STATS);
   const main = await profile(page);
   const best = main.getByRole('region', { name: 'Best pack', exact: true });
+  await main.locator('.profile-fold-toggle').filter({ hasText: 'Best pack and card' }).click();
   await expect(best.locator('.profile-verified')).toHaveText(/Verified/, { timeout: 15000 });
   await expect(best.locator('.pull-row-meta')).toContainText('ticket #0');
   await best.locator('.pull-row').click();
@@ -136,6 +138,7 @@ test('a pull that would join the Hall of Fame keeps its buttons ahead of the pos
     }]));
   }, STORAGE_KEYS.HISTORY);
   const main = await profile(page);
+  await main.locator('.pulls-history > details > summary').click();
   await main.locator('.pulls-history .pull-row').first().click();
   const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
   await expect(pull.locator('.share-hof')).toBeVisible();
@@ -154,6 +157,7 @@ test('folds the secondary share outputs and the card gallery behind disclosures 
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   const main = await profile(page);
+  await main.locator('.pulls-history > details > summary').click();
   await main.locator('.pulls-history .pull-row').first().click();
   const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
   await expect(pull.getByRole('img', { name: "The image you'll share", exact: true })).toBeVisible();
@@ -194,6 +198,7 @@ test('the sheet keeps Tab and Shift+Tab inside it when its disclosure summaries 
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   const main = await profile(page);
+  await main.locator('.pulls-history > details > summary').click();
   await main.locator('.pulls-history .pull-row').first().click();
   const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
   await expect(pull.getByRole('img', { name: "The image you'll share", exact: true })).toBeVisible();

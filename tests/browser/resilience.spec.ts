@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import {
-  FEED_DOWN, expectDecoded, expectRecordedPack, holdTickets, monitor, pickWithImport, relaysAnswerEmpty, releaseTickets, sameStorage,
+  FEED_DOWN, expectDecoded, expectRecordedPack, holdTickets, monitor, openFold, pickWithImport, relaysAnswerEmpty, releaseTickets, sameStorage,
   settingsOf, snapshot, storageOf,
 } from './support';
 
@@ -741,6 +741,8 @@ test.describe('Argon2 chunk fetched ahead (#776)', () => {
     await nav(page).getByRole('button', { name: 'Profile', exact: true }).click();
     const bestCards = () => page.getByRole('main', { name: 'Profile', exact: true }).getByRole('region', { name: 'Best cards', exact: true });
     const rows = () => bestCards().locator('button.best-card-row');
+    // Closed, its rows are neither seen nor asked for (their pictures are lazy), and getByRole finds nothing in it.
+    await openFold(bestCards());
     await expect(rows()).toHaveCount(10);
     const before = await rows().locator('.pull-row-score').allTextContents();
     await nav(page).getByRole('button', { name: 'Open', exact: true }).click();
@@ -757,6 +759,8 @@ test.describe('Argon2 chunk fetched ahead (#776)', () => {
     offline = true;
     await page.context().setOffline(true);
     await nav(page).getByRole('button', { name: 'Profile', exact: true }).click();
+    // The page starts folded again: open Best cards first, so the status check below can fail.
+    await openFold(bestCards());
     await expect(rows()).toHaveCount(10, { timeout: 30000 });
     expect(await rows().locator('.pull-row-score').allTextContents()).toEqual(before);
     await expect(bestCards().getByRole('status')).toHaveCount(0);

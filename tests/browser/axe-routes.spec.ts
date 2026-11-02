@@ -244,6 +244,7 @@ test.describe('routes', () => {
   test('Profile', async ({ page, baseURL }, testInfo) => {
     const errors = await monitor(page, baseURL!, 1, { returning: true });
     await page.goto('./#/profile');
+    await page.locator('.pulls-history > details > summary').click();
     await expectRouteContract(page, 'Profile', (main) => main.locator('.pulls-history .pull-row'));
     await expect(page.getByRole('main', { name: 'Profile', exact: true })).toContainText('All packs · 1');
     await expectAxeClean(page, testInfo, 'profile');
