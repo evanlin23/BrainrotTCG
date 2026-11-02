@@ -95,7 +95,7 @@ it('migrates a pre-versioning save on load without losing its cards or pulls, th
   // Best pulls, on the Profile page, shows the migrated pull and the unproven best pack.
   await app.interact(() => button('Profile').click());
   await app.until('Best pulls lists the migrated pull', () => {
-    expect(document.querySelector('.pulls-history-title#pulls-history-title')?.textContent).toBe('All packs · 1');
+    expect(document.querySelector('#pulls-history-title')?.textContent).toBe('All packs · 1');
   });
   const rows = [...document.querySelectorAll<HTMLButtonElement>('.pulls-page .pull-row')];
   expect(rows).toHaveLength(1);

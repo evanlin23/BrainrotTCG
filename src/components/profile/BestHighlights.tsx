@@ -4,6 +4,7 @@ import CardImage from '../cards/CardImage';
 import CardViewerModal from '../cards/CardViewerModal';
 import type { CardWithMeta } from '../cards/Card';
 import PullRow from './PullRow';
+import ProfileSection from './ProfileSection';
 import { getSet, setCode } from '../../content/sets';
 import { STORAGE_KEYS } from '../../constants';
 import { qualifiesForHallOfFame } from '../../engine';
@@ -130,9 +131,9 @@ const Highlight = <S, V>({ title, titleRef, state, what, onRetry, waiting, card,
   const quiet = state.status === 'available' || waiting;
   return (
     <section aria-labelledby={id} className="profile-highlight">
-      <h2 id={id} ref={titleRef} tabIndex={-1} className="section-title profile-heading">
+      <h3 id={id} ref={titleRef} tabIndex={-1} className="section-title profile-heading">
         {title}
-      </h2>
+      </h3>
       {/* Only the state is live (checking, then verified or why not), so a settled check doesn't read out the whole row. */}
       <p className={quiet ? 'sr-only' : 'pulls-note profile-highlight-note'}>
         <span role="status">{waiting ? `Checking ${what} against its ticket…` : stateText(state, what)}</span>
@@ -225,119 +226,125 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge, expecting =
   const cardVersion = shownCard && versionOf(shownCard.verified.pulled);
   const cardId = shownCard && JSON.stringify([shownCard.source.ref, shownCard.source.slot]);
 
+  // A check that failed (or found a ticket that opens to other cards) must not wait unseen in a closed fold.
+  const failures = [pack.state, card.state].flatMap((s) => (s.status === 'failed' ? [s.reason] : []));
+  const attention = failures.length ? (failures.includes('mismatch') ? 'Not verified' : "Couldn't check") : null;
+
   return (
-    <div className="profile-highlights">
-      <Highlight
-        title="Best pack"
-        titleRef={packTitle}
-        state={pack.state}
-        what="your best pack"
-        onRetry={() => retry(pack.retry, packTitle)}
-        waiting={packWaiting}
-      >
-        {pack.state.status === 'available' && (
-          <ul className="pulls-list">
-            {(() => {
-              const { source, verified } = pack.state;
-              return (
-                <PullRow
-                  cards={verified.cards}
-                  set={getSet(source.ref.setId, source.ref.setVersion)}
-                  setId={source.ref.setId}
-                  hand={verified.score.hand.name}
-                  score={verified.score.score}
-                  meta={<>ticket #{source.ref.nonce.toLocaleString()}</>}
-                  worthy={qualifiesForHallOfFame(verified.score)}
-                  badge={
-                    <>
-                      <Verified />
-                      {packBadge?.(source.ref)}
-                    </>
-                  }
-                  onClick={() => onSharePack(source.ref, verified.cards)}
-                />
-              );
-            })()}
-          </ul>
-        )}
-      </Highlight>
-
-      <Highlight
-        title="Best card"
-        titleRef={cardTitle}
-        state={card.state}
-        what="your best card"
-        onRetry={() => retry(card.retry, cardTitle)}
-        waiting={cardWaiting}
-        card
-      >
-        {shownCard && cardVersion && (
-          <>
+    <ProfileSection title="Best pack and card" attention={attention}>
+      <div className="profile-highlights">
+        <Highlight
+          title="Best pack"
+          titleRef={packTitle}
+          state={pack.state}
+          what="your best pack"
+          onRetry={() => retry(pack.retry, packTitle)}
+          waiting={packWaiting}
+        >
+          {pack.state.status === 'available' && (
             <ul className="pulls-list">
-              <li>
-                <button
-                  type="button"
-                  className="pull-row best-card-row quiet-focus"
-                  style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}
-                  onClick={(event) => {
-                    opener.current = event.currentTarget;
-                    setViewing(cardId);
-                  }}
-                >
-                  <span className="pull-row-thumbs" aria-hidden="true">
-                    <CardImage
-                      src={shownCard.verified.card.image}
-                      finish={cardVersion.finish}
-                      thumbnail
-                      alt=""
-                      loading="lazy"
-                      className={`${cardVersion.isHolo ? 'holo' : ''} ${modifierClasses(cardVersion)}`}
-                    />
-                  </span>
-                  <span className="pull-row-main">
-                    <span className="pull-row-hand">
-                      {shownCard.verified.card.name}
-                      <Verified />
-                    </span>
-                    <span className="pull-row-meta">
-                      {cardSet && <span className="set-code">{setCode(cardSet)}</span>}
-                      <span className="sr-only">, </span>
-                      {modifierLabel(cardVersion) || 'Plain'}
-                      <span className="sr-only">, </span>
-                      <span> · ticket #{shownCard.source.ref.nonce.toLocaleString()}</span>
-                    </span>
-                  </span>
-                  <span className="pull-row-score tabular">
-                    {shownCard.verified.points.toLocaleString()}
-                    <span className="pull-row-unit" aria-hidden="true"> pts</span>
-                    <span className="sr-only"> points</span>
-                  </span>
-                  <ChevronRight className="pull-row-chevron" aria-hidden="true" />
-                </button>
-              </li>
+              {(() => {
+                const { source, verified } = pack.state;
+                return (
+                  <PullRow
+                    cards={verified.cards}
+                    set={getSet(source.ref.setId, source.ref.setVersion)}
+                    setId={source.ref.setId}
+                    hand={verified.score.hand.name}
+                    score={verified.score.score}
+                    meta={<>ticket #{source.ref.nonce.toLocaleString()}</>}
+                    worthy={qualifiesForHallOfFame(verified.score)}
+                    badge={
+                      <>
+                        <Verified />
+                        {packBadge?.(source.ref)}
+                      </>
+                    }
+                    onClick={() => onSharePack(source.ref, verified.cards)}
+                  />
+                );
+              })()}
             </ul>
-            {!shownCard.source.complete && <p className="pulls-note profile-highlight-note">The best among the packs saved on this device.</p>}
-          </>
+          )}
+        </Highlight>
+
+        <Highlight
+          title="Best card"
+          titleRef={cardTitle}
+          state={card.state}
+          what="your best card"
+          onRetry={() => retry(card.retry, cardTitle)}
+          waiting={cardWaiting}
+          card
+        >
+          {shownCard && cardVersion && (
+            <>
+              <ul className="pulls-list">
+                <li>
+                  <button
+                    type="button"
+                    className="pull-row best-card-row quiet-focus"
+                    style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}
+                    onClick={(event) => {
+                      opener.current = event.currentTarget;
+                      setViewing(cardId);
+                    }}
+                  >
+                    <span className="pull-row-thumbs" aria-hidden="true">
+                      <CardImage
+                        src={shownCard.verified.card.image}
+                        finish={cardVersion.finish}
+                        thumbnail
+                        alt=""
+                        loading="lazy"
+                        className={`${cardVersion.isHolo ? 'holo' : ''} ${modifierClasses(cardVersion)}`}
+                      />
+                    </span>
+                    <span className="pull-row-main">
+                      <span className="pull-row-hand">
+                        {shownCard.verified.card.name}
+                        <Verified />
+                      </span>
+                      <span className="pull-row-meta">
+                        {cardSet && <span className="set-code">{setCode(cardSet)}</span>}
+                        <span className="sr-only">, </span>
+                        {modifierLabel(cardVersion) || 'Plain'}
+                        <span className="sr-only">, </span>
+                        <span> · ticket #{shownCard.source.ref.nonce.toLocaleString()}</span>
+                      </span>
+                    </span>
+                    <span className="pull-row-score tabular">
+                      {shownCard.verified.points.toLocaleString()}
+                      <span className="pull-row-unit" aria-hidden="true"> pts</span>
+                      <span className="sr-only"> points</span>
+                    </span>
+                    <ChevronRight className="pull-row-chevron" aria-hidden="true" />
+                  </button>
+                </li>
+              </ul>
+              {!shownCard.source.complete && <p className="pulls-note profile-highlight-note">The best among the packs saved on this device.</p>}
+            </>
+          )}
+        </Highlight>
+
+        {/* While a check is out, the footnote's place is held, so a verdict moves nothing below it. */}
+        {(anyVerified || anyWaiting) && (
+          <p className={anyVerified ? 'profile-footnote' : 'profile-footnote profile-footnote--held'} aria-hidden={anyVerified ? undefined : true}>
+            Verified means its pack was opened again from its ticket with your key. It covers that pack only: your level and totals
+            below are this device's progress.
+          </p>
         )}
-      </Highlight>
 
-      {/* While a check is out, the footnote's place is held, so a verdict moves nothing below it. */}
-      {(anyVerified || anyWaiting) && (
-        <p className={anyVerified ? 'profile-footnote' : 'profile-footnote profile-footnote--held'} aria-hidden={anyVerified ? undefined : true}>
-          Verified means its pack was opened again from its ticket with your key. It covers that pack only: your level and totals
-          below are this device's progress.
-        </p>
-      )}
-
-      {viewing !== null && viewing === cardId && shownCard && cardVersion && (
-        <CardViewerModal
-          card={{ ...shownCard.verified.card, ...cardVersion }}
-          canShare
-          pack={shownCard.source.ref}
-          onClose={() => setViewing(null)}
-        />
-      )}
-    </div>
+        {viewing !== null && viewing === cardId && shownCard && cardVersion && (
+          <CardViewerModal
+            card={{ ...shownCard.verified.card, ...cardVersion }}
+            canShare
+            pack={shownCard.source.ref}
+            onClose={() => setViewing(null)}
+          />
+        )}
+      </div>
+    </ProfileSection>
   );
 };
 

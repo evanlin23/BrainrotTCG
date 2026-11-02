@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Page, { type PageSection } from './Page';
 import { sheetLoader } from './sheetEntry';
+import ProfileSection from '../profile/ProfileSection';
 
 vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
@@ -142,5 +143,14 @@ describe('Page', () => {
     render(page({ id: 'extra', n: 2 }));
     expect(document.activeElement?.textContent).toBe('Extra');
     expect(scroll).toHaveBeenCalledTimes(2);
+  });
+
+  it('lands a requested folded section on its summary, which Enter and Space toggle, not on the heading inside it', async () => {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+    const Folded = () => <ProfileSection id="fold" title="Rewards" openRequest={1}>Body</ProfileSection>;
+    const load = sheetLoader(() => Promise.resolve({ default: Folded as unknown as typeof Screen }));
+    render(<Page load={load} title="Profile" section={{ id: 'fold', n: 1 }} screenProps={{ label: '' }} onClose={onClose} />);
+    await flush();
+    expect(document.activeElement?.tagName).toBe('SUMMARY');
   });
 });

@@ -2,7 +2,7 @@ import { test, expect, type Browser } from '@playwright/test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { monitor, expectDecoded, expectRecordedPack, holdTickets, pickWithImport, releaseTickets, sameStorage, settingsOf, snapshot, storageOf } from './support';
+import { monitor, expectDecoded, expectRecordedPack, holdTickets, openFold, pickWithImport, releaseTickets, sameStorage, settingsOf, snapshot, storageOf } from './support';
 
 /**
  * Back up and Restore in Save & backup (#744, #764), through the browser's own file controls: the
@@ -231,6 +231,8 @@ test('a backup restores into the same browser after its storage is cleared and r
   await page.goto('./#/profile');
   const profile = page.getByRole('main', { name: 'Profile', exact: true });
   const level = profile.locator('.profile-level');
+  const levelFold = profile.locator('.profile-fold').filter({ has: page.getByRole('heading', { name: 'Level, stats and collection', exact: true }) });
+  await openFold(levelFold);
   await expect(level).toBeVisible();
   const levelBefore = await level.innerText();
 
@@ -241,7 +243,9 @@ test('a backup restores into the same browser after its storage is cleared and r
   await page.goto('./');
   await expect(packShell).toBeVisible();
   await page.goto('./#/profile');
+  // No packs: the page says so outside any fold, and has no Level section to open.
   await expect(profile).toContainText('No packs yet');
+  await expect(levelFold).toHaveCount(0);
   const fresh = await storageOf(page);
   // Parse first and compare the number alone, so a failure doesn't print the player (and its key).
   const freshNonce = (JSON.parse(fresh[PLAYER_KEY] ?? '{}') as { nextNonce?: unknown }).nextNonce;
@@ -266,6 +270,7 @@ test('a backup restores into the same browser after its storage is cleared and r
   expect(restored[PLAYER_KEY] === exportedPlayer).toBe(true);
   expect(await snapshot(page)).toEqual(opened);
   await page.goto('./#/profile');
+  await openFold(levelFold);
   await expect(level).toBeVisible();
   expect(await level.innerText()).toBe(levelBefore);
 
