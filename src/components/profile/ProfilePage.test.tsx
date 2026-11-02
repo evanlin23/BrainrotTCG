@@ -16,8 +16,12 @@ import { toCardsWithMeta } from '../../game/pulls';
 import { scoreCards } from '../../data/cards';
 import { resetSubmissionsForTest, submitToHallOfFame, SUBMITTED_KEY } from '../../game/share';
 
-const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks } = vi.hoisted(() => ({
-  myProfileInfo: vi.fn(), myProfileProof: vi.fn(), myStats: vi.fn(), myPackCacheState: vi.fn(), hydrateMyPacks: vi.fn(),
+const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks, reopenStatus } = vi.hoisted(() => ({
+  myProfileInfo: vi.fn(), myProfileProof: vi.fn(), myStats: vi.fn(), myPackCacheState: vi.fn(), hydrateMyPacks: vi.fn(), reopenStatus: vi.fn(),
+}));
+vi.mock('../../game/reopenJob', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/reopenJob')>()),
+  reopenStatus,
 }));
 vi.mock('../../game/profiles', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/profiles')>()),
@@ -84,6 +88,7 @@ beforeEach(() => {
   myStats.mockReset().mockImplementation(actual.myStats);
   myPackCacheState.mockReset().mockReturnValue('ready');
   hydrateMyPacks.mockReset().mockResolvedValue('ready');
+  reopenStatus.mockReset().mockReturnValue(null);
   getHistory.mockReset().mockImplementation(actualHistory.getHistory);
   getStoredPack.mockReset().mockImplementation(actualPackStore.getStoredPack);
   checkBestPack.mockReset().mockReturnValue(new Promise(() => {}));
@@ -124,6 +129,76 @@ const render = (props: Partial<Parameters<typeof ProfilePage>[0]> = {}) =>
 const button = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent?.includes(label))!;
 const alert = () => document.querySelector<HTMLElement>('[role="alert"]');
+
+/** The fold holding `el`, and whether it is open (a role=alert in a closed one is never announced). */
+const foldOf = (el: Element | null) => el?.closest('details') as HTMLDetailsElement | null;
+const fold = (id: string) => document.querySelector<HTMLDetailsElement>(`${id} > details`)!;
+const headerNote = (details: HTMLDetailsElement | null) => details?.querySelector('summary .profile-fold-note')?.textContent;
+const levelFold = () => [...document.querySelectorAll<HTMLDetailsElement>('.profile-fold > details')].find((d) => d.querySelector('h2')?.textContent === 'Level, stats and collection')!;
+
+describe('notices are never hidden in a closed fold', () => {
+  it('opens Level alone for a failed read: one alert, and Rewards says so in its closed header', () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'failed' });
+    myPackCacheState.mockReturnValue('failed');
+    myStats.mockReturnValue(null);
+    render({ level: null });
+    const alerts = [...document.querySelectorAll<HTMLElement>('[role="alert"]')].filter((a) => foldOf(a)?.open);
+    expect(alerts).toHaveLength(1);
+    expect(foldOf(alerts[0])).toBe(levelFold());
+    // The open body says it, so the header doesn't repeat it.
+    expect(headerNote(levelFold())).toBeUndefined();
+    expect(fold('#rewards').open).toBe(false);
+    expect(headerNote(fold('#rewards'))).toBe("Couldn't read your saved packs");
+  });
+
+  it('keeps Level and Rewards closed, with Loading in Rewards, while the packs are only loading', () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
+    myPackCacheState.mockReturnValue('loading');
+    myStats.mockReturnValue(null);
+    render({ level: null });
+    expect(levelFold().open).toBe(false);
+    expect(fold('#rewards').open).toBe(false);
+    expect(headerNote(fold('#rewards'))).toBe('Loading…');
+  });
+
+  it('opens Level for the partial-totals note when some packs have no original set record', () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 1, missing: 2, cache: 'ready' });
+    render();
+    const note = [...document.querySelectorAll('.pulls-note')].find((n) => n.textContent?.includes('These local totals are partial'));
+    expect(foldOf(note ?? null)?.open).toBe(true);
+    expect(levelFold().open).toBe(true);
+    expect(headerNote(levelFold())).toBeUndefined();
+  });
+
+  it('opens Level for a profile link that failed, even after the player closed it', async () => {
+    myProfileProof.mockRejectedValueOnce(new Error('Your save changed.'));
+    render();
+    act(() => {
+      levelFold().open = true;
+      levelFold().dispatchEvent(new Event('toggle'));
+    });
+    await act(async () => button('Copy profile link').click());
+    act(() => {
+      levelFold().open = false;
+      levelFold().dispatchEvent(new Event('toggle'));
+    });
+    expect(headerNote(levelFold())).toBe("Couldn't make your profile link");
+    expect(foldOf(alert())).toBe(levelFold());
+  });
+
+  it('opens Level when re-opening the packs stopped with an error', () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 2, cache: 'ready' });
+    reopenStatus.mockReturnValue({ running: false, done: 0, total: 2, error: 'Stopped.' });
+    render();
+    expect(levelFold().open).toBe(true);
+    expect(headerNote(levelFold())).toBeUndefined();
+    act(() => {
+      levelFold().open = false;
+      levelFold().dispatchEvent(new Event('toggle'));
+    });
+    expect(headerNote(levelFold())).toBe('Re-opening stopped');
+  });
+});
 
 describe('profile link failures', () => {
   it.each(['Copy profile link', 'Profile card'])('shows why %s failed when another tab changed the save, and can retry', async (label) => {
@@ -311,7 +386,10 @@ describe('the page', () => {
     localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: 'cd'.repeat(32), name: 'Original Player', nextNonce: 4, createdAt: 1 }));
     render();
     const headings = [...document.querySelectorAll('h2')].map((el) => el.textContent);
-    expect(headings).toEqual(expect.arrayContaining(['Level and stats', 'Achievements', 'Card back and foil']));
+    expect(headings).toEqual(expect.arrayContaining(['Level, stats and collection', 'Achievements', 'Card back and foil']));
+    // With no best pack or card to show, their fold isn't an empty header.
+    expect(headings).not.toContain('Best pack and card');
+    expect([...document.querySelectorAll<HTMLDetailsElement>('.profile-fold > details')].every((fold) => !fold.open)).toBe(true);
     // The name heads the page, once: no subtitle repeats it.
     expect(headings[0]).toBe('Original Player');
     expect(document.querySelector('.page-subtitle')).toBeNull();
@@ -326,6 +404,8 @@ describe('the page', () => {
     const onOpenPacks = vi.fn();
     const onOpenSave = vi.fn();
     render({ onOpenPacks, onOpenSave });
+    // The prompt is never behind a closed fold.
+    expect(button('Open your first pack').closest('details')).toBeNull();
     act(() => button('Open your first pack').click());
     expect(onOpenPacks).toHaveBeenCalledTimes(1);
     const note = document.querySelector('.profile-page')!.lastElementChild!;
@@ -393,7 +473,8 @@ describe('the page', () => {
 
 describe('folded sections', () => {
   const unlocked = Object.fromEntries(ACHIEVEMENTS.slice(0, 5).map((a, i) => [a.id, 1000 + i]));
-  const all = () => document.querySelector<HTMLDetailsElement>('#achievements details')!;
+  const all = () => document.querySelector<HTMLDetailsElement>('#achievements .achievements-all')!;
+  const achievements = () => document.querySelector<HTMLDetailsElement>('#achievements > details')!;
   const rewards = () => document.querySelector<HTMLDetailsElement>('#rewards details')!;
   const names = (el: Element) => [...el.querySelectorAll('.achievement-name')].map((n) => n.textContent);
 
@@ -404,6 +485,8 @@ describe('folded sections', () => {
     const recent = section.querySelector('.achievements-group')!;
     expect(names(recent)).toEqual(ACHIEVEMENTS.slice(2, 5).map((a) => a.name).reverse());
     expect(all().open).toBe(false);
+    expect(achievements().open).toBe(false);
+    expect(achievements().querySelector('summary .profile-fold-note')!.textContent).toBe(`5/${ACHIEVEMENTS.length} unlocked`);
     expect(all().querySelector('summary')!.textContent).toBe(`Show all achievements (${ACHIEVEMENTS.length})`);
     expect(names(all())).toEqual(expect.arrayContaining(ACHIEVEMENTS.slice(0, 2).map((a) => a.name)));
   });
@@ -411,21 +494,27 @@ describe('folded sections', () => {
   it('opens Show all when a link or toast asks for #achievements, and again for a later request', () => {
     render({ unlockedAchievements: unlocked, section: { id: 'achievements', n: 1 } });
     expect(all().open).toBe(true);
+    expect(achievements().open).toBe(true);
+    // Open, the count is in the body: the header doesn't say it twice.
+    expect(achievements().querySelector('summary .profile-fold-note')).toBeNull();
     expect(rewards().open).toBe(false);
     act(() => {
       all().open = false;
       all().dispatchEvent(new Event('toggle'));
+      achievements().open = false;
+      achievements().dispatchEvent(new Event('toggle'));
     });
     render({ unlockedAchievements: unlocked, section: { id: 'achievements', n: 2 } });
     expect(all().open).toBe(true);
+    expect(achievements().open).toBe(true);
   });
 
   it('keeps the card backs and foils folded, with a summary of what is unlocked, until asked for', () => {
     render();
     expect(rewards().open).toBe(false);
-    expect(rewards().querySelector('summary')!.textContent).toMatch(/^\d+ of \d+ unlocked$/);
+    expect(rewards().querySelector('.profile-fold-note')!.textContent).toMatch(/^\d+ of \d+ unlocked$/);
     render({ level: 99 });
-    expect(rewards().querySelector('summary')!.textContent).toBe('Every reward unlocked');
+    expect(rewards().querySelector('.profile-fold-note')!.textContent).toBe('Every reward unlocked');
     render({ section: { id: 'rewards', n: 1 } });
     expect(rewards().open).toBe(true);
   });
@@ -518,7 +607,7 @@ describe('Best pack highlight', () => {
     await act(async () => {});
   };
   const section = (title: string) =>
-    [...document.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h2')?.textContent === title);
+    [...document.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h3')?.textContent === title);
   const bestRow = () => section('Best pack')?.querySelector('.pull-row') ?? null;
   const bestBadges = () => [...(section('Best pack')?.querySelectorAll('.pull-row-sent') ?? [])].map((el) => el.textContent);
 
@@ -526,7 +615,7 @@ describe('Best pack highlight', () => {
     myStats.mockReturnValue(statsWith([five]));
     await renderSettled({ stats: keep(five).stats });
     const highlights = document.querySelector('.profile-highlights')!;
-    const levelHeading = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'Level and stats')!;
+    const levelHeading = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'Level, stats and collection')!;
     expect(highlights.compareDocumentPosition(levelHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(bestRow()?.querySelector('.profile-verified')?.textContent).toContain('Verified');
     expect(bestRow()?.querySelector('.pull-row-hand')?.firstChild?.textContent).toBe(five.score.hand.name);

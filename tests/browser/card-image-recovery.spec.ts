@@ -45,6 +45,7 @@ test('a pull without its art says the poster could not be drawn, and Retry bring
   await page.goto('./#/profile');
   const main = page.getByRole('main', { name: 'Profile', exact: true });
   await expect(main).toBeVisible();
+  await main.locator('.pulls-history > details > summary').click();
   await main.locator('.pulls-history .pull-row').first().click();
 
   const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
@@ -99,6 +100,7 @@ test('a poster whose art never arrives times out with Retry instead of drawing f
   await page.goto('./#/profile');
   const main = page.getByRole('main', { name: 'Profile', exact: true });
   await expect(main).toBeVisible();
+  await main.locator('.pulls-history > details > summary').click();
   await main.locator('.pulls-history .pull-row').first().click();
 
   const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
