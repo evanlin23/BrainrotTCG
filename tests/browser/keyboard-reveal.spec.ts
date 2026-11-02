@@ -335,13 +335,17 @@ const watchFlip = (page: Page) => page.evaluate(() => {
   sample();
 });
 
-/** Whether the watched card turned from its front to its back through angles in between, not in one jump. */
-const flipped = (page: Page) => page.evaluate(async () => {
+/**
+ * Whether the watched card turned from its front to its back through angles in between, not in one jump. It waits
+ * up to `patience` ms for the card to settle, so a card that never turns costs a few seconds, not the whole test.
+ */
+const flipped = (page: Page, patience: number) => page.evaluate(async (limit) => {
   const { seen } = window.flipWatch;
-  for (let frames = 0; frames < 600 && seen[seen.length - 1] <= 179.99; frames++) await new Promise((next) => requestAnimationFrame(next));
+  const until = performance.now() + limit;
+  while (performance.now() < until && seen[seen.length - 1] <= 179.99) await new Promise((next) => requestAnimationFrame(next));
   window.flipWatch.stop = true;
   return seen[0] < 1 && seen.some((degrees) => degrees > 1 && degrees < 179) && seen[seen.length - 1] > 179.99;
-});
+}, patience);
 
 /** Logs every animation as it starts: Framer Motion's (Element.animate or KeyframeEffect) and the stylesheets' (animationstart, transitionrun). */
 const logMotion = (page: Page) => page.addInitScript(() => {
@@ -416,7 +420,8 @@ for (const mode of MOTION_MODES) {
         await expect(card).toHaveAttribute('aria-label', `Flip card ${n} of 5`, { timeout: 10000 });
         if (!mode.calm) await watchFlip(page);
         await tapSpace(page);
-        if (!mode.calm) turned.push(await flipped(page));
+        // Once a card has failed to turn, the rest are only looked at, not waited for: the count below reports it.
+        if (!mode.calm) turned.push(await flipped(page, turned.every(Boolean) ? 3000 : 0));
         await expect(card).toHaveAttribute('aria-label', n < 5 ? /^Next card/ : /^See the pack summary/, { timeout: 10000 });
         labels.push((await card.getAttribute('aria-label'))!);
         // The probe logs a loop as the browser starts it, which takes a frame with the holo face on screen. Turned
@@ -466,6 +471,10 @@ for (const mode of MOTION_MODES) {
         // Each card's rotateY was sampled every frame from before its flip to when it settled on its back (#673).
         // The rendered angle is the signal, not the Web Animation Framer Motion happens to start for it.
         expect(turned.filter(Boolean).length, 'the cards flipped').toBe(5);
+        // The control for the probe above: it sees Framer Motion's flip as one Web Animation per card (#673), not
+        // per-frame style writes. Under framer-motion 14.9 that is exactly five, one per card (read from a run).
+        // If Framer changes how it builds animations this fails, instead of the calm modes passing blind.
+        expect(log.filter((entry) => entry.kind === 'waapi' && entry.what === 'transform' && entry.target === 'card-inner').length, 'the probe saw one Web Animation per flip (exactly 5 under framer-motion 14.9)').toBe(5);
         // Niu Lai is holo, so its face's shimmer (on ::after) loops for as long as it shows. The loading
         // shimmer and the open cue's arrows loop too, but only while art renders or the cue plays.
         expect(log.some((entry) => entry.what === 'holoRainbowShimmer' && entry.target === 'card-face' && entry.iterations === Infinity), 'nothing looped').toBe(true);
