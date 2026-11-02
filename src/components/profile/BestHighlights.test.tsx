@@ -92,7 +92,8 @@ const render = async (stats: BestPackStats = statsFor(getPlayer().publicKeyHex),
   await act(async () => root.render(<BestHighlights stats={stats} refreshKey="a" expecting={expecting} onSharePack={onSharePack} />));
 };
 const highlight = (name: string) =>
-  [...container.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h2')?.textContent === name)!;
+  [...container.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h3')?.textContent === name)!;
+const fold = () => container.querySelector<HTMLDetailsElement>('.profile-fold > details')!;
 const text = (name: string) => highlight(name)?.textContent ?? '';
 const verified = (name: string) => highlight(name).querySelector('.profile-verified') !== null;
 
@@ -246,6 +247,18 @@ describe('states', () => {
     checkBestPack.mockImplementationOnce((source) => Promise.resolve({ status: 'failed', source, reason: 'error' }));
     await render();
     expect(text('Best pack')).toContain("Couldn't check your best pack just now.");
+    // The failure isn't left in a closed fold: it opens, and the header says nothing the body doesn't while open.
+    expect(fold().open).toBe(true);
+    expect(fold().querySelector('summary .profile-fold-note')).toBeNull();
+    act(() => {
+      fold().open = false;
+      fold().dispatchEvent(new Event('toggle'));
+    });
+    expect(fold().querySelector('summary .profile-fold-note')?.textContent).toBe("Couldn't check");
+    act(() => {
+      fold().open = true;
+      fold().dispatchEvent(new Event('toggle'));
+    });
     expect(verified('Best pack')).toBe(false);
     expect(verified('Best card')).toBe(true);
 
@@ -254,8 +267,9 @@ describe('states', () => {
     expect(checkBestPack).toHaveBeenCalledTimes(2);
     expect(checkBestPack.mock.calls[1][0]).toEqual(checkBestPack.mock.calls[0][0]);
     expect(verified('Best pack')).toBe(true);
+    expect(fold().querySelector('summary .profile-fold-note')).toBeNull();
     // The pressed button is gone: focus stays in the highlight, on its heading.
-    expect(document.activeElement).toBe(highlight('Best pack').querySelector('h2'));
+    expect(document.activeElement).toBe(highlight('Best pack').querySelector('h3'));
     // The card was never checked again.
     expect(checkBestCard).toHaveBeenCalledTimes(1);
   });
@@ -265,6 +279,8 @@ describe('states', () => {
     checkBestPack.mockImplementation((source) => Promise.resolve({ status: 'failed', source, reason: 'mismatch' }));
     await render();
     expect(text('Best pack')).toContain('Not verified');
+    expect(fold().open).toBe(true);
+    expect(fold().querySelector('summary .profile-fold-note')).toBeNull();
     expect(highlight('Best pack').querySelector('button')).toBeNull();
     expect(highlight('Best pack').querySelector('.pull-row')).toBeNull();
     expect(verified('Best card')).toBe(true);

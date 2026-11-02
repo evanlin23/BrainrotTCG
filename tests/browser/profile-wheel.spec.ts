@@ -24,6 +24,8 @@ test.describe('Profile outer-page wheel scrolling (#798)', () => {
     await expect(profile.getByRole('heading', { name: 'Browser smoke fixture', exact: true })).toBeVisible();
 
     // Measure and wheel before any locator action that could scroll content into view.
+    await profile.locator('.pulls-history > details > summary').click();
+    await profile.evaluate((element) => { element.scrollTop = 0; });
     const top = () => profile.evaluate((el) => el.getBoundingClientRect().top);
     const startTop = await top();
     expect(startTop).toBeGreaterThanOrEqual(0);
@@ -59,6 +61,8 @@ test.describe('Profile outer-page wheel scrolling (#798)', () => {
     const profile = page.getByRole('main', { name: 'Profile', exact: true });
     await expect(profile.getByRole('heading', { name: 'Browser smoke fixture', exact: true })).toBeVisible();
     const app = page.locator('.app');
+    await profile.locator('.pulls-history > details > summary').click();
+    await profile.evaluate((element) => { element.scrollTop = 0; });
     const appScroll = () => app.evaluate((el) => ({ top: el.scrollTop, overflow: el.scrollHeight - el.clientHeight }));
     const top = () => profile.evaluate((el) => el.getBoundingClientRect().top);
     const startTop = await top();

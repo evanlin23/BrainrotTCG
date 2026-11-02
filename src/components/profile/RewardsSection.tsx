@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import ProfileSection from './ProfileSection';
 import { CARD_BACKS, PACK_FOILS } from '../../game/progression';
 import { packImageUrl } from '../../content/art';
 import { DEFAULT_SET_ID } from '../../content/sets';
 import type { Settings } from '../../types';
 import RewardsPanel from './RewardsPanel';
 import PackCacheNote from './PackCacheNote';
+import { myPackCacheState } from '../../game/packCache';
+import { usePackCacheVersion } from '../../hooks/usePackCache';
 import '../../styles/Pulls.css';
 import '../../styles/Profile.css';
 
@@ -27,23 +29,25 @@ const rewardsSummary = (level: number): string => {
 
 /** The card backs and pack foils your level unlocked, folded away until asked for. */
 export default function RewardsSection({ level, settings, onSettingsChange, openRequest }: RewardsSectionProps) {
-  const [open, setOpen] = useState(openRequest !== undefined);
-  const [seenRequest, setSeenRequest] = useState(openRequest);
-  if (openRequest !== seenRequest) {
-    setSeenRequest(openRequest);
-    if (openRequest !== undefined) setOpen(true);
-  }
+  usePackCacheVersion();
+  // A failed read says so in the header, not Loading…. Only Level opens for it: one failure, one alert.
+  const failed = level === null && myPackCacheState() === 'failed';
   return (
-    <section id="rewards" className="profile-section profile-rewards" aria-labelledby="rewards-title">
-      <h2 id="rewards-title" className="section-title profile-heading" tabIndex={-1}>Card back and foil</h2>
+    <ProfileSection
+      id="rewards"
+      title="Card back and foil"
+      titleId="rewards-title"
+      className="profile-section profile-rewards"
+      note={level === null ? 'Loading…' : rewardsSummary(level)}
+      attention={failed ? "Couldn't read your saved packs" : null}
+      headerOnly
+      openRequest={openRequest}
+    >
       {level === null ? (
         <PackCacheNote what="your card backs and foils" />
       ) : (
-        <details className="profile-disclosure" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-          <summary>{rewardsSummary(level)}</summary>
-          <RewardsPanel level={level} settings={settings} onSettingsChange={onSettingsChange} packImage={packImageUrl(DEFAULT_SET_ID)} />
-        </details>
+        <RewardsPanel level={level} settings={settings} onSettingsChange={onSettingsChange} packImage={packImageUrl(DEFAULT_SET_ID)} />
       )}
-    </section>
+    </ProfileSection>
   );
 }
