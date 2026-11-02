@@ -60,7 +60,7 @@ textarea {
   color: inherit;
 }
 
-/* Dropdown selects: shared appearance, custom chevron with reserved right padding (#owner feedback). */
+/* Dropdown selects: shared appearance, custom chevron with reserved right padding. */
 select {
   --select-chevron: 16px;
   appearance: none;
