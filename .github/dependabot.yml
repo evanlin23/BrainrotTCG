@@ -11,6 +11,10 @@ updates:
       time: "08:00"
       timezone: America/Chicago
     open-pull-requests-limit: 3
+    ignore:
+      # Types track the Node 22 runtime (CI setup-node); bump @types/node with the runtime.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-tooling:
         dependency-type: development
