@@ -432,7 +432,14 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   sit behind an independent, initially closed section header. Headers use full-width native
   disclosures with chevrons, like the collection's set toggles. Closing a section preserves its
   contents and ongoing reads. Achievement and reward navigation requests open their target again,
-  including the full achievements list. Reward availability and the pack count stay in their headers.
+  including the full achievements list. Reward availability and the pack count stay in their headers
+  (Achievements' count leaves its header while open, since the body states it). A save, trust or
+  privacy notice is never left in a closed section: when one applies (the saved packs couldn't be
+  read, with Level and Card back and foil both holding the alert; the profile link couldn't be made;
+  partial totals; re-opening stopped; Best cards that couldn't be loaded; a Best pack or Best card check
+  that failed) its section opens and its header says what, in the warning colour, in place of its usual
+  note; the player may close it, and the header still says so. A new player's "Open your first pack"
+  sits on the page outside any section, and Best pack and card has no header until there is something to show.
   Sections share one left edge with a quiet separator. Its shareable image is the "Profile
   card"; "Player ID" stays the name of the key's fingerprint, as on proofs. Leaving Profile saves a
   changed name, unless saving that same name just failed.

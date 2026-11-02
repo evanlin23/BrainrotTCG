@@ -253,6 +253,9 @@ describe('winners an older save never scored', () => {
     expect(rows()).toHaveLength(0);
     expect(text(container)).not.toContain('None on this device yet.');
     expect(text(status()!)).toContain("couldn't be loaded just now");
+    // The note isn't left in a closed fold: it opens, and its header says so.
+    expect(container.querySelector<HTMLDetailsElement>('details')!.open).toBe(true);
+    expect(container.querySelector('summary .profile-fold-note')?.textContent).toBe("Couldn't load best cards");
     expect(retryButton()).toBeDefined();
     expect(getBestCards(KEY, 1).cards).toHaveLength(2); // the references are kept
 

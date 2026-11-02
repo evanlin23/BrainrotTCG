@@ -107,7 +107,7 @@ const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull,
 
   return (
     <>
-      <ProfileSection id="achievements" title="Achievements" titleId="achievements-title" className="achievements profile-section" note={`${unlocked.length}/${ACHIEVEMENTS.length} unlocked`} openRequest={openRequest}>
+      <ProfileSection id="achievements" title="Achievements" titleId="achievements-title" className="achievements profile-section" note={`${unlocked.length}/${ACHIEVEMENTS.length} unlocked`} hideNoteWhenOpen openRequest={openRequest}>
         <p className="achievements-count tabular">
           {unlocked.length}/{ACHIEVEMENTS.length} unlocked · {percent}%
         </p>

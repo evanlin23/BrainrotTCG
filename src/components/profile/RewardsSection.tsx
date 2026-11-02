@@ -5,6 +5,8 @@ import { DEFAULT_SET_ID } from '../../content/sets';
 import type { Settings } from '../../types';
 import RewardsPanel from './RewardsPanel';
 import PackCacheNote from './PackCacheNote';
+import { myPackCacheState } from '../../game/packCache';
+import { usePackCacheVersion } from '../../hooks/usePackCache';
 import '../../styles/Pulls.css';
 import '../../styles/Profile.css';
 
@@ -27,8 +29,19 @@ const rewardsSummary = (level: number): string => {
 
 /** The card backs and pack foils your level unlocked, folded away until asked for. */
 export default function RewardsSection({ level, settings, onSettingsChange, openRequest }: RewardsSectionProps) {
+  usePackCacheVersion();
+  // A failed read says so in the header and opens the fold, which holds the alert and its retry.
+  const failed = level === null && myPackCacheState() === 'failed';
   return (
-    <ProfileSection id="rewards" title="Card back and foil" titleId="rewards-title" className="profile-section profile-rewards" note={level === null ? 'Loading…' : rewardsSummary(level)} openRequest={openRequest}>
+    <ProfileSection
+      id="rewards"
+      title="Card back and foil"
+      titleId="rewards-title"
+      className="profile-section profile-rewards"
+      note={level === null ? 'Loading…' : rewardsSummary(level)}
+      attention={failed ? "Couldn't read your saved packs" : null}
+      openRequest={openRequest}
+    >
       {level === null ? (
         <PackCacheNote what="your card backs and foils" />
       ) : (

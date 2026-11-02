@@ -31,6 +31,7 @@ import { onReopenProgress, reopenMyPacks, reopenStatus } from '../../game/reopen
 import { copyText } from '../../game/shareActions';
 import type { PullRef } from '../../game/pulls';
 import type { AchievementData, Settings } from '../../types';
+import { myPackCacheState } from '../../game/packCache';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
 import '../../styles/Pulls.css';
 
@@ -179,6 +180,20 @@ const ProfilePage = ({
   /** A link that took a while to prepare; the tap that started it may no longer be allowed to copy. */
   const [readyUrl, setReadyUrl] = useState<string | null>(null);
 
+  // A save, trust or privacy notice in the Level fold opens it and says so in its header (ProfileSection, attention),
+  // so none hides in a closed fold: the saved packs couldn't be read, the link couldn't be made, the totals are partial,
+  // or re-opening stopped.
+  const levelAttention =
+    mine && !summary && myPackCacheState() === 'failed'
+      ? "Couldn't read your saved packs"
+      : linkError
+        ? "Couldn't make your profile link"
+        : mine && mine.filled > 0
+          ? 'Totals are partial'
+          : mine && !reopen?.running && unopened > 0 && reopen?.error
+            ? 'Re-opening stopped'
+            : null;
+
   const send = async (url: string) => {
     if (await copyText(url)) {
       setReadyUrl(null);
@@ -241,89 +256,91 @@ const ProfilePage = ({
       <div className="profile-page pulls-page">
         <PlayerSection onRenamed={setPlayer} canSave={canSave} onSaveFailed={onSaveFailed} />
 
-        <ProfileSection title="Best pack and card">
-          <BestHighlights
-            stats={stats}
-            refreshKey={`${packCache}:${reopenRuns}:${bestCardsRuns}`}
-            expecting={bestCardExpected}
-            onSharePack={onSharePack}
-            packBadge={(ref) => {
-              const entry = entryOf(ref);
-              return entry && <SubmittedBadge entry={entry} />;
-            }}
-          />
-        </ProfileSection>
+        <BestHighlights
+          stats={stats}
+          refreshKey={`${packCache}:${reopenRuns}:${bestCardsRuns}`}
+          expecting={bestCardExpected}
+          onSharePack={onSharePack}
+          packBadge={(ref) => {
+            const entry = entryOf(ref);
+            return entry && <SubmittedBadge entry={entry} />;
+          }}
+        />
 
-        <ProfileSection title="Level, stats and collection">
-          {mine && !summary ? (
-            <PackCacheNote
-              what="your level and stats"
-              onFailed={
-                <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
-                  Re-open the packs instead
-                </button>
-              }
-            />
-          ) : mine && summary ? (
-            <ProfileSummary
-              stats={summary}
-              highlighted
-              droughtStats={droughtStats}
-              actions={
-                <>
-                  <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing || !!mine?.filled}>
-                    <Link2 aria-hidden="true" />
-                    {preparing ?? (copied ? 'Link copied' : readyUrl ? 'Copy link now' : 'Copy profile link')}
+        {!mine && (
+          // A new player's prompt stays out of the folds: nothing else on this page can start the first pack.
+          <div className="pulls-empty">
+            <p>No packs yet. Your level, stats, best pack and best card show up here.</p>
+            <button type="button" className="btn btn--primary" onClick={onOpenPacks}>
+              Open your first pack
+            </button>
+          </div>
+        )}
+
+        {mine && (
+          <ProfileSection title="Level, stats and collection" attention={levelAttention}>
+            {!summary ? (
+              <PackCacheNote
+                what="your level and stats"
+                onFailed={
+                  <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
+                    Re-open the packs instead
                   </button>
-                  <button type="button" className="btn btn--secondary btn--sm" onClick={shareCard} disabled={!!preparing || !!mine?.filled}>
-                    <IdCard aria-hidden="true" /> Profile card
-                  </button>
-                </>
-              }
-            />
-          ) : (
-            <div className="pulls-empty">
-              <p>No packs yet. Your level, stats, best pack and best card show up here.</p>
-              <button type="button" className="btn btn--primary" onClick={onOpenPacks}>
-                Open your first pack
-              </button>
-            </div>
-          )}
+                }
+              />
+            ) : (
+              <ProfileSummary
+                stats={summary}
+                highlighted
+                droughtStats={droughtStats}
+                actions={
+                  <>
+                    <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing || !!mine?.filled}>
+                      <Link2 aria-hidden="true" />
+                      {preparing ?? (copied ? 'Link copied' : readyUrl ? 'Copy link now' : 'Copy profile link')}
+                    </button>
+                    <button type="button" className="btn btn--secondary btn--sm" onClick={shareCard} disabled={!!preparing || !!mine?.filled}>
+                      <IdCard aria-hidden="true" /> Profile card
+                    </button>
+                  </>
+                }
+              />
+            )}
 
-
-          {linkError && (
-            <p className="pulls-note" role="alert">
-              Couldn't make your profile link: {linkError} If a pack is still opening in this or another tab, try again once it
-              finishes.
-            </p>
-          )}
-
-          {mine && mine.filled > 0 && (
-            <p className="pulls-note">
-              Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
-              These local totals are partial. A complete profile link or card cannot be created from this save. Keep a private export
-              (open Settings, then Save & backup); if you have an older complete backup, it may contain the missing records.
-            </p>
-          )}
-
-          {reopen?.running ? (
-            <p className="pulls-note" role="status">
-              Re-opening your packs in the background: {reopen.done.toLocaleString()} of {reopen.total.toLocaleString()}. You can leave
-              this page and keep playing; if you close the tab, it carries on next time.
-            </p>
-          ) : (
-            unopened > 0 && (
-              <p className="pulls-note">
-                {unopened.toLocaleString()} pack{unopened === 1 ? " in your history doesn't" : "s in your history don't"} have
-                {unopened === 1 ? ' its' : ' their'} cards on this device, so the numbers above leave {unopened === 1 ? 'it' : 'them'} out
-                for now.{reopen?.error ? " Re-opening stopped with an error." : ''}{' '}
-                <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
-                  {reopen?.error ? 'Try again' : 'Re-open them'}
-                </button>
+            {linkError && (
+              <p className="pulls-note" role="alert">
+                Couldn't make your profile link: {linkError} If a pack is still opening in this or another tab, try again once it
+                finishes.
               </p>
-            )
-          )}
-        </ProfileSection>
+            )}
+
+            {mine.filled > 0 && (
+              <p className="pulls-note">
+                Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
+                These local totals are partial. A complete profile link or card cannot be created from this save. Keep a private export
+                (open Settings, then Save & backup); if you have an older complete backup, it may contain the missing records.
+              </p>
+            )}
+
+            {reopen?.running ? (
+              <p className="pulls-note" role="status">
+                Re-opening your packs in the background: {reopen.done.toLocaleString()} of {reopen.total.toLocaleString()}. You can leave
+                this page and keep playing; if you close the tab, it carries on next time.
+              </p>
+            ) : (
+              unopened > 0 && (
+                <p className="pulls-note">
+                  {unopened.toLocaleString()} pack{unopened === 1 ? " in your history doesn't" : "s in your history don't"} have
+                  {unopened === 1 ? ' its' : ' their'} cards on this device, so the numbers above leave {unopened === 1 ? 'it' : 'them'} out
+                  for now.{reopen?.error ? " Re-opening stopped with an error." : ''}{' '}
+                  <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
+                    {reopen?.error ? 'Try again' : 'Re-open them'}
+                  </button>
+                </p>
+              )
+            )}
+          </ProfileSection>
+        )}
 
         {history.length > 0 && <RecordBook book={records} cardsPending={mine?.cache === 'loading'} />}
 

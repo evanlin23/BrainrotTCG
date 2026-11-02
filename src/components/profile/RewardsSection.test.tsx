@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CARD_BACKS, PACK_FOILS } from '../../game/progression';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import type { Settings } from '../../types';
+import * as packCache from '../../game/packCache';
 import RewardsSection from './RewardsSection';
 
 let root: Root;
@@ -27,9 +28,18 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('the card back and foil section', () => {
+  it('opens with the failure in its header, not Loading…, when the saved packs could not be read', () => {
+    vi.spyOn(packCache, 'myPackCacheState').mockReturnValue('failed');
+    render(null);
+    expect(details().open).toBe(true);
+    expect(summary()).toBe("Couldn't read your saved packs");
+    expect(details().querySelector('[role="alert"]')).not.toBeNull();
+  });
+
   it('is titled once and folded away, with a summary that counts what is unlocked', () => {
     render(1);
     expect(document.querySelector('#rewards h2')!.textContent).toBe('Card back and foil');

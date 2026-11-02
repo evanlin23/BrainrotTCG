@@ -16,8 +16,12 @@ import { toCardsWithMeta } from '../../game/pulls';
 import { scoreCards } from '../../data/cards';
 import { resetSubmissionsForTest, submitToHallOfFame, SUBMITTED_KEY } from '../../game/share';
 
-const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks } = vi.hoisted(() => ({
-  myProfileInfo: vi.fn(), myProfileProof: vi.fn(), myStats: vi.fn(), myPackCacheState: vi.fn(), hydrateMyPacks: vi.fn(),
+const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks, reopenStatus } = vi.hoisted(() => ({
+  myProfileInfo: vi.fn(), myProfileProof: vi.fn(), myStats: vi.fn(), myPackCacheState: vi.fn(), hydrateMyPacks: vi.fn(), reopenStatus: vi.fn(),
+}));
+vi.mock('../../game/reopenJob', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/reopenJob')>()),
+  reopenStatus,
 }));
 vi.mock('../../game/profiles', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/profiles')>()),
@@ -84,6 +88,7 @@ beforeEach(() => {
   myStats.mockReset().mockImplementation(actual.myStats);
   myPackCacheState.mockReset().mockReturnValue('ready');
   hydrateMyPacks.mockReset().mockResolvedValue('ready');
+  reopenStatus.mockReset().mockReturnValue(null);
   getHistory.mockReset().mockImplementation(actualHistory.getHistory);
   getStoredPack.mockReset().mockImplementation(actualPackStore.getStoredPack);
   checkBestPack.mockReset().mockReturnValue(new Promise(() => {}));
@@ -124,6 +129,69 @@ const render = (props: Partial<Parameters<typeof ProfilePage>[0]> = {}) =>
 const button = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent?.includes(label))!;
 const alert = () => document.querySelector<HTMLElement>('[role="alert"]');
+
+/** The fold holding `el`, and whether it is open (a role=alert in a closed one is never announced). */
+const foldOf = (el: Element | null) => el?.closest('details') as HTMLDetailsElement | null;
+const fold = (id: string) => document.querySelector<HTMLDetailsElement>(`${id} > details`)!;
+const headerNote = (details: HTMLDetailsElement | null) => details?.querySelector('summary .profile-fold-note')?.textContent;
+const levelFold = () => [...document.querySelectorAll<HTMLDetailsElement>('.profile-fold > details')].find((d) => d.querySelector('h2')?.textContent === 'Level, stats and collection')!;
+
+describe('notices are never hidden in a closed fold', () => {
+  it('opens Level and Rewards, and says why in their headers, when the saved packs could not be read', () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'failed' });
+    myPackCacheState.mockReturnValue('failed');
+    myStats.mockReturnValue(null);
+    render({ level: null });
+    const alerts = [...document.querySelectorAll<HTMLElement>('[role="alert"]')];
+    expect(alerts.length).toBeGreaterThan(0);
+    for (const a of alerts) expect(foldOf(a)?.open).toBe(true);
+    expect(headerNote(levelFold())).toBe("Couldn't read your saved packs");
+    expect(fold('#rewards').open).toBe(true);
+    expect(headerNote(fold('#rewards'))).toBe("Couldn't read your saved packs");
+  });
+
+  it('keeps Level and Rewards closed, with Loading in Rewards, while the packs are only loading', () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
+    myPackCacheState.mockReturnValue('loading');
+    myStats.mockReturnValue(null);
+    render({ level: null });
+    expect(levelFold().open).toBe(false);
+    expect(fold('#rewards').open).toBe(false);
+    expect(headerNote(fold('#rewards'))).toBe('Loading…');
+  });
+
+  it('opens Level for the partial-totals note when some packs have no original set record', () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 1, missing: 2, cache: 'ready' });
+    render();
+    const note = [...document.querySelectorAll('.pulls-note')].find((n) => n.textContent?.includes('These local totals are partial'));
+    expect(foldOf(note ?? null)?.open).toBe(true);
+    expect(headerNote(levelFold())).toBe('Totals are partial');
+  });
+
+  it('opens Level for a profile link that failed, even after the player closed it', async () => {
+    myProfileProof.mockRejectedValueOnce(new Error('Your save changed.'));
+    render();
+    act(() => {
+      levelFold().open = true;
+      levelFold().dispatchEvent(new Event('toggle'));
+    });
+    await act(async () => button('Copy profile link').click());
+    act(() => {
+      levelFold().open = false;
+      levelFold().dispatchEvent(new Event('toggle'));
+    });
+    expect(headerNote(levelFold())).toBe("Couldn't make your profile link");
+    expect(foldOf(alert())).toBe(levelFold());
+  });
+
+  it('opens Level when re-opening the packs stopped with an error', () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 2, cache: 'ready' });
+    reopenStatus.mockReturnValue({ running: false, done: 0, total: 2, error: 'Stopped.' });
+    render();
+    expect(levelFold().open).toBe(true);
+    expect(headerNote(levelFold())).toBe('Re-opening stopped');
+  });
+});
 
 describe('profile link failures', () => {
   it.each(['Copy profile link', 'Profile card'])('shows why %s failed when another tab changed the save, and can retry', async (label) => {
@@ -311,7 +379,9 @@ describe('the page', () => {
     localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: 'cd'.repeat(32), name: 'Original Player', nextNonce: 4, createdAt: 1 }));
     render();
     const headings = [...document.querySelectorAll('h2')].map((el) => el.textContent);
-    expect(headings).toEqual(expect.arrayContaining(['Best pack and card', 'Level, stats and collection', 'Achievements', 'Card back and foil']));
+    expect(headings).toEqual(expect.arrayContaining(['Level, stats and collection', 'Achievements', 'Card back and foil']));
+    // With no best pack or card to show, their fold isn't an empty header.
+    expect(headings).not.toContain('Best pack and card');
     expect([...document.querySelectorAll<HTMLDetailsElement>('.profile-fold > details')].every((fold) => !fold.open)).toBe(true);
     // The name heads the page, once: no subtitle repeats it.
     expect(headings[0]).toBe('Original Player');
@@ -327,6 +397,8 @@ describe('the page', () => {
     const onOpenPacks = vi.fn();
     const onOpenSave = vi.fn();
     render({ onOpenPacks, onOpenSave });
+    // The prompt is never behind a closed fold.
+    expect(button('Open your first pack').closest('details')).toBeNull();
     act(() => button('Open your first pack').click());
     expect(onOpenPacks).toHaveBeenCalledTimes(1);
     const note = document.querySelector('.profile-page')!.lastElementChild!;
@@ -407,6 +479,7 @@ describe('folded sections', () => {
     expect(names(recent)).toEqual(ACHIEVEMENTS.slice(2, 5).map((a) => a.name).reverse());
     expect(all().open).toBe(false);
     expect(achievements().open).toBe(false);
+    expect(achievements().querySelector('summary .profile-fold-note')!.textContent).toBe(`5/${ACHIEVEMENTS.length} unlocked`);
     expect(all().querySelector('summary')!.textContent).toBe(`Show all achievements (${ACHIEVEMENTS.length})`);
     expect(names(all())).toEqual(expect.arrayContaining(ACHIEVEMENTS.slice(0, 2).map((a) => a.name)));
   });
@@ -415,6 +488,8 @@ describe('folded sections', () => {
     render({ unlockedAchievements: unlocked, section: { id: 'achievements', n: 1 } });
     expect(all().open).toBe(true);
     expect(achievements().open).toBe(true);
+    // Open, the count is in the body: the header doesn't say it twice.
+    expect(achievements().querySelector('summary .profile-fold-note')).toBeNull();
     expect(rewards().open).toBe(false);
     act(() => {
       all().open = false;

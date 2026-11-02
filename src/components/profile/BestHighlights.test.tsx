@@ -93,6 +93,7 @@ const render = async (stats: BestPackStats = statsFor(getPlayer().publicKeyHex),
 };
 const highlight = (name: string) =>
   [...container.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h3')?.textContent === name)!;
+const fold = () => container.querySelector<HTMLDetailsElement>('.profile-fold > details')!;
 const text = (name: string) => highlight(name)?.textContent ?? '';
 const verified = (name: string) => highlight(name).querySelector('.profile-verified') !== null;
 
@@ -246,6 +247,9 @@ describe('states', () => {
     checkBestPack.mockImplementationOnce((source) => Promise.resolve({ status: 'failed', source, reason: 'error' }));
     await render();
     expect(text('Best pack')).toContain("Couldn't check your best pack just now.");
+    // The failure isn't left in a closed fold: it opens, and its header says so.
+    expect(fold().open).toBe(true);
+    expect(fold().querySelector('summary .profile-fold-note')?.textContent).toBe("Couldn't check");
     expect(verified('Best pack')).toBe(false);
     expect(verified('Best card')).toBe(true);
 
@@ -254,6 +258,7 @@ describe('states', () => {
     expect(checkBestPack).toHaveBeenCalledTimes(2);
     expect(checkBestPack.mock.calls[1][0]).toEqual(checkBestPack.mock.calls[0][0]);
     expect(verified('Best pack')).toBe(true);
+    expect(fold().querySelector('summary .profile-fold-note')).toBeNull();
     // The pressed button is gone: focus stays in the highlight, on its heading.
     expect(document.activeElement).toBe(highlight('Best pack').querySelector('h3'));
     // The card was never checked again.
@@ -265,6 +270,8 @@ describe('states', () => {
     checkBestPack.mockImplementation((source) => Promise.resolve({ status: 'failed', source, reason: 'mismatch' }));
     await render();
     expect(text('Best pack')).toContain('Not verified');
+    expect(fold().open).toBe(true);
+    expect(fold().querySelector('summary .profile-fold-note')?.textContent).toBe('Not verified');
     expect(highlight('Best pack').querySelector('button')).toBeNull();
     expect(highlight('Best pack').querySelector('.pull-row')).toBeNull();
     expect(verified('Best card')).toBe(true);

@@ -169,7 +169,14 @@ const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChang
   if (rows.length === 0 && !lost && (!cacheReady || rebuilding)) return null;
 
   return (
-    <ProfileSection title="Best cards" titleId="best-cards-title" titleRef={titleRef} sectionRef={sectionRef} className="best-cards">
+    <ProfileSection
+      title="Best cards"
+      titleId="best-cards-title"
+      titleRef={titleRef}
+      sectionRef={sectionRef}
+      className="best-cards"
+      attention={lost ? (rows.length === 0 ? "Couldn't load best cards" : "Some best cards didn't load") : null}
+    >
       {lost && (
         <div className="pulls-note" role="status">
           <p>

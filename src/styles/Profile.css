@@ -652,6 +652,11 @@
   font-size: var(--text-sm);
 }
 
+.profile-fold-note--attention {
+  color: var(--warning);
+  font-weight: 600;
+}
+
 .profile-fold-chevron {
   flex: none;
   width: var(--space-4);
