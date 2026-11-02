@@ -99,6 +99,12 @@ export type MonitorErrors = string[] & {
    */
   readonly pending: string[];
   /**
+   * How many pages the guard's Chromium CDP redirect watch is attached to (Network.enable resolved):
+   * the monitored page, then each page the context opens later. 0 where the watch is off (non-Chromium,
+   * or no continueAllowed / routeHttp: false), so a test can assert a second page or popup is watched.
+   */
+  readonly cdpAttached: number;
+  /**
    * The monitor's HTTP policy for guards that cannot use `page.route` (warm runs, which keep the
    * HTTP cache): null when the request is allowed, otherwise the status and body to answer with.
    * A refusal is recorded like any other unexpected attempt.
@@ -260,6 +266,8 @@ export async function monitor(
   // left paused (its fetch still running, or a fulfill the browser never completed) stays named.
   const pending = new Map<Request, string>();
   Object.defineProperty(errors, 'pending', { get: () => [...pending.values()], enumerable: false });
+  let cdpAttached = 0;
+  Object.defineProperty(errors, 'cdpAttached', { get: () => cdpAttached, enumerable: false });
   page.context().on('requestfinished', (request) => pending.delete(request));
   page.context().on('requestfailed', (request) => pending.delete(request));
   /**
@@ -444,6 +452,7 @@ export async function monitor(
         else if (REDIRECTS.has(redirectResponse.status)) noteRedirect(methods.get(requestId) ?? request.method, redirectResponse.url, request.url);
       });
       await cdp.send('Network.enable');
+      cdpAttached++;
       // A CDP session sees one page only, so popups and other pages opened later get their own.
       page.context().on('page', (other) => {
         const watchOther = async () => {
@@ -454,6 +463,7 @@ export async function monitor(
             else if (REDIRECTS.has(redirectResponse.status)) noteRedirect(otherMethods.get(requestId) ?? request.method, redirectResponse.url, request.url);
           });
           await otherCdp.send('Network.enable');
+          cdpAttached++;
         };
         // A page that closes before its session opens has nothing left to watch. A popup's first
         // navigation hop can also start before its Network.enable resolves; the context-wide
@@ -621,13 +631,21 @@ export async function releaseTickets(page: Page) {
   await page.evaluate(() => (window as unknown as { __releaseTickets: () => void }).__releaseTickets());
 }
 
+/** Maximum time expectDecoded waits for img.decode() before falling back to complete && naturalWidth > 0 (#1314). */
+export const EXPECT_DECODED_CAP_MS = 2000;
+
 /**
  * Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. A wait that
  * runs out names what the image last showed: its state, whether it had loaded, its size and its address.
  * Pass a longer `timeout` where the image waits on work the page does first, such as a full-size render.
+ *
+ * In WebKit, img.decode() can stall indefinitely even when the image is already complete in DOM (#1314).
+ * We bound decode() with a timeout (at most EXPECT_DECODED_CAP_MS or the poll timeout) and fall back
+ * to asserting complete && naturalWidth > 0 on timeout. Decode rejections (e.g. EncodingError) rethrow.
  */
 export async function expectDecoded(images: Locator, count: number, { timeout }: { timeout?: number } = {}) {
   await expect(images).toHaveCount(count, { timeout });
+  const decodeLimit = Math.min(timeout ?? EXPECT_DECODED_CAP_MS, EXPECT_DECODED_CAP_MS);
   for (const image of await images.all()) {
     await expect.poll(() => image.evaluate((element: HTMLImageElement) => {
       const state = element.dataset.state ?? 'ready';
@@ -636,7 +654,55 @@ export async function expectDecoded(images: Locator, count: number, { timeout }:
       const address = src.startsWith('data:') ? 'data: placeholder' : src.startsWith('blob:') ? 'blob: render' : new URL(src, document.baseURI).pathname;
       return `${state}, ${element.complete ? 'complete' : 'not complete'}, ${element.naturalWidth}x${element.naturalHeight}, ${address}`;
     }), { timeout }).toBe('ready');
-    await image.evaluate((element: HTMLImageElement) => element.decode());
+
+    const result = await image.evaluate(async (element: HTMLImageElement, limit: number) => {
+      const describe = () => {
+        const state = element.dataset.state ?? 'ready';
+        const src = element.getAttribute('src') ?? '';
+        const address = src.startsWith('data:') ? 'data: placeholder' : src.startsWith('blob:') ? 'blob: render' : new URL(src, document.baseURI).pathname;
+        return `${state}, ${element.complete ? 'complete' : 'not complete'}, ${element.naturalWidth}x${element.naturalHeight}, ${address}`;
+      };
+
+      let timerId: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<'timed_out'>((resolve) => {
+        timerId = setTimeout(() => resolve('timed_out'), limit);
+      });
+
+      let outcome: 'decoded' | 'timed_out';
+      try {
+        outcome = await Promise.race([
+          element.decode().then(() => 'decoded' as const),
+          timeoutPromise,
+        ]);
+      } catch (error) {
+        // A rejected decode() must NOT fall back to complete (#1314): rethrow with state and address
+        const message = error instanceof Error ? error.message || error.name : String(error);
+        return { ok: false, error: message, details: describe() };
+      } finally {
+        if (timerId !== undefined) clearTimeout(timerId);
+      }
+
+      if (outcome === 'decoded') {
+        return { ok: true, timedOut: false, details: describe() };
+      }
+
+      // Timed out: fall back only on timeout (#1314)
+      const ok = element.complete && element.naturalWidth > 0;
+      return { ok, timedOut: true, details: describe() };
+    }, decodeLimit);
+
+    if (result.timedOut && result.ok) {
+      try {
+        test.info().annotations.push({
+          type: 'img-decode-timeout',
+          description: `img.decode() stalled on WebKit; fell back to complete (${result.details})`,
+        });
+      } catch {
+        // Outside active test runner
+      }
+    }
+
+    expect(result.ok, `Image decode failed${result.error ? `: ${result.error}` : ''} (${result.details})`).toBe(true);
   }
 }
 

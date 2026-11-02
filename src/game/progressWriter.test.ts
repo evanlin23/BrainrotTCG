@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import type { Settings, Stats } from '../types';
 import type { CollectionRecoveryState, CollectionSaveResult } from './collectionRecovery';
@@ -98,7 +98,6 @@ beforeEach(() => {
   };
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
-afterEach(() => vi.restoreAllMocks());
 
 describe('createProgressWriter', () => {
   it('writes nothing, and asks nothing, for the progress the tab loaded', () => {

@@ -40,7 +40,6 @@ describe('SubmittedBadge', () => {
     container = null;
     resetSubmissionsForTest();
     localStorage.clear();
-    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 

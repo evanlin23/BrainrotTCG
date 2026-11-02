@@ -7,7 +7,7 @@ import { DEFAULT_SET_ID, getSet } from '../../content/sets';
 import { getSetCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
 import { revealOrder } from '../../game/reveal';
-import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList';
+import { loadHallOfFame, loadPendingCached, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { hallOfFameEvent, publishUntilAccepted } from '../../game/nostrInbox';
 import ShareSheet from './ShareSheet';
 
@@ -25,7 +25,10 @@ vi.mock('../../engine', async (importOriginal) => ({
   qualifiesForHallOfFame: vi.fn(() => true),
   wouldJoinHallOfFame: vi.fn(() => true),
 }));
-vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame: vi.fn(async () => []) }));
+vi.mock('../../game/hallOfFameList', () => ({
+  loadHallOfFame: vi.fn(async () => []),
+  loadPendingCached: vi.fn(async () => true),
+}));
 vi.mock('../../game/share', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/share')>()),
   bragText: vi.fn(() => 'Look at this pull'),
@@ -59,7 +62,6 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   localStorage.clear();
-  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -143,13 +145,161 @@ describe('Hall of Fame in the pack share sheet', () => {
   it('offers Submit, with no qualifying note, for a pull that qualifies', async () => {
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
     expect(document.querySelector('.share-hof button')).not.toBeNull();
+    expect(document.querySelector('.share-hof strong')?.textContent).toBe('This makes Rankings');
     expect([...document.querySelectorAll('.share-note')].some((el) => /qualif|How Rankings work/.test(el.textContent ?? ''))).toBe(false);
+  });
+
+  it("says why there is no Submit for a pull that qualifies but wouldn't make the list (#1072)", async () => {
+    vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
+    try {
+      await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+      expect(document.querySelector('.share-hof')).toBeNull();
+      const why = [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('lowest listed score'))!;
+      expect(why.textContent?.trim()).toBe(
+        "Qualifies, but wouldn't beat the lowest listed score. See How Rankings work.",
+      );
+      expect(inOrder(['.share-actions-main', why, '.share-preview', '.share-pack-cards'])).toBe(true);
+    } finally {
+      vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
+    }
+  });
+
+  describe('"How Rankings work" when a qualifying pull would not make the list', () => {
+    const renderFloorNote = async (onClose: () => void, onOpenRankingsHelp?: () => void) => {
+      vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
+      try {
+        await act(async () => root.render(<ShareSheet target={target} onClose={onClose} onOpenRankingsHelp={onOpenRankingsHelp} />));
+        return [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('lowest listed score'))!;
+      } finally {
+        vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
+      }
+    };
+
+    it('is a button that closes the sheet and opens it, with the sentence unchanged', async () => {
+      const calls: string[] = [];
+      const note = await renderFloorNote(() => calls.push('close'), () => calls.push('open'));
+      const help = note.querySelector('button')!;
+      expect(help.textContent).toBe('How Rankings work');
+      expect(note.textContent?.trim()).toBe(
+        "Qualifies, but wouldn't beat the lowest listed score. See How Rankings work.",
+      );
+      expect(calls).toEqual([]);
+      act(() => help.click());
+      expect(calls).toEqual(['close', 'open']);
+    });
+
+    it('stays plain text where there is nowhere to go', async () => {
+      const note = await renderFloorNote(() => {});
+      expect(note.querySelector('button')).toBeNull();
+    });
+  });
+
+  it("keeps the submit control and shows no wouldn't-beat note for a pull already sent (#1072)", async () => {
+    vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
+    localStorage.setItem('brainrot-hof-submitted-v1', JSON.stringify([`pull-${pull}`]));
+    try {
+      await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+      const offer = document.querySelector('.share-hof')!;
+      expect(offer).not.toBeNull();
+      expect(offer.querySelector('button')?.textContent).toBe('Submitted');
+      expect([...document.querySelectorAll('.share-note')].some((el) => el.textContent?.includes('lowest listed score'))).toBe(false);
+    } finally {
+      vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
+    }
+  });
+
+  it("keeps the submit control and shows no wouldn't-beat note when sent while the list loads (#1072)", async () => {
+    let resolveList!: (entries: HallOfFameEntry[]) => void;
+    const listPromise = new Promise<HallOfFameEntry[]>((resolve) => {
+      resolveList = resolve;
+    });
+    vi.mocked(loadHallOfFame).mockReturnValueOnce(listPromise);
+    vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
+
+    try {
+      await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+      // While list is loading, wouldJoin is null, so Submit is offered
+      const button = [...document.querySelectorAll<HTMLButtonElement>('.share-hof button')].find((b) => b.textContent === 'Submit')!;
+      expect(button).not.toBeNull();
+
+      // User submits before list resolves
+      await act(async () => button.click());
+      expect(button.textContent).toBe('Submitted');
+
+      // Now the list finishes loading with wouldJoin=false
+      await act(async () => resolveList([]));
+
+      // Guard ensures Submit control stays and no note appears
+      expect(document.querySelector('.share-hof')).not.toBeNull();
+      expect(button.textContent).toBe('Submitted');
+      expect([...document.querySelectorAll('.share-note')].some((el) => el.textContent?.includes('lowest listed score'))).toBe(false);
+    } finally {
+      vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
+    }
+  });
+
+  it('includes pending submissions from relays when ranking in the share sheet (#1072)', async () => {
+    const pendingEntry = { id: 'pending-1' } as HallOfFameEntry;
+    vi.mocked(loadPendingCached).mockImplementationOnce(async (_published, onEntry) => {
+      onEntry(pendingEntry);
+      return true;
+    });
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    expect(vi.mocked(wouldJoinHallOfFame)).toHaveBeenCalledWith(
+      expect.objectContaining({ id: `pull-${pull}` }),
+      expect.arrayContaining([pendingEntry]),
+      expect.any(String),
+    );
+  });
+
+  it("uses neutral headline when the list couldn't load (#1072)", async () => {
+    vi.mocked(loadHallOfFame).mockResolvedValueOnce(null);
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    const offer = document.querySelector('.share-hof')!;
+    expect(offer.querySelector('strong')?.textContent).toBe('Qualifies for Rankings');
+    expect(offer.querySelector('button')?.textContent).toBe('Submit');
   });
 
   it('keeps the already-listed note, not the qualifying one, for a pull in Rankings', async () => {
     vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
     expect([...document.querySelectorAll('.share-note')].some((el) => /qualif/.test(el.textContent ?? ''))).toBe(false);
+  });
+
+  it('keeps "Submitted", not "in Rankings", for your own pull that is only pending on the relays (#1317)', async () => {
+    localStorage.setItem('brainrot-hof-submitted-v1', JSON.stringify([`pull-${pull}`]));
+    vi.mocked(loadPendingCached).mockImplementationOnce(async (_published, onEntry) => {
+      onEntry({ id: `pull-${pull}`, pending: true, mine: true } as HallOfFameEntry);
+      return true;
+    });
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    expect(document.querySelector('.share-hof button')?.textContent).toBe('Submitted');
+    expect([...document.querySelectorAll('.share-note')].some((el) => el.textContent?.includes('in Rankings'))).toBe(false);
+  });
+
+  it('says "in Rankings", not "wouldn\'t beat the lowest", for a pending pull this device never sent (#1317)', async () => {
+    // The real rule, which answers no for a list that already holds the pull: the pull is pending on the
+    // relays but this device has no send record (sent elsewhere, or site data cleared).
+    const { wouldJoinHallOfFame: real } = await vi.importActual<typeof import('../../engine')>('../../engine');
+    vi.mocked(wouldJoinHallOfFame).mockImplementation(real);
+    const qualifying = { ...target, score: { points: 100, hand: { name: 'Royal Rot', multiplier: 1 }, score: HALL_OF_FAME_MIN_SCORE } as unknown as PackScore };
+    vi.mocked(loadPendingCached).mockImplementationOnce(async (_published, onEntry) => {
+      onEntry({ id: `pull-${pull}`, pending: true } as HallOfFameEntry);
+      return true;
+    });
+    try {
+      await act(async () => root.render(<ShareSheet target={qualifying} onClose={() => {}} />));
+      expect(document.querySelector('.share-note')?.textContent).toContain('This pull is in Rankings.');
+      expect(document.body.textContent).not.toContain('lowest listed score');
+    } finally {
+      vi.mocked(wouldJoinHallOfFame).mockReset().mockReturnValue(true);
+    }
+  });
+
+  it('still says a published pull is in Rankings (#1317)', async () => {
+    vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    expect(document.querySelector('.share-note')?.textContent).toContain('This pull is in Rankings.');
   });
 
   const clickSubmit = async () => {

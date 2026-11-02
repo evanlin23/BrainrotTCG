@@ -124,16 +124,32 @@ test('in-app Reduced motion stills endless animations and the ceremony with the 
   const halo = page.locator('.showcase-halo');
   await expect(halo).toBeVisible({ timeout: 15000 });
 
-  // Showcase halo and rays:
-  expect(await animName('.showcase-halo')).toBe('none');
-  expect(await animName('.showcase-halo', '::before')).toBe('none');
-  // Positive control:
-  await page.evaluate(() => { document.documentElement.removeAttribute('data-motion'); });
-  expect(await animName('.showcase-halo')).toBe('showcase-halo');
-  expect(await animName('.showcase-halo', '::before')).toBe('showcase-rays');
-  await page.evaluate(() => { document.documentElement.setAttribute('data-motion', 'reduced'); });
-  expect(await animName('.showcase-halo')).toBe('none');
-  expect(await animName('.showcase-halo', '::before')).toBe('none');
+  // Showcase halo and rays, read in one pass: the halo and its rays under in-app reduced motion, again
+  // with the attribute removed (positive control), and again once it is back. getComputedStyle resolves
+  // style synchronously, so each read sees the attribute as it was just set. A missing halo throws.
+  const haloNames = await page.evaluate(() => {
+    const el = document.querySelector('.showcase-halo');
+    if (!el) throw new Error('Element not found: .showcase-halo');
+    const root = document.documentElement;
+    const read = () => ({
+      halo: window.getComputedStyle(el).animationName,
+      rays: window.getComputedStyle(el, '::before').animationName,
+    });
+    const reduced = read();
+    root.removeAttribute('data-motion');
+    try {
+      const allowed = read();
+      root.setAttribute('data-motion', 'reduced');
+      return { reduced, allowed, restored: read() };
+    } finally {
+      root.setAttribute('data-motion', 'reduced');
+    }
+  });
+  expect(haloNames).toEqual({
+    reduced: { halo: 'none', rays: 'none' },
+    allowed: { halo: 'showcase-halo', rays: 'showcase-rays' },
+    restored: { halo: 'none', rays: 'none' },
+  });
 });
 
 test('the reveal, the summary and a card opened over it run their endless animations on the compositor', async ({ page, baseURL }) => {

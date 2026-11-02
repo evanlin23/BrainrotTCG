@@ -101,7 +101,10 @@ test('a new player\'s first pack, its summary, the share sheet and the Cards pag
   expect(await fontsLoaded(page)).toBe(0);
   await expect.soft(page).toHaveScreenshot('summary.png');
 
-  await page.locator('.summary-actions').getByRole('button', { name: 'Share', exact: true }).click();
+  // By keyboard too: a pointer left where Share was would hover whatever sits there on the Cards page
+  // (a tile's foil follows it), and where that is depends on the summary's layout.
+  await page.locator('.summary-actions').getByRole('button', { name: 'Share', exact: true }).focus();
+  await page.keyboard.press('Enter');
   const sheet = page.getByRole('dialog', { name: 'Share your pull', exact: true });
   await expect(sheet.locator('.sheet--deferred')).toHaveCount(0);
   const shared = sheet.getByRole('img', { name: "The image you'll share", exact: true });

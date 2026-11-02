@@ -230,7 +230,6 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
   expect(unexpectedRequests).toEqual([]);
 });
 

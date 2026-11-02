@@ -90,7 +90,6 @@ beforeEach(() => {
 afterEach(() => {
   resetReopenCache();
   vi.useRealTimers();
-  vi.restoreAllMocks();
 });
 
 it('writes a pack whose ticket lands after a later check took over at once, leaving no timer or listener behind', async () => {

@@ -441,6 +441,21 @@ runner counts responses and stops the process group when the cap is passed; it a
 session reports any tool outside the allowlist. To move the pin, re-check every flag in
 `claude --help` first, then update `claudeVersion`.
 
+Account context and email: the pinned runner (2.1.314) gives the signed-in reviewer the account's
+context, including an email address, and the flags above don't drop it. Whether a flag or env var can
+suppress that block has not been checked yet: check it at the next pin bump (#1310), and if one
+exists use it and add it to the isolation checks above. Until then the report is redacted instead:
+`clean()` in `scripts/agent-audit/contracts.ts` strips literal addresses and written-out forms
+("name at example dot com", "[at]"/"(dot)" with optional spaces, "@" with spaces, full-width
+characters, and an address broken across lines), and `redactReportTasks` runs the same redaction
+across adjacent click labels, observations and reasons just before the report is written. Plain
+prose ("meet at the dot com bubble", "look at example.com", "rank 3 @ 12.5 seconds") is left alone, so
+some forms still get through: a host written with literal dots after a written "at" ("jane at
+example.com"), "jane at example com", a space-separated name ("first last at example dot com" keeps
+"first"), and breaks inside a word or between spaced letters. A field with an address in it
+is folded to NFKC ("…" becomes "..."); text with no address keeps its own characters. Read the
+report before sharing it.
+
 Recorded runs, 2026-10-17, revision e993944, in a cloud container: base `/BrainrotTCG/`, Chromium 156
 at 393x727 with touch and reduced motion, external requests blocked, model claude-opus-5-5.
 
@@ -676,6 +691,116 @@ The coverage floors sit about 13-16 points below the baseline. Ordinary work sho
 To move one, run `npm test` three times on an up-to-date branch, set each floor a few points below
 the lowest figure, and give the old and new numbers in the PR. Lower a floor only for removed or
 unreachable code, never to land untested code.
+
+## Test isolation
+
+`src/test/isolation.ts` is the one convention, registered for every test file by `setupFiles` in
+`vite.config.ts`; its owner is the `/work` queue (tests are owned with the code they cover, and a change
+to this file needs a reviewer). After each test it restores spies (including jsdom's
+`HTMLMediaElement` `play`, `load` and `pause`), resets every `vi.fn()` (queued `*Once` values, calls and
+implementations), and puts the address back at `/BrainrotTCG/` (`history.replaceState`,
+so no history entry and no `hashchange`); the address is also set before each test and when a file loads.
+Rules that follow:
+
+- A test file doesn't repeat those resets in its `afterEach`; the guard in `src/test/isolation.test.ts`
+  fails on an `afterEach` whose whole body is only `vi.restoreAllMocks()`, `vi.resetAllMocks()` or
+  `vi.clearAllMocks()` calls. A reset stays only where it does something the setup doesn't: a
+  `beforeEach` clear of calls made at import time, a reset inside a test body or `finally`, or an
+  `afterEach` restore that must run before the file's own `vi.unstubAllGlobals()` or other dependent
+  teardown (file hooks run before the shared ones; a spy on a stubbed global would otherwise put the
+  stub back after the unstub). Add only the cleanup for state the file owns,
+  such as `vi.unstubAllGlobals()` for a `vi.stubGlobal` the file makes in `beforeEach` (the setup can't
+  unstub globally: files stub `localStorage` once at module level).
+- A mock's default behaviour is set in `beforeEach` (or as the `vi.fn(impl)` argument), never once at
+  module level with `mockImplementation`, because the reset clears it after the first test.
+- A test that starts a sound stubs `play()` itself
+  (`vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()`): jsdom's returns undefined, so
+  `.catch` throws. The setup enforces this (`src/test/isolation.ts`, with the logic in
+  `src/test/unstubbedPlay.ts`). Before each test it spies `HTMLMediaElement.prototype.play` with a default
+  that throws a message naming this rule, and in `afterEach` it fails any test that reached that default,
+  because app code can swallow the throw. A test's own stub (`mockResolvedValue`, `mockImplementation` or a
+  `*Once` value) answers instead, and its calls are fine. A test that calls play() without a stub on
+  purpose clears the call with `mockClear()` (only `src/test/isolation.test.ts` does). Limits: node-environment
+  files get no guard; a test or `beforeAll` that already put a mock on `play` keeps it and the guard stays
+  out of the way; and a `vi.resetAllMocks()` in a test body, or in a file `afterEach` that runs before the
+  shared one, forgets the unstubbed calls already recorded in that test (a swallowed call followed by it
+  passes) and takes the guard off for the rest of it. `vi.restoreAllMocks()` keeps earlier calls; only
+  later ones go unguarded.
+- A test builds its own proof, pull or save fixture, or shares one that nothing mutates. Rendering the
+  same props twice in one test doesn't re-run an effect keyed on them; use one test per case.
+- A module that settles or caches once per load is re-imported per test (`vi.resetModules()` then a
+  dynamic import, as `src/test/mountedApp.ts` does), or the file puts its state back through the
+  module's own reset or public setter; the setup can't do that for it. Don't add a production export
+  only so a test can reset (the exports that exist for that are in the list below). The list is
+  checked, see Modules that keep state for the load.
+- A test gives a jsdom prototype a method with `vi.spyOn(Canvas.prototype, 'getContext')` (the setup
+  restores it), or with `Object.defineProperty` where jsdom has none (`scrollIntoView`) and removes it
+  in the file's `afterEach`. It never assigns `Element.prototype.x = ...`: that stays on the prototype
+  for every later test in the file. `src/test/isolation.test.ts` fails on `=`, `||=`, `&&=` and `??=` onto
+  `.prototype.name` or `.prototype['name']`, through a cast or a `window.` prefix, on any line. It does not
+  catch `Object.assign` or `Reflect.set` onto a prototype, a prototype held in a variable, an
+  `<any>X.prototype` cast, a cast whose type spans lines, or an `=` on the line after the property.
+- A top-level `vi.stubGlobal` is for a fixture the whole file shares, such as a `localStorage` backed by a
+  `Map`; the file clears the data in `beforeEach`. Stubs and spies a single test needs go in that
+  test or its `beforeEach`, with `vi.unstubAllGlobals()` in the file's `afterEach`.
+
+`src/test/isolation.test.ts` is the guard: each pair of tests leaves state behind and expects the next
+to start clean (it fails if the setup file is removed). Replay order bugs with the seeds in Shuffled and
+repeat runs below.
+
+### Modules that keep state for the load
+
+Each file below declares state at the top level (a `let`, or a Map, Set, WeakMap, array, object or Promise
+in a `const` that is not ALL_CAPS) that outlives one test. `onceModules.test.ts` (in `src/test`) fails when this list and
+the sources disagree, so a new module with such state is added here with the way tests start clean. That
+check reads top-level declarations, not behaviour. It sees `let` and `var`, and a `const` initialised with an
+object or array literal, `Object.create(`, a Promise, or a new Map, Set, WeakMap, WeakSet, Array, Object,
+EventTarget, BroadcastChannel or AbortController. It misses state behind any other initialiser (a call such as
+`createStore()`, `new SomeClass()`), in a class field, or set as a property on an exported object, and it
+lists a lookup table named in lower case. Vitest gives every test file its own module graph, so this is about tests
+in one file, not across files.
+
+Re-imported before every test (the module's own test file calls `vi.resetModules()` in `beforeEach`, then
+imports dynamically):
+- `src/game/admission.ts` (start queue, running count; other files call `resetAdmission`)
+- `src/game/finishImage.ts` (frame-mask promise, render cache; `finishImage.loading.test.ts`)
+- `src/game/hallOfFameList.ts` (in-flight load, loaded-at, last list)
+- `src/game/move.ts` (active receiver; `move.receive.test.ts`, which also calls `stopReceiver`)
+- `src/game/news.ts` (cached shipped-news promise)
+- `src/game/packArt.ts` (settles once per load)
+- `src/game/packsSheet.ts` (a Packs sheet opening storage refused)
+- `src/game/player.ts` (in-memory player, repair mark, held locks)
+- `src/game/ticketMiner.ts` (worker, ticket cache, job queues)
+- `src/hooks/usePackHistory.ts` (load check, stray-back flag)
+- `src/main.tsx` (hand-over promise)
+
+Re-imported by the tests that need a fresh load; the others use the static import and set up what they read:
+- `src/components/cards/CardImage.tsx` (retry round, off-screen observer)
+- `src/game/collectionRecovery.ts` (unsaved, dropped and discarded entries)
+- `src/game/history.ts` (decoded-history and count caches, keyed on the stored text)
+- `src/game/publishedRankings.ts` (month loaders)
+- `src/game/pulls.ts` (unshelved packs)
+
+Put back by the module's own reset, which the files that touch it call:
+- `src/game/bestCards.ts` (`resetBestCards`), `src/game/myTickets.ts` (`resetTicketList`),
+  `src/game/packStore.ts` (`resetPackStore`), `src/game/reopenCache.ts` (`__resetReopenCacheForTests`),
+  `src/game/share.ts` (`resetSubmissionsForTest`)
+
+Put back through the module's public setter in the file's `afterEach`:
+- `src/utils/motion.ts` (`setMotionSetting('auto')`), `src/game/diagnostics.ts` (`setDiagnosticCapture(false)`,
+  `clearDiagnostics()`), `src/game/qrCode.ts` (`decoderLoader`, an exported object whose `load` a test replaces;
+  `profileQr.test.ts` puts the real one back)
+
+Nothing to reset, because the value is built at load and never written, is keyed by its input, or only counts up:
+- `src/content/sets/index.ts` (lookup built from the sets), `src/engine/odds.ts` (memo keyed by the set
+  definition), `src/game/profiles.ts` (WeakMaps keyed by the ticket list), `src/game/profileVerification.ts`
+  (a counter that makes a superseded check ignore itself)
+
+Listeners, timers and queues that unmounting or cleanup removes. Verified only by shuffled runs, which found
+no test that reads them across tests; not proven per module, and seeds sample orders. If one does start to
+leak, re-import the module or reset it through the groups above:
+- `src/components/pages/SettingsPage.tsx` (pending sample timer), `src/components/ui/openSheets.ts` (open
+  sheet stack), `src/game/packCache.ts` (listeners, version, last run), `src/game/reopenJob.ts` (job, listeners)
 
 ## Shuffled and repeat runs
 

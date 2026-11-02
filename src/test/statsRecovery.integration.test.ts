@@ -2,6 +2,7 @@
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
 import { afterEach, expect, it } from 'vitest';
 import { mountedApp } from './mountedApp';
+import { openAgain } from './summaryLabels';
 import { STORAGE_KEYS } from '../constants/config';
 import { STATS_REBUILT_NOTE } from '../game/collectionRecovery';
 import { exportSaveFile, isValidSaveValue } from '../game/saveFile';
@@ -46,7 +47,7 @@ async function openPack(current: NonNullable<typeof app>) {
   await startPack(current);
   await current.interact(() => button('Skip opening animation').click());
   await current.until('Skip completes the summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
-  await current.interact(() => button('Next pack').click());
+  await current.interact(() => button(openAgain('right-now')).click());
 }
 
 it.each([

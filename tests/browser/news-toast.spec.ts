@@ -29,7 +29,7 @@ async function open(page: Page, baseURL: string, size: { width: number; height: 
   return errors;
 }
 
-/** Opens a pack from the pack screen, skips to its summary, and puts it away with "Next pack". */
+/** Opens a pack from the pack screen, skips to its summary, and puts it away with "Open <set> again". */
 async function putPackAway(page: Page) {
   await expect(page.locator('.app-logo')).toBeVisible();
   await page.getByRole('button', { name: /^Open pack/ }).focus();
@@ -37,7 +37,7 @@ async function putPackAway(page: Page) {
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
-  await page.getByRole('button', { name: /Next pack/ }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   await expect(page.locator('.set-current')).toBeVisible();
 }
 
@@ -63,6 +63,7 @@ async function untilNewsToast(page: Page) {
  * that is not there is one that is not coming. No timed wait stands in for "no more".
  */
 async function sendAwayEveryToast(page: Page) {
+  // The fixture collection is empty, so any 5-card pack unlocks at least one first-of-a-rarity achievement, which toasts.
   await expect(page.locator('.toast')).toHaveCount(1, { timeout: 15000 });
   for (let step = 0; step < 8; step++) {
     const handle = await page.$('.toast');
@@ -119,9 +120,10 @@ for (const [width, height, percent] of [[390, 844, 100], [360, 640, 100], [320, 
     if (percent !== 100) await scaleText(page, percent);
     const toast = newsToast(page);
     await expect(toast).toBeVisible();
-    // The chip beside the Card guide link is gone: that row carries the guide and the next goal, no news.
+    // The chip beside the Card guide link is gone: that row carries the guide, the next goal and (until the
+    // Packs sheet is opened) Change pack, no news.
     await expect(page.locator('.news-banner')).toHaveCount(0);
-    await expect(page.locator('.card-guide-entry > :not(.card-guide-link, .pack-milestone)')).toHaveCount(0);
+    await expect(page.locator('.card-guide-entry > :not(.card-guide-link, .pack-milestone, .change-pack)')).toHaveCount(0);
     await expect(page.locator('.card-guide-entry > .card-guide-link')).toHaveCount(1);
     // Unread news never hides the next goal (it did while the chip took the row first): on every phone with room for it.
     if (width > 320) await expect(page.locator('.card-guide-entry .pack-milestone')).toBeVisible();
@@ -286,7 +288,7 @@ test('comes after the pack is put away, behind the pack\'s own toasts, one at a 
   expect(await shownToasts(page)).not.toContain("What's new");
   await expect(newsToast(page)).toHaveCount(0);
 
-  await page.getByRole('button', { name: /Next pack/ }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   await expect(page.locator('.set-current')).toBeVisible();
   await untilNewsToast(page);
   const log = await shownToasts(page);
@@ -311,7 +313,7 @@ test('a returning player\'s waiting news does not jump ahead when the next pack 
   await expect(newsToast(page)).toHaveCount(0);
 
   // Put away: the notices are held on screen, so the news waits behind them, unshown. The next pack starts at once.
-  await page.getByRole('button', { name: /Next pack/ }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   await expect(page.locator('.set-current')).toBeVisible();
   expect(await shownToasts(page)).not.toContain("What's new");
   await page.getByRole('button', { name: /^Open pack/ }).focus();
@@ -325,7 +327,7 @@ test('a returning player\'s waiting news does not jump ahead when the next pack 
   await expect(newsToast(page)).toHaveCount(0);
 
   // Put away again: the news follows the notices, once.
-  await page.getByRole('button', { name: /Next pack/ }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   await expect(page.locator('.set-current')).toBeVisible();
   await untilNewsToast(page);
   const log = await shownToasts(page);
@@ -344,7 +346,10 @@ test('waits for the save warning: the toast would sit over the banner and its bu
   const errors = await open(page, baseURL!, { width: 360, height: 740 });
   const banner = page.locator('.save-warning[role="alert"]');
   await expect(banner).toBeVisible();
+  // The news is asked for (and its chunk loaded) as the pack is put away; wait for that load to finish so no step races it.
+  const loaded = page.waitForEvent('requestfinished', (request) => NEWS_CHUNK.test(request.url()));
   await putPackAway(page);
+  await loaded;
   // The pack's own toasts show as they always do (the toast system's rule); the news is the one the banner holds back, so
   // send every one of them away: nothing is then left on screen, and the news, which is queued, must not take their place.
   await sendAwayEveryToast(page);

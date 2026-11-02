@@ -100,6 +100,8 @@ export default defineConfig({
       GIT_CONFIG_KEY_1: 'gc.auto',
       GIT_CONFIG_VALUE_1: '0',
     },
+    // The shared isolation resets for every test file (src/test/isolation.ts; docs/DEVELOPMENT.md, Test isolation).
+    setupFiles: ['src/test/isolation.ts'],
     // One timeout for every test and hook, only to name a test that hangs: no test sets its own, and
     // wall time fails nothing else (docs/DEVELOPMENT.md, Test timing).
     testTimeout: HANG_TIMEOUT_MS,

@@ -10,12 +10,14 @@ import { toPulled } from '../../game/cardCode';
 import { getBestCards, mergeBestCards, resetBestCards, type BestCandidate } from '../../game/bestCards';
 
 const KEY = 'ab'.repeat(32);
-const { used, sync, rebuild, derive, who } = vi.hoisted(() => ({
+const { used, sync, rebuild, defaultRebuild, derive, who } = vi.hoisted(() => ({
   used: { value: 0 },
   /** The player on screen; a test changes it to switch players mid-rebuild. */
   who: { key: 'ab'.repeat(32) },
   sync: { fail: false },
   rebuild: vi.fn(),
+  /** The cheap-ticket rebuild every test starts with; the shared reset clears the mock's implementation after each test. */
+  defaultRebuild: { impl: undefined as undefined | ((key: string, n: number, options?: object) => Promise<unknown>) },
   /** Nonces whose ticket derivation fails right now (a transient failure the real rebuild reports as `failed`). */
   derive: { failing: new Set<number>() },
 }));
@@ -47,7 +49,7 @@ vi.mock('../../game/bestCards', async (importOriginal) => {
     ticket[31] = nonce & 255;
     return ticket;
   };
-  rebuild.mockImplementation((key: string, n: number, options = {}) => real.rebuildBestCards(key, n, { ...options, ticketFn }));
+  defaultRebuild.impl = (key: string, n: number, options = {}) => real.rebuildBestCards(key, n, { ...options, ticketFn });
   return { ...real, rebuildBestCards: rebuild };
 });
 
@@ -85,7 +87,7 @@ beforeEach(() => {
   used.value = 0;
   who.key = KEY;
   sync.fail = false;
-  rebuild.mockClear();
+  rebuild.mockImplementation(defaultRebuild.impl!);
   derive.failing.clear();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);

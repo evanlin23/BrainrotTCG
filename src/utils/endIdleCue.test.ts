@@ -1,8 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { endIdleCue } from './endIdleCue';
-
-afterEach(() => vi.restoreAllMocks());
 
 const animation = (animationName: string, target: Element, calls: string[]) =>
   ({ animationName, effect: { target }, cancel: () => calls.push(`cancel ${animationName}`) }) as unknown as Animation;

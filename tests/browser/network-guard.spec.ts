@@ -695,6 +695,12 @@ test.describe('continueAllowed keeps the original same-origin routing', () => {
     const errors = await monitor(page, primaryUrl, 0, { continueAllowed: true, failOnUnexpected: false });
     await page.goto(primaryUrl);
     const other = await page.context().newPage();
+    // The context-wide response listener can record this escape without the page's own CDP session
+    // (Playwright usually reports the hop), so the escape alone can't show the second page is watched.
+    // Chromium only: the CDP watch is off elsewhere (cdpAttached stays 0).
+    if (page.context().browser()?.browserType().name() === 'chromium') {
+      await expect.poll(() => errors.cdpAttached).toBe(2);
+    }
     await other.goto(primaryUrl);
     await other.evaluate(() => fetch('/redirect-escape').catch(() => undefined));
     await expect.poll(() => errors.blocked.some((b) => b.includes('redirect escape') && b.includes(externalOrigin))).toBe(true);

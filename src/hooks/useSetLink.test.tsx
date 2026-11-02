@@ -32,7 +32,6 @@ const typeHash = (hash: string) => {
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
-  history.replaceState(null, '', '/');
 });
 
 describe('useSetLink', () => {

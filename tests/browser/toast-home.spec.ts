@@ -98,7 +98,7 @@ const dismiss = async (page: Page) => {
 
 /** Back home from the summary, with the first toast still up and held by focus; its button is returned. */
 async function toHome(page: Page) {
-  await page.getByRole('button', { name: /Next pack/ }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   const toast = page.locator('.toast-open');
   await expect(toast).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.set-current')).toBeVisible();

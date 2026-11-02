@@ -50,7 +50,6 @@ describe('app error boundary', () => {
     setBrowserDiagnosticCapture(false);
     diagnosticsFault.throws = false;
     diagnosticsFault.reportThrows = false;
-    history.replaceState(null, '', '/');
     consoleError.mockRestore();
     Reflect.deleteProperty(navigator, 'clipboard');
     vi.unstubAllGlobals();

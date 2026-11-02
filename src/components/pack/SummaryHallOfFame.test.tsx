@@ -35,7 +35,7 @@ vi.mock('../../engine', async (importOriginal) => ({
   wouldJoinHallOfFame: vi.fn(() => true),
   dailyRank: vi.fn((...args: Parameters<typeof import('../../engine').dailyRank>) => realDailyRank(...args)),
 }));
-vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame: vi.fn(async () => []), loadPending: vi.fn(async () => true) }));
+vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame: vi.fn(async () => []), loadPending: vi.fn(async () => true), loadPendingCached: vi.fn(async () => true) }));
 vi.mock('../../game/nostrInbox', () => ({
   hallOfFameEvent: vi.fn(() => ({})),
   publishUntilAccepted: vi.fn(async () => ({ accepted: {}, all: Promise.resolve([]) })),
@@ -67,7 +67,6 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   localStorage.clear();
-  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -153,13 +152,48 @@ describe('the Hall of Fame line on the pack summary', () => {
     expectPlaceholder(await render());
   });
 
-  it("keeps its room, empty, for a pull that wouldn't make the list", async () => {
+  it("says why there is no Submit for a pull that qualifies but wouldn't make the list (#1072)", async () => {
     vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
     try {
-      expectPlaceholder(await render());
+      const el = await render();
+      expect(el?.textContent).toBe("Qualifies, but wouldn't beat the lowest listed score. See How Rankings work.");
+      expect(button()).toBeNull();
+      expect(el?.classList.contains('summary-hof--not-listed')).toBe(true);
+      expect(el?.getAttribute('aria-hidden')).toBeNull();
     } finally {
       vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
     }
+  });
+
+  describe('"How Rankings work" when a qualifying pull would not make the list', () => {
+    const renderFloorNote = async (onOpenRankingsHelp?: () => void) => {
+      vi.mocked(wouldJoinHallOfFame).mockReturnValue(false);
+      try {
+        await act(async () => root.render(<SummaryHallOfFame pack={pack} score={score} onOpenRankingsHelp={onOpenRankingsHelp} />));
+        return container.querySelector('.summary-hof')!;
+      } finally {
+        vi.mocked(wouldJoinHallOfFame).mockReturnValue(true);
+      }
+    };
+
+    it('is a button that opens it, and the sentence reads the same', async () => {
+      const open = vi.fn();
+      const note = await renderFloorNote(open);
+      const help = note.querySelector('button')!;
+      expect(note.querySelectorAll('button')).toHaveLength(1);
+      expect(help.textContent).toBe('How Rankings work');
+      expect(help.type).toBe('button');
+      expect(note.textContent).toBe("Qualifies, but wouldn't beat the lowest listed score. See How Rankings work.");
+      expect(open).not.toHaveBeenCalled();
+      act(() => help.click());
+      expect(open).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays plain text where there is nowhere to go', async () => {
+      const note = await renderFloorNote();
+      expect(note.querySelector('button')).toBeNull();
+      expect(note.textContent).toContain('See How Rankings work.');
+    });
   });
 
   it('keeps its room, empty, for a pull already listed', async () => {
@@ -216,10 +250,10 @@ describe('the Hall of Fame line on the pack summary', () => {
     expect(line()).toBe('🏆 Submitted · #1 today');
   });
 
-  it("reads just Submitted when the list couldn't load", async () => {
+  it("uses neutral wording and reads just Submitted when the list couldn't load (#1072)", async () => {
     vi.mocked(loadHallOfFame).mockResolvedValueOnce(null);
     await render();
-    expect(line()).toBe("🏆 Makes today's Rankings · Submit to Rankings");
+    expect(line()).toBe('🏆 Qualifies for Rankings · Submit to Rankings');
     await act(async () => button()!.click());
     expect(line()).toBe('🏆 Submitted');
   });

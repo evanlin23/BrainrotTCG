@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot, untilIdle, PLAYER_KEY_PREFIX } from './support';
 import { STORAGE_KEYS } from '../../src/constants/config';
+import { HOF_RELAYS } from '../../src/game/nostrInbox';
 
 /**
  * The pack summary (#182, #339): its actions stay stuck on screen while the rest scrolls, at 360x640
@@ -199,15 +200,24 @@ for (const textZoom of [200]) {
       expect(button.bottom).toBeLessThanOrEqual(before.actions.bottom);
       expect(button.bottom - button.top).toBeGreaterThanOrEqual(44);
     }
-    await expect(page.getByRole('button', { name: 'Next pack' })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('button', { name: /^Open .+ again$/ })).toBeInViewport({ ratio: 1 });
 
     // Scrolled to the end, the actions are still whole on screen and the last card is clear of them.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = list.scrollHeight; });
     const after = await layout(page);
     expect(after.scrollTop).toBeGreaterThan(0);
     expect(after.actions.bottom).toBeLessThanOrEqual(after.content.bottom);
-    await expect(page.getByRole('button', { name: 'Next pack' })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('button', { name: /^Open .+ again$/ })).toBeInViewport({ ratio: 1 });
     expect(after.lastCard.bottom).toBeLessThanOrEqual(after.actions.top);
+    // "Try another pack" is there too: in view, clear of the stuck actions (to a pixel of layout rounding), and what is hit at its centre (#898).
+    const tryAnother = page.getByRole('button', { name: /^Try another pack, \d+ other packs? to choose from$/ });
+    await expect(tryAnother).toBeInViewport({ ratio: 1 });
+    expect(await tryAnother.evaluate((button) => {
+      const box = button.getBoundingClientRect();
+      // Only the summary's own parts cover it: a toast over the app is the toast specs' concern.
+      const hit = document.elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2).find((under) => under.closest('.pack-summary'));
+      return { covered: !hit || !button.contains(hit), clearOfActions: box.bottom <= document.querySelector('.summary-actions')!.getBoundingClientRect().top + 1 };
+    })).toEqual({ covered: false, clearOfActions: true });
 
     // Focus order is the page's: the heading, "How Rankings work" in the note (this pull doesn't qualify), the Card
     // guide, every card, then the actions.
@@ -231,7 +241,7 @@ for (const textZoom of [200]) {
       expect(await obstruction(page), `stop ${stop + 1} is covered or off screen`).toBeNull();
     }
     expect(visited).toEqual(expected);
-    expect(visited.at(-1)).toContain('Next pack');
+    expect(visited.at(-1)).toMatch(/Open .+ again/);
     expect(errors).toEqual([]);
   });
 }
@@ -251,13 +261,109 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
     page.locator('.pack-headline-combo'),
     ...Array.from({ length: 5 }, (_, index) => page.locator('.summary-card').nth(index)),
     page.getByRole('button', { name: 'Share', exact: true }),
-    page.getByRole('button', { name: 'Next pack' }),
+    page.getByRole('button', { name: /^Open .+ again$/ }),
   ]) await expect(locator).toBeInViewport({ ratio: 1 });
   // Nothing in the actions' way: the last card ends above them.
   const { lastCard, actions, buttons, pageOverflow } = await layout(page);
   expect(lastCard.bottom).toBeLessThanOrEqual(Math.min(...buttons.map((button) => button.top)));
   expect(actions.bottom).toBeLessThanOrEqual(viewport.height);
   expect(pageOverflow).toBeLessThanOrEqual(0);
+  expect(errors).toEqual([]);
+});
+
+// Other packs are discoverable from the result (#898): after a first pack, "Try another pack" sits between the
+// cards and the stuck actions, stays whole on screen clear of the other buttons, and opens the same Packs sheet
+// the picker does, with the pack's set still the chosen one. At the owner's phone, a short landscape phone and
+// the desktop. Picking another set from that sheet puts focus on the new sealed pack.
+for (const viewport of [{ width: 393, height: 727 }, { width: 667, height: 375 }, { width: 1280, height: 800 }]) test(`offers Try another pack after a first pack and opens the Packs sheet at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const { errors } = await openSummary(page, baseURL!, { viewport });
+  const tryAnother = page.getByRole('button', { name: /^Try another pack, \d+ other packs? to choose from$/ });
+  const again = page.getByRole('button', { name: /^Open .+ again$/ });
+  await expect(tryAnother).toBeVisible();
+  // On a short screen the summary scrolls: focus brings it clear of the stuck actions, as a keyboard player would.
+  await tryAnother.focus();
+  await expect(tryAnother).toBeInViewport({ ratio: 1 });
+  await expect(again).toBeInViewport({ ratio: 1 });
+  // Above the stuck row (not in it), and is a 44px target that never overlaps the Share and primary buttons below it.
+  const boxes = await page.evaluate(() => {
+    const box = (element: Element | null) => {
+      const { top, bottom, left, right, height } = element!.getBoundingClientRect();
+      return { top, bottom, left, right, height };
+    };
+    const buttons = Array.from(document.querySelectorAll('.summary-try-another, .summary-actions button'));
+    return { buttons: buttons.map((button) => ({ text: button.textContent!.trim().slice(0, 14), ...box(button) })), inActions: document.querySelectorAll('.summary-actions .summary-try-another').length, pageOverflow: document.documentElement.scrollWidth - innerWidth };
+  });
+  expect(boxes.inActions).toBe(0);
+  expect(boxes.buttons.map((b) => b.text)).toEqual([expect.stringMatching(/^Try another/), expect.anything(), expect.stringMatching(/^Open /)]);
+  expect(boxes.buttons[0].height).toBeGreaterThanOrEqual(44);
+  for (const lower of boxes.buttons.slice(1)) expect(boxes.buttons[0].bottom, JSON.stringify(boxes)).toBeLessThanOrEqual(lower.top);
+  expect(boxes.pageOverflow).toBeLessThanOrEqual(0);
+
+  const selectedBefore = await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEYS.SELECTED_SET);
+  await tryAnother.focus();
+  await page.keyboard.press('Enter');
+  const sheet = page.getByRole('dialog', { name: 'Packs' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.locator('.pack-tile[aria-pressed="true"]')).toHaveCount(1);
+  expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEYS.SELECTED_SET)).toBe(selectedBefore);
+  // Closing it leaves the summary as it was, with focus back on the control that opened it.
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(tryAnother).toBeFocused();
+  await expect(page.locator('.summary-card')).toHaveCount(5);
+
+  // Picking another set replaces the summary and the control that opened the sheet: the new sealed pack takes
+  // focus, so a keyboard player is not dropped on the page.
+  await page.keyboard.press('Enter');
+  await expect(sheet).toBeVisible();
+  await sheet.locator('.pack-tile[aria-pressed="false"]').first().click();
+  await expect(sheet).toBeHidden();
+  await expect(page.locator('.summary-card')).toHaveCount(0);
+  await expect(page.locator('[data-pack-open]')).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+// The longest set name on the owner's phone: when the actions wrap, Share and the primary each fill their row
+// (no small Share orphaned above a wide primary), the long label reads whole, every target is 44px and the
+// page never scrolls sideways (#898).
+test('a long set name keeps Share and the primary whole, filling their rows, at 393x727', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const viewport = { width: 393, height: 727 };
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+  const { errors } = await openSummary(page, baseURL!, { viewport, seed: { setId: 'italian-brainrot-deep-cuts', packs: [['genesis', 1, 1e12]] } });
+  const again = page.getByRole('button', { name: 'Open Italian Brainrot Deep Cuts again' });
+  await expect(again).toBeVisible();
+  await expect(again).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole('button', { name: 'Share', exact: true })).toBeInViewport({ ratio: 1 });
+  const rows = await page.evaluate(() => {
+    const row = document.querySelector('.summary-actions')!.getBoundingClientRect();
+    return {
+      row: { left: row.left, right: row.right },
+      pageOverflow: document.documentElement.scrollWidth - innerWidth,
+      buttons: Array.from(document.querySelectorAll('.summary-try-another, .summary-actions .btn'), (button) => {
+        const box = button.getBoundingClientRect();
+        const style = getComputedStyle(button);
+        return { text: button.textContent!.trim(), top: box.top, bottom: box.bottom, left: box.left, right: box.right, height: box.height, fontSize: parseFloat(style.fontSize), clipped: button.scrollWidth > button.clientWidth };
+      }),
+    };
+  });
+  const [tryAnother, share, primary] = rows.buttons;
+  expect([tryAnother.text, share.text, primary.text]).toEqual(['Try another pack', 'Share', 'Open Italian Brainrot Deep Cuts again']);
+  for (const button of rows.buttons) {
+    expect(button.height, JSON.stringify(button)).toBeGreaterThanOrEqual(44);
+    expect(button.fontSize, JSON.stringify(button)).toBeGreaterThanOrEqual(14);
+    expect(button.clipped, JSON.stringify(button)).toBe(false);
+    expect(button.left).toBeGreaterThanOrEqual(0);
+    expect(button.right).toBeLessThanOrEqual(viewport.width);
+  }
+  // In order, nothing overlapping; the primary is the last and lowest.
+  expect(tryAnother.bottom).toBeLessThanOrEqual(share.top);
+  expect(share.bottom).toBeLessThanOrEqual(primary.top);
+  // Wrapped, each fills its row: Share spans the row as the primary does, never a small orphan.
+  expect(share.right - share.left, JSON.stringify(rows)).toBeGreaterThanOrEqual(rows.row.right - rows.row.left - 2);
+  expect(primary.right - primary.left).toBeGreaterThanOrEqual(rows.row.right - rows.row.left - 2);
+  expect(rows.pageOverflow).toBeLessThanOrEqual(0);
   expect(errors).toEqual([]);
 });
 
@@ -340,6 +446,43 @@ test('"How Rankings work" in the share sheet closes the sheet and opens that sec
   const how = page.getByRole('main', { name: 'Rankings', exact: true }).locator('details.hof-how');
   await expect(how).toHaveJSProperty('open', true);
   await expect(how.locator('summary')).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+// The share sheet reads recent pulls from the relays when it opens, which can cost up to ten ticket checks.
+// The relays are stand-ins that answer "nothing stored" and note each goodbye (CLOSE), so a read is known
+// to have ended once every relay has said it; nothing leaves the browser and nothing is submitted (#1317).
+test('opening the share sheet again reads recent pulls from the relays only once', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+  let withdrawnReads = 0;
+  await page.route('**/hall-of-fame-withdrawn.json', (route) => {
+    withdrawnReads += 1;
+    return route.fulfill({ json: [] });
+  });
+  let relayReads = 0;
+  await page.routeWebSocket(/.*/, (socket) => socket.onMessage((message) => {
+    const [type, subscription] = JSON.parse(String(message)) as [string, string];
+    if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
+    if (type === 'CLOSE') relayReads += 1;
+  }));
+  const { errors } = await openSummary(page, baseURL!, { history: 10 });
+  const sheet = page.getByRole('dialog', { name: 'Share your pull' });
+  const share = page.getByRole('button', { name: 'Share', exact: true });
+  // The summary's own line reads once, to the end.
+  await expect.poll(() => relayReads).toBe(HOF_RELAYS.length);
+  await share.click();
+  await expect(sheet.getByText('This makes Rankings')).toBeVisible();
+  await expect.poll(() => relayReads).toBe(2 * HOF_RELAYS.length);
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await share.click();
+  await expect(sheet.getByText('This makes Rankings')).toBeVisible();
+  // The sheet's read, if it made one, would have fetched the rejected list before now. Asking for that file
+  // once more from the page goes through the same route queue, so once it is answered every earlier ask
+  // has been counted: a read that should not have happened can no longer be on its way.
+  await page.evaluate(() => fetch(new URL('hall-of-fame-withdrawn.json', document.baseURI), { cache: 'no-cache' }).then((res) => res.json()));
+  expect({ withdrawnReads, relayReads }).toEqual({ withdrawnReads: 3, relayReads: 2 * HOF_RELAYS.length });
   expect(errors).toEqual([]);
 });
 
@@ -485,6 +628,38 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }
   expect(errors).toEqual([]);
 });
 
+// A pull that qualifies for Rankings but cannot beat the lowest score on the list says why (#1072).
+// The line fits one screen at 360x740 and 390x844 with no scroll, and keeps the cards at the same position.
+for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+  test(`a pull that qualifies but would not make the list says why in view at ${viewport.width}x${viewport.height} (#1072)`, async ({ page, baseURL }) => {
+    test.setTimeout(60000);
+    await page.clock.setFixedTime('2026-10-30T12:00:00.000Z');
+    const fullBoard = [
+      ...Array.from({ length: 100 }, (_, i) => ({ id: `alltime-${i}`, setId: 'set-1', hand: 'Royal Rot', multiplier: 50, score: 50000 + i, submittedAt: '2026-10-01T00:00:00.000Z' })),
+      ...Array.from({ length: 50 }, (_, i) => ({ id: `daily-${i}`, setId: 'set-1', hand: 'Royal Rot', multiplier: 50, score: 30000 + i, submittedAt: '2026-10-30T12:00:00.000Z' })),
+    ];
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: fullBoard }));
+    const { errors } = await openSummary(page, baseURL!, { viewport, history: 10 });
+    const line = page.locator('.summary-hof');
+    await expect(line).toContainText("Qualifies, but wouldn't beat the lowest listed score.");
+    await expect(line).toContainText('See How Rankings work.');
+    await expect(line.getByRole('button', { name: 'Submit to Rankings' })).toHaveCount(0);
+    await expect(line.getByRole('button', { name: 'How Rankings work' })).toBeVisible();
+    await expect(line).toBeInViewport({ ratio: 1 });
+    const { fits, lines } = await line.locator('span').first().evaluate((el) => ({
+      fits: el.scrollWidth <= el.clientWidth,
+      lines: Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)),
+    }));
+    expect(fits).toBe(true);
+    expect(lines).toBeLessThanOrEqual(3);
+    if (viewport.width !== 320) {
+      expect(await page.evaluate(() => document.querySelector('.summary-content')!.scrollTop)).toBe(0);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+    expect(errors).toEqual([]);
+  });
+}
+
 // The line keeps one height while the list loads and in every state after, so the cards below never
 // move. The relays are stand-ins on this page: a socket asking for pending sends closes, and a send
 // either fails (the socket closes) or waits for the test to accept it. Nothing leaves the browser.
@@ -530,6 +705,42 @@ test('the Hall of Fame line never moves the cards below it', async ({ page, base
   expect(tops, JSON.stringify(tops)).toEqual(Object.fromEntries(Object.keys(tops).map((state) => [state, tops.loading])));
   expect(errors).toEqual([]);
 });
+
+for (const textZoom of [100, 200]) {
+  test(`the Hall of Fame line never moves the cards below it when the pull would not make the list at 320x568 at ${textZoom}% text (#1072)`, async ({ page, baseURL }) => {
+    test.setTimeout(60000);
+    await page.clock.setFixedTime('2026-10-30T12:00:00.000Z');
+    let release = () => {};
+    const listLoads = new Promise<void>((resolve) => (release = resolve));
+    const fullBoard = [
+      ...Array.from({ length: 100 }, (_, i) => ({ id: `alltime-${i}`, setId: 'set-1', hand: 'Royal Rot', multiplier: 50, score: 50000 + i, submittedAt: '2026-10-01T00:00:00.000Z' })),
+      ...Array.from({ length: 50 }, (_, i) => ({ id: `daily-${i}`, setId: 'set-1', hand: 'Royal Rot', multiplier: 50, score: 30000 + i, submittedAt: '2026-10-30T12:00:00.000Z' })),
+    ];
+    await page.route('**/hall-of-fame.json', async (route) => {
+      await listLoads;
+      await route.fulfill({ json: fullBoard });
+    });
+    const { errors } = await openSummary(page, baseURL!, { viewport: { width: 320, height: 568 }, textZoom, history: 10 });
+    const line = page.locator('.summary-hof');
+    const cardsTop = () => page.locator('.summary-cards').evaluate((cards) => cards.getBoundingClientRect().top);
+    const tops: Record<string, number> = {};
+
+    await expect(line).toHaveAttribute('aria-hidden', 'true');
+    tops.loading = await cardsTop();
+    release();
+    await expect(line).toContainText("Qualifies, but wouldn't beat the lowest listed score.");
+    tops.notListed = await cardsTop();
+
+    if (textZoom === 100) {
+      const { lines } = await line.locator('span').first().evaluate((el) => ({
+        lines: Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)),
+      }));
+      expect(lines).toBeLessThanOrEqual(3);
+    }
+    expect(tops.notListed).toBe(tops.loading);
+    expect(errors).toEqual([]);
+  });
+}
 
 // The pack leaves for a quarter second over the reveal that fades in under it. A tap in that time is
 // aimed at the reveal's Skip, and the pack must not be what answers it.
@@ -614,5 +825,20 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }
   // Cut short on screen; the whole name is still in the heading for a screen reader.
   expect(boxes.name.scroll, JSON.stringify(boxes)).toBeGreaterThan(boxes.name.client);
   expect(boxes.name.text).toBe('Best in Italian Brainrot Deep Cuts');
+  expect(errors).toEqual([]);
+});
+
+// The short-phone headline clearance exists for the row "Try another pack" adds. A summary without that
+// control (one set to choose from) keeps the layout it had: no extra top padding (#898). The browser
+// always lists several sets, so the single-set summary is the same DOM with the control taken out.
+test('the short-phone headline clearance only applies to a summary that shows Try another pack, at 360x640', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+  const { errors } = await openSummary(page, baseURL!, { viewport: PHONE });
+  const padding = () => page.evaluate(() => getComputedStyle(document.querySelector('.summary-details')!).paddingTop);
+  await expect(page.locator('.summary-try-another')).toBeVisible();
+  expect(await padding()).toBe('48px');
+  await page.evaluate(() => document.querySelector('.summary-try-another')!.remove());
+  expect(await padding()).toBe('0px');
   expect(errors).toEqual([]);
 });

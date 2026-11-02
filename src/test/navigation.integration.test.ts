@@ -2,6 +2,7 @@
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
 import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
+import { openAgain } from './summaryLabels';
 import { STORAGE_KEYS } from '../constants/config';
 import { getSetCards } from '../data/cards';
 import { SETS } from '../content/sets';
@@ -103,7 +104,7 @@ it('shows a new player the set picker only once their first pack is saved, and n
   // Saved at the summary, which is still focus mode: its CSS keeps the picker and tabs out of the way.
   expect(document.querySelector('.app')!.classList).toContain('is-focus');
 
-  await app.interact(() => button('Next pack').click());
+  await app.interact(() => button(openAgain()).click());
   await app.until('the picker shows once the pack is left', () => expect(picker()).not.toBeNull());
   expect(document.querySelector('.app')!.classList).not.toContain('is-focus');
   expect(document.querySelector('.app-nav')).not.toBeNull();

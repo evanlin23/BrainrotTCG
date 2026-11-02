@@ -72,7 +72,6 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   window.location.hash = '';
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 

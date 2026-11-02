@@ -289,7 +289,7 @@
 .collection-set-bar > span {
   display: block;
   height: 100%;
-  background: var(--set-a);
+  background: var(--text);
 }
 
 .collection-set-bar .collection-set-bar-holo {
@@ -297,7 +297,7 @@
   top: 0;
   left: 0;
   height: 100%;
-  background: var(--text);
+  background: var(--set-a);
 }
 
 .collection-later {

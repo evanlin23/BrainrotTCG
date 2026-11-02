@@ -2,6 +2,7 @@
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
 import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
+import { openAgain } from './summaryLabels';
 import { STORAGE_KEYS } from '../constants/config';
 import { getAchievementById } from '../data/achievements';
 import type { AchievementData, CollectionItem, Stats } from '../types';
@@ -118,7 +119,7 @@ it.each(['QuotaExceededError', 'SecurityError'])(
     await app.until('the banner returns with Open', () => expect(banner()).not.toBeNull());
 
     // A second pack while writes keep failing: progress keeps adding up in memory.
-    await app.interact(() => button('Next pack').click());
+    await app.interact(() => button(openAgain('right-now')).click());
     await openPack(app);
     expectAppShown();
     expect(banner()).not.toBeNull();

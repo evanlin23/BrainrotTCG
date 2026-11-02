@@ -37,6 +37,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // First, so a throwing unmount can't leave it behind. jsdom has no scrollIntoView; a test that gives it one
+  // (defineProperty) loses it here, pass or fail.
+  delete (Element.prototype as Partial<Element>).scrollIntoView;
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
@@ -126,7 +129,7 @@ describe('Page', () => {
 
   it('brings a requested section into view once loaded, and again when asked again', async () => {
     const scroll = vi.fn();
-    Element.prototype.scrollIntoView = scroll;
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scroll });
     const load = sheetLoader(() => Promise.resolve({ default: Screen }));
     const page = (section: PageSection) => <Page load={load} title="Settings" section={section} screenProps={{ label: '' }} onClose={onClose} />;
 
@@ -139,6 +142,5 @@ describe('Page', () => {
     render(page({ id: 'extra', n: 2 }));
     expect(document.activeElement?.textContent).toBe('Extra');
     expect(scroll).toHaveBeenCalledTimes(2);
-    delete (Element.prototype as Partial<Element>).scrollIntoView;
   });
 });

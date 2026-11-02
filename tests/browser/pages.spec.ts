@@ -192,7 +192,7 @@ test('a new player sees no tabs until their first pack is saved', async ({ page,
   await expect(page.locator('.app-nav')).toHaveCount(1);
   await expect(page.locator('.app-nav')).toBeHidden();
   await expect(guide).toHaveCount(0);
-  await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+  await page.getByRole('button', { name: /^Open .+ again$/ }).click();
   await expect(tab(page, 'Cards')).toBeVisible();
   await expect(guide).toBeVisible();
   expect(errors).toEqual([]);

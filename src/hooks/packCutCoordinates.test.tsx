@@ -95,7 +95,6 @@ describe('usePackCutter sparks (#265)', () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
   });
   afterEach(() => {
-    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });

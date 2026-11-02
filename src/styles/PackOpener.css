@@ -1093,6 +1093,17 @@
     margin-block: auto;
 }
 
+/*
+ * A short phone has little slack to centre the details in, and a toast (up to two lines) hangs over the top
+ * of the summary: keep the headline clear of its foot, where it sat before "Try another pack" took a row. Only
+ * a summary that shows that control gets it; with one set the layout is what it was.
+ */
+@media (max-width: 480px) and (max-height: 700px) {
+    .summary-details:has(.summary-try-another) {
+        padding-top: var(--space-7);
+    }
+}
+
 .summary-title {
     margin-bottom: var(--space-3);
     font-size: var(--text-3xl);

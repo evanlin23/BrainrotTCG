@@ -42,6 +42,8 @@ export const STORAGE_KEYS = {
   STORED_PACKS: 'brainrot-stored-packs-v1',
   /** ID of the latest in-app news or changelog announcement dismissed on this device. */
   DISMISSED_NEWS: 'brainrot-dismissed-news-v1',
+  /** Set once the Packs sheet has been opened on this device, so the landing's "Change pack" stops showing; never part of a save (see game/packsSheet.ts). */
+  PACKS_SHEET_SEEN: 'brainrot-packs-sheet-seen-v1',
 } as const;
 
 // Achievement milestone thresholds

@@ -76,7 +76,6 @@ afterEach(() => {
   if (root) act(() => root?.unmount());
   root = null;
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
 });
 
 describe('useSparks', () => {

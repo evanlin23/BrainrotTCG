@@ -68,6 +68,19 @@ describe('the card back and foil section', () => {
     expect(onSettingsChange).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, cardBack: 'midnight' });
   });
 
+  it('names the next reward, and every reward that shares its level (#212)', () => {
+    const next = () => document.querySelector('.rewards-next')!.textContent;
+    render(3, 1);
+    expect(next()).toBe('Next: Midnight (card back) at level 4');
+    // Level 12 holds a pack foil and a title; level 20 a card back and a title. The choosable cosmetic is named first.
+    render(11, 1);
+    expect(next()).toBe('Next: Gold foil (pack foil) and Meme Historian (title) at level 12');
+    render(19, 1);
+    expect(next()).toBe('Next: Prismatic (card back) and Aura Farmer (title) at level 20');
+    render(30, 1);
+    expect(next()).toBe('Every reward unlocked.');
+  });
+
   it('shows a loading note instead of the rewards while the level is unknown', () => {
     render(null);
     expect(document.querySelector('#rewards details')).toBeNull();

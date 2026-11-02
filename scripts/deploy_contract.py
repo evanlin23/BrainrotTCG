@@ -73,6 +73,7 @@ def hashes(dist):
         require(path.is_file(), f'{name} is not a regular file')
         files[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     require('index.html' in files, 'dist/index.html is missing')
+    require('404.html' in files, 'dist/404.html is missing')
     # Wrangler would run these as server code; this site is static files only.
     for name in ('_worker.js', '_routes.json'):
         require(not (dist / name).exists(), f'dist/{name} would turn on server code')

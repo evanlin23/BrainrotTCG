@@ -38,7 +38,6 @@ afterEach(() => {
   seed(null);
   expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
 });
 const logged = () => errors.mock.calls.map((call: unknown[]) => String(call[0]));
 const warned = () => warnings.mock.calls.map((call: unknown[]) => String(call[0]));

@@ -33,7 +33,7 @@ import sharp from 'sharp';
 import { ALL_SET_VERSIONS, SETS } from '../src/content/sets/index.ts';
 import { POKER_HANDS, RARITIES_RAREST_FIRST, type HandKey, type SetDefinition } from '../src/engine/index.ts';
 import { modifierText } from '../src/game/modifierLabels.ts';
-import { cardPreviewPath, hasModifierPages, MODIFIER_TOKENS, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, setPagePath, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
+import { cardPreviewPath, compareCardIds, hasModifierPages, MODIFIER_TOKENS, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, setPagePath, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
 import { setLinkHash } from '../src/game/route.ts';
 import { siteFromEnv } from './crawler-files.ts';
 import { isMainModule } from './main-module.ts';
@@ -164,7 +164,7 @@ export const setStubs = (sets: readonly SetDefinition[] = SETS): SetStub[] =>
 const background = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="100%" height="100%" fill="#121114"/></svg>`);
 
 /** Every hand a set's cards can make, by the cards that make it. */
-const handsOf = (setId: string, ids: readonly string[]): Preview[] =>
+export const handsOf = (setId: string, ids: readonly string[]): Preview[] =>
   (Object.keys(POKER_HANDS) as HandKey[]).flatMap((hand): Preview[] => {
     if (hand === 'FULL_HOUSE') return ids.flatMap((a) => ids.filter((b) => b !== a).map((b) => ({ setId, cardIds: [a, b], hand })));
     if (hand === 'TWO_PAIR') return ids.flatMap((a, i) => ids.slice(i + 1).map((b) => ({ setId, cardIds: [a, b], hand })));
@@ -252,7 +252,7 @@ export const generatePreviews = async ({ outDir, pagesOnly, base, site, versions
 
   const images: (() => Promise<void>)[] = [];
   for (const [setId, set] of sets) {
-    const ids = [...set.cards.keys()].sort();
+    const ids = [...set.cards.keys()].sort(compareCardIds);
     for (const preview of handsOf(setId, ids)) {
       const cards = preview.cardIds.map((id) => set.cards.get(id)!);
       const description =
