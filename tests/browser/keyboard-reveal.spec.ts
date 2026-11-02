@@ -317,22 +317,57 @@ test('levels a tilted card as soon as reduced motion turns on mid-reveal, and ke
 /** What nonce 21 saves, in the history log's own format (the key is a card's id, then its finish marks). */
 const SAVED_PACK = { cards: 'remember-november,niu-lai*,black-cat-clapping,remember-novemberP,pirate-gaster', score: 8530, hand: 'Pair' };
 type MotionEntry = { kind: string; what: string; ms: number; iterations: number; target: string };
-declare global { interface Window { motionLog: MotionEntry[] } }
+declare global { interface Window { motionLog: MotionEntry[]; flipWatch: { seen: number[]; stop: boolean } } }
 
-/** Logs every animation as it starts: Framer Motion's (Element.animate) and the stylesheets' (animationstart, transitionrun). */
+/**
+ * Samples the focused card's rotateY on every frame, from before it flips. It reads the rendered transform, so it
+ * does not depend on how Framer Motion drives the flip (14.6 called Element.animate, 14.9 builds a KeyframeEffect).
+ */
+const watchFlip = (page: Page) => page.evaluate(() => {
+  const inner = document.querySelector('.reveal-card:focus .card-inner')!;
+  const watch = { seen: [] as number[], stop: false };
+  window.flipWatch = watch;
+  const sample = () => {
+    const m = new DOMMatrix(getComputedStyle(inner).transform);
+    watch.seen.push(Math.abs(Math.atan2(m.m13, m.m11)) * 180 / Math.PI);
+    if (!watch.stop) requestAnimationFrame(sample);
+  };
+  sample();
+});
+
+/** Whether the watched card turned from its front to its back through angles in between, not in one jump. */
+const flipped = (page: Page) => page.evaluate(async () => {
+  const { seen } = window.flipWatch;
+  for (let frames = 0; frames < 600 && seen[seen.length - 1] <= 179.99; frames++) await new Promise((next) => requestAnimationFrame(next));
+  window.flipWatch.stop = true;
+  return seen[0] < 1 && seen.some((degrees) => degrees > 1 && degrees < 179) && seen[seen.length - 1] > 179.99;
+});
+
+/** Logs every animation as it starts: Framer Motion's (Element.animate or KeyframeEffect) and the stylesheets' (animationstart, transitionrun). */
 const logMotion = (page: Page) => page.addInitScript(() => {
   const log: MotionEntry[] = [];
   window.motionLog = log;
   const className = (el: unknown) => (el instanceof Element ? el.className.toString().split(' ')[0] : '');
-  const animate = Element.prototype.animate;
-  Element.prototype.animate = function (this: Element, keyframes: Keyframe[] | PropertyIndexedKeyframes | null, options?: number | KeyframeAnimationOptions) {
+  const logWaapi = (target: unknown, keyframes: Keyframe[] | PropertyIndexedKeyframes | null, options?: number | KeyframeAnimationOptions) => {
     const props = new Set(Array.isArray(keyframes) ? keyframes.flatMap((frame) => Object.keys(frame)) : Object.keys(keyframes ?? {}));
     props.delete('offset');
     props.delete('easing');
     const timing = typeof options === 'number' ? { duration: options } : options ?? {};
-    log.push({ kind: 'waapi', what: [...props].join('+'), ms: Number(timing.duration ?? 0), iterations: timing.iterations ?? 1, target: className(this) });
+    log.push({ kind: 'waapi', what: [...props].join('+'), ms: Number(timing.duration ?? 0), iterations: timing.iterations ?? 1, target: className(target) });
+  };
+  const animate = Element.prototype.animate;
+  Element.prototype.animate = function (this: Element, keyframes: Keyframe[] | PropertyIndexedKeyframes | null, options?: number | KeyframeAnimationOptions) {
+    logWaapi(this, keyframes, options);
     return animate.call(this, keyframes as Keyframe[], options);
   };
+  // Framer Motion 14.9 starts its transform animations as new Animation(new KeyframeEffect(...)), which never
+  // reaches Element.animate. A proxy keeps instanceof and the constructor's own checks.
+  window.KeyframeEffect = new Proxy(window.KeyframeEffect, {
+    construct(effect, args, newTarget) {
+      logWaapi(args[0], args[1], args[2]);
+      return Reflect.construct(effect, args, newTarget);
+    },
+  });
   // An animation on ::before or ::after is reported on its element, and only a subtree look finds it.
   const started = (event: Event) => {
     const el = event.target as Element;
@@ -376,9 +411,12 @@ for (const mode of MOTION_MODES) {
       await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 15000 });
       const card = page.locator('.reveal-card:focus');
       const labels: string[] = [];
+      const turned: boolean[] = [];
       for (let n = 1; n <= 5; n++) {
         await expect(card).toHaveAttribute('aria-label', `Flip card ${n} of 5`, { timeout: 10000 });
+        if (!mode.calm) await watchFlip(page);
         await tapSpace(page);
+        if (!mode.calm) turned.push(await flipped(page));
         await expect(card).toHaveAttribute('aria-label', n < 5 ? /^Next card/ : /^See the pack summary/, { timeout: 10000 });
         labels.push((await card.getAttribute('aria-label'))!);
         // The probe logs a loop as the browser starts it, which takes a frame with the holo face on screen. Turned
@@ -425,9 +463,9 @@ for (const mode of MOTION_MODES) {
         expect(log.length, 'the probe saw the fades').toBeGreaterThan(0);
       } else {
         expect(log.some((entry) => entry.kind === 'transitionrun' && entry.what === 'transform' && entry.target === 'pack-half'), 'the tear slid').toBe(true);
-        // framer-motion 14 runs the flip's rotateY spring as one Web Animation per flip (#673), not as
-        // per-frame style writes that the stylesheet's transition picked up.
-        expect(log.filter((entry) => entry.kind === 'waapi' && entry.what === 'transform' && entry.target === 'card-inner').length, 'the cards flipped').toBe(5);
+        // Each card's rotateY was sampled every frame from before its flip to when it settled on its back (#673).
+        // The rendered angle is the signal, not the Web Animation Framer Motion happens to start for it.
+        expect(turned.filter(Boolean).length, 'the cards flipped').toBe(5);
         // Niu Lai is holo, so its face's shimmer (on ::after) loops for as long as it shows. The loading
         // shimmer and the open cue's arrows loop too, but only while art renders or the cue plays.
         expect(log.some((entry) => entry.what === 'holoRainbowShimmer' && entry.target === 'card-face' && entry.iterations === Infinity), 'nothing looped').toBe(true);
