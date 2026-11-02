@@ -41,6 +41,16 @@ const binder: NextMilestoneGoal = {
   action: { text: 'View binder', target: 'cards' },
 };
 
+const master: NextMilestoneGoal = {
+  kind: 'set-master',
+  targetName: 'Six Seven Season master set',
+  detail: '8/12 as holos, 4 to go',
+  progressText: '8/12 holos',
+  progressLabel: '8 of 12 holos',
+  progressPct: 66,
+  action: { text: 'View binder', target: 'cards' },
+};
+
 const done: NextMilestoneGoal = {
   kind: 'done',
   targetName: 'Base Set mastered',
@@ -87,6 +97,14 @@ describe('PackMilestoneGoal', () => {
     const onNavigate = render(binder);
     act(() => container.querySelector<HTMLButtonElement>('button.pack-milestone')!.click());
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith('cards');
+  });
+
+  it('names the unit of a master set count on screen and in the accessible name (#898)', () => {
+    render(master);
+    expect(container.querySelector('.pack-milestone-progress')!.textContent).toBe('8/12 holos');
+    expect(container.querySelector('button.pack-milestone')!.getAttribute('aria-label')).toBe(
+      'Next goal: Six Seven Season master set, 8 of 12 holos. 8/12 as holos, 4 to go. View binder.',
+    );
   });
 
   it('is plain text with no button once everything is done', () => {

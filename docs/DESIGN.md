@@ -34,7 +34,7 @@ from a 390 px wide screen.
    with the goal or without it (the row is three columns, the guide alone in the middle; the left column
    is empty but for **Change pack**, item 8 of the Flow below): one two-line, 44px chip (a small card-back picture when the reward is a
    card back, the name, a percentage or count, and "Cosmetic, odds unchanged" or the cards still to
-   go), a link to Profile rewards or the binder. Where a level holds two rewards (12: Gold foil and
+   go; a master set count names its unit, "8/12 holos", so it is not read as set completion, #898), a link to Profile rewards or the binder. Where a level holds two rewards (12: Gold foil and
    Meme Historian; 20: Prismatic card back and Aura Farmer) the chip names the choosable cosmetic
    (with its card-back picture when it is a card back) and not the title that equips itself; the
    Profile "Next:" line names both (#212). The chip comes from the same verified-pack level and set
