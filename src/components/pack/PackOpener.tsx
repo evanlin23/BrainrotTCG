@@ -729,6 +729,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // then move to the next. Already revealed cards don't repeat their celebration.
   useEffect(() => {
     if (!skipping || (revealLocked && pauseBigPulls) || !isOpening || showSummary || disabled) return;
+    // A takeover plays out whole before the skip moves on (its own timer ends it, which re-runs this), so it is never cut off mid-way.
+    const shown = openedCards[currentIndex];
+    if (shown?.isRevealed && takeoverCardRef.current === shown.uniqueId) return;
     // Give a newly mounted card a frame face down before starting its flip.
     const frame = requestAnimationFrame(() => {
       const nextIndex = pauseBigPulls ? nextSpecialRevealIndex(openedCards) : -1;
@@ -746,7 +749,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [skipping, revealLocked, pauseBigPulls, isOpening, showSummary, disabled, openedCards, currentIndex, handleFlip, recordPack, send]);
+  }, [skipping, revealLocked, celebratingCardId, pauseBigPulls, isOpening, showSummary, disabled, openedCards, currentIndex, handleFlip, recordPack, send]);
 
   const handleInteraction = useCallback(() => {
     if (!isOpening || showSummary || disabled || skippingRef.current || (pauseBigPulls && performance.now() < revealLockedUntilRef.current)) return;
@@ -952,6 +955,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2 }}
             className="card-reveal-area"
+            // A pack with a takeover clears its banner's height from the first card on, so no card moves when one starts or ends.
+            data-takeover={takeovers.size > 0 ? '' : undefined}
           >
             {!showSummary ? (
               <CardRevealUI

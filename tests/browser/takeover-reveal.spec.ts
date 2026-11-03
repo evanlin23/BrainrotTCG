@@ -123,6 +123,33 @@ const look = (page: Page) => page.evaluate(() => new Promise<Look>((resolve, rej
   frame();
 }));
 
+/**
+ * Where the card and its stage sit in the reveal area, from layout alone (offsets and scroll, so a flip's transform
+ * can't move it): the takeover may add a banner and a backdrop, but must never push the card.
+ */
+const placement = (page: Page) => page.evaluate(() => {
+  const area = document.querySelector<HTMLElement>('.card-reveal-area');
+  const at = (el: HTMLElement | null) => {
+    if (!el || !area) throw new Error('the reveal is not up');
+    let x = 0;
+    let y = 0;
+    for (let node: HTMLElement | null = el; node && node !== area; node = node.offsetParent as HTMLElement | null) {
+      x += node.offsetLeft;
+      y += node.offsetTop;
+    }
+    return { x, y, width: el.offsetWidth, height: el.offsetHeight };
+  };
+  return {
+    stage: at(document.querySelector('.active-card-container')),
+    card: at(document.querySelector('.active-card-container .reveal-card')),
+    padding: area ? getComputedStyle(area).paddingTop : '',
+    scroll: area?.scrollTop ?? 0,
+  };
+});
+
+/** A phone: the narrow layout is the one that reserves a band for the banner. */
+const PHONE = { width: 390, height: 844 };
+
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
 /** What every takeover owes the player, whatever the screen and text size. */
@@ -146,15 +173,21 @@ function expectFitsAndAnnounces(shot: Look) {
 
 test('a Common that completes the set takes over with its banner, settles on a tap at once, and holds still under reduced motion', async ({ page, baseURL }) => {
   test.setTimeout(90000);
+  await page.setViewportSize(PHONE);
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  // The page's clock, so the takeover's own 4.5 s end is never raced.
+  await page.clock.install();
   // Every card but huss-valley is owned, so the pack's first huss-valley completes the set. The pause is on (the default).
   const errors = await start(page, baseURL!, { nonce: 23, collection: collectionWithout(['huss-valley']) });
   await toCard(page, 2);
   // Cards before it are duplicates: no takeover so far.
   await expect(page.locator('.takeover-banner')).toHaveCount(0);
+  const before = await placement(page);
+  await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 2000));
   await tapSpace(page);
 
   const shot = await look(page);
+  expect(await placement(page), 'the takeover moved the card').toEqual(before);
   expect(shot.reason).toBe('SET');
   expect(shot.kicker).toBe('Set complete');
   expect(shot.name.length).toBeGreaterThan(0);
@@ -168,25 +201,30 @@ test('a Common that completes the set takes over with its banner, settles on a t
   await expect(page.locator('.takeover-banner')).toHaveCount(0);
   await expect(page.locator('.takeover-overlay')).toHaveCount(0);
   await expect(page.locator('.pack-top-count')).toHaveText('Card 2 of 5');
+  expect(await placement(page), 'settling the takeover moved the card').toEqual(before);
   await tapSpace(page);
+  await page.clock.resume();
   await expect(page.locator('.pack-top-count')).toHaveText('Card 3 of 5');
   expect(errors).toEqual([]);
 });
 
 test('a Brainrot takes over, keeps its 3 s hold, and at 200% text fits with every control reachable', async ({ page, baseURL }) => {
   test.setTimeout(90000);
+  await page.setViewportSize(PHONE);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   // The page's clock, so the hold and the takeover's own end are read to the millisecond, not raced.
   await page.clock.install();
   const errors = await start(page, baseURL!, { nonce: 8 });
   await scaleText(page, 200);
   await toCard(page, 5);
+  const before = await placement(page);
   // Frozen from here: the flip happens at one instant, and nothing ends until the test says so.
   await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 2000));
   await tapSpace(page);
   await expect(page.locator('.pack-top-bar .takeover-banner')).toBeVisible();
 
   const shot = await look(page);
+  expect(await placement(page), 'the takeover moved the card, at 200% text on a phone').toEqual(before);
   expect(shot.reason).toBe('BRAINROT');
   expect(shot.kicker).toBe('Brainrot');
   expectFitsAndAnnounces(shot);
@@ -210,6 +248,7 @@ test('a Brainrot takes over, keeps its 3 s hold, and at 200% text fits with ever
   await expect(page.locator('.takeover-overlay')).toHaveCount(0);
   await expect(page.locator('.pack-top-count')).toHaveText('Card 5 of 5');
   await expect(page.locator('.pack-summary')).toHaveCount(0);
+  expect(await placement(page), 'settling the takeover moved the card, at 200% text on a phone').toEqual(before);
   // And the one after that ends the pack.
   await tapSpace(page);
   await page.clock.resume();
@@ -221,14 +260,19 @@ test('a Brainrot settles on the first tap with Pause on good pulls off, and with
   test.setTimeout(90000);
   // The device says nothing; the app's own Motion setting is what holds it still (data-motion on the page).
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.clock.install();
   const errors = await start(page, baseURL!, { nonce: 8, settings: { pauseBigPulls: false, motion: 'reduced' } });
+  await scaleText(page, 200);
   await toCard(page, 5);
+  const before = await placement(page);
+  await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 2000));
   await tapSpace(page);
 
   const shot = await look(page);
   expect(shot.motion).toBe('reduced');
   expect(shot.reason).toBe('BRAINROT');
   expectFitsAndAnnounces(shot);
+  expect(await placement(page), 'the takeover moved the card').toEqual(before);
   expect(shot.animations).toEqual({ overlay: 'none', art: 'none', rays: 'none', banner: 'none' });
   await expect(page.locator('.active-card-container')).toHaveAttribute('aria-busy', 'false');
 
@@ -236,6 +280,8 @@ test('a Brainrot settles on the first tap with Pause on good pulls off, and with
   await tapSpace(page);
   await expect(page.locator('.takeover-banner')).toHaveCount(0);
   await expect(page.locator('.pack-top-count')).toHaveText('Card 5 of 5');
+  expect(await placement(page), 'settling the takeover moved the card').toEqual(before);
+  await page.clock.resume();
   expect(errors).toEqual([]);
 });
 

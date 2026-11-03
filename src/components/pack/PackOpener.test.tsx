@@ -1227,7 +1227,7 @@ describe('the takeover reveal (#1293 b)', () => {
   const everyKey = set.cards.map((card) => cardKey(set.id, card.id));
   /** A pack of five plain Commons (so none is a valuable pull on its own), with `overrides` applied by index. */
   const deal = async (owned: readonly string[] | null, settings = DEFAULT_SETTINGS, overrides: Record<number, object> = {}) => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'requestAnimationFrame', 'cancelAnimationFrame'] });
     vi.stubGlobal('requestIdleCallback', (task: () => void) => task());
     vi.stubGlobal('cancelIdleCallback', () => {});
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
@@ -1336,6 +1336,29 @@ describe('the takeover reveal (#1293 b)', () => {
     expect(banners()[0].textContent).not.toContain('Continue in a moment');
     press();
     expect(banners()).toHaveLength(0);
+  });
+
+  it('lets Skip stop at a Brainrot and play its takeover out whole before the pack ends, and passes a set-completing Common', async () => {
+    // The set-completing Common is the first card; the Brainrot is the last.
+    await deal(everyKey.filter((key) => key !== keyOf(0)), DEFAULT_SETTINGS, brainrot);
+    act(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
+    // Frames, so the skip reaches the Brainrot and flips it.
+    for (let i = 0; i < 4 && banners().length === 0; i++) await advance(20);
+    expect(banners()).toHaveLength(1);
+    expect(banners()[0].getAttribute('data-reason')).toBe('BRAINROT');
+    await advance(3_000);
+    // The hold is over, and the skip waits for the banner's own end.
+    expect(banners()).toHaveLength(1);
+    expect(document.querySelector('.pack-summary')).toBeNull();
+    // (The frames that reached the Brainrot ran a few ms of the clock past its flip.)
+    await advance(TAKEOVER_DURATION_MS - 3_000 - 100);
+    expect(banners()).toHaveLength(1);
+    expect(document.querySelector('.pack-summary')).toBeNull();
+    await advance(200);
+    expect(banners()).toHaveLength(0);
+    await advance(100);
+    await act(async () => {});
+    expect(document.querySelector('.pack-summary, .summary-card')).not.toBeNull();
   });
 
   it('ends a takeover by itself after TAKEOVER_DURATION_MS', async () => {

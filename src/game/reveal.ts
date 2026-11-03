@@ -3,6 +3,7 @@
  * order. Like the rare slot in a real booster, the best card comes last.
  */
 import { cardPoints, type Finish, type Rarity } from '../engine';
+import { setProgress } from './progression';
 
 export interface TakeoverSetContext {
   /** Unique cards owned in this set before this reveal. */
@@ -43,13 +44,25 @@ export const isSpecialReveal = (card: Revealable): boolean => card.rarity === 'B
 /**
  * Which cinematic takeover trigger fired (COLLECTION > SET > BRAINROT), or null if none (Spec 1, #1293).
  *
- * Points alone never trigger a takeover. Only a new card can complete a set or collection: it does
- * when exactly one card was missing, so `ownedBefore === size - 1`.
+ * Points alone never trigger a takeover. Only a new card can complete a set or collection, evaluated
+ * using setProgress from progression.ts where ownedBefore + 1 reaches size.
  */
 export const takeoverReason = (card: TakeoverCard, context?: TakeoverContext): TakeoverReason | null => {
-  if (card.isNew && context?.collection && context.collection.ownedBefore === context.collection.size - 1) return 'COLLECTION';
-  if (card.isNew && context?.set && context.set.ownedBefore === context.set.size - 1) return 'SET';
-  if (card.rarity === 'BRAINROT') return 'BRAINROT';
+  if (card.isNew && context?.collection) {
+    const { ownedBefore, size } = context.collection;
+    if (size > 0 && ownedBefore === size - 1 && setProgress(ownedBefore + 1, 0, size) !== null) {
+      return 'COLLECTION';
+    }
+  }
+  if (card.isNew && context?.set) {
+    const { ownedBefore, size } = context.set;
+    if (size > 0 && ownedBefore === size - 1 && setProgress(ownedBefore + 1, 0, size) !== null) {
+      return 'SET';
+    }
+  }
+  if (card.rarity === 'BRAINROT') {
+    return 'BRAINROT';
+  }
   return null;
 };
 
