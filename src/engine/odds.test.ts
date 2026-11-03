@@ -110,12 +110,12 @@ describe('scoreAtLeastChance', () => {
   });
 
   it('works out every released set', () => {
-    for (const set of ALL_SET_VERSIONS) {
+    // A draft isn't released and can be short of its 12 cards, which widens the far tail.
+    for (const set of ALL_SET_VERSIONS.filter((candidate) => !candidate.draft)) {
       const common = scoreAtLeastChance(set, 300)!;
       expect(common).toBeGreaterThan(0.2);
       expect(common).toBeLessThan(1);
-      // A draft still short of its 12 cards has fewer possible packs, so the far tail is wider.
-      if (set.cards.length >= 12) expect(scoreAtLeastChance(set, 1e8)!).toBeLessThan(1e-4);
+      expect(scoreAtLeastChance(set, 1e8)!).toBeLessThan(1e-4);
     }
   });
 });
