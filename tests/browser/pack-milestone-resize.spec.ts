@@ -57,6 +57,14 @@ const show = (page: Page, goal: NextMilestoneGoal) => page.locator('.pack-milest
   chip.querySelector('.pack-milestone-detail')!.textContent = g.detail;
   const progress = chip.querySelector('.pack-milestone-progress')!;
   progress.innerHTML = g.progressUnit ? `${g.progressText}<span class="pack-milestone-unit"> ${g.progressUnit}</span>` : '99%';
+  chip.querySelector('.pack-milestone-tag')?.remove();
+  if (g.kind === 'cosmetic') {
+    const tag = document.createElement('span');
+    tag.className = 'pack-milestone-tag';
+    tag.setAttribute('aria-hidden', 'true');
+    tag.textContent = 'Cosmetic';
+    chip.querySelector('.pack-milestone-detail')!.after(tag);
+  }
   chip.querySelector('.back-swatch')?.remove();
   if (g.preview) {
     const swatch = document.createElement('span');
@@ -95,7 +103,7 @@ const decided = (page: Page) => page.locator('.card-guide-entry').evaluate((row)
       width: Math.round(box.width), height: Math.round(box.height),
     };
   };
-  return Object.fromEntries(['.pack-milestone', '.back-swatch', '.pack-milestone-detail', '.pack-milestone-line', '.pack-milestone-progress']
+  return Object.fromEntries(['.pack-milestone', '.back-swatch', '.pack-milestone-detail', '.pack-milestone-tag', '.pack-milestone-line', '.pack-milestone-progress']
     .map((selector) => [selector, pick(selector)]));
 });
 
