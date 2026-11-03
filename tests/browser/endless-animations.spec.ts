@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectSummaryTakesClicks, fingerFor, monitor } from './support';
+import { expectSummaryTakesClicks, fingerFor, monitor, tapSpace } from './support';
 
 /**
  * The screens that untilIdle (support.ts) is called on never stop animating: a sealed pack's foil and
@@ -194,3 +194,92 @@ test('the pack foil previews on the profile page slide on the compositor too', a
   // Shimmer, gold and prism slide; the standard swatch has no foil to move.
   expect(running.filter(({ animation }) => animation === 'pack-foil')).toHaveLength(3);
 });
+
+/**
+ * The 3 s celebration (SPECIAL_REVEAL_DURATION_MS) is a player's choice to hold, so Reduced motion keeps its input
+ * lock to the millisecond; what it must not keep is a tween on that clock (#1289). The fixture key's nonce 8 deals a
+ * Brainrot as the pack's last card. Every read is on the page's clock, so there is no 3 s wait and no race with the
+ * celebration's own end. A big card lands on a scale of 1.03 (CardRevealUI); under Reduced it must be there a few
+ * frames after the flip, not 3 s later. (CardRevealUI.motion.test.tsx pins the tween's own settings; framer-motion's
+ * MotionConfig also makes transforms instant here, so this is the whole-app check that nothing brings it back.)
+ */
+const LOCK_MS = 3000;
+const FRAME_MS = 16;
+/** The most of the page's own time a card may take to reach its end scale: inside the 3 s lock, which the check after it counts down. */
+const MAX_SETTLE_MS = 2000;
+const BIG_SCALE = 1.03;
+
+const cases = [
+  { name: 'in-app Reduced motion with the device allowing motion', os: 'no-preference', settings: { motion: 'reduced' }, pause: true },
+  { name: 'the device asking for reduced motion', os: 'reduce', settings: {}, pause: true },
+  { name: 'in-app Reduced motion with Pause on good pulls off', os: 'no-preference', settings: { motion: 'reduced', pauseBigPulls: false }, pause: false },
+] as const;
+
+for (const { name, os, settings, pause } of cases) {
+  test(`a Brainrot's flip settles at once under ${name}, and the hold is the setting's`, async ({ page, baseURL }) => {
+    test.setTimeout(90000);
+    await page.emulateMedia({ reducedMotion: os });
+    await page.clock.install();
+    await page.addInitScript(({ origin, settings }) => {
+      if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
+      localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 8, createdAt: 1 }));
+      localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0, ...settings }));
+    }, { origin: new URL(baseURL!).origin, settings });
+    const errors = await monitor(page, baseURL!);
+    await page.goto('./');
+    await expect(page.locator('.app-logo')).toBeVisible();
+
+    // Reveal the four cards before the Brainrot, leaving it face down.
+    await page.getByRole('button', { name: /^Open pack/ }).focus();
+    await page.keyboard.press('Space');
+    await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 15000 });
+    const card = page.locator('.reveal-card:focus');
+    for (let i = 1; i <= 4; i++) {
+      await expect(card).toHaveAttribute('aria-label', `Flip card ${i} of 5`, { timeout: 10000 });
+      await tapSpace(page);
+      await expect(card).toHaveAttribute('aria-label', /^Next card\. /);
+      await tapSpace(page);
+    }
+    await expect(card).toHaveAttribute('aria-label', 'Flip card 5 of 5', { timeout: 10000 });
+
+    // Frozen from here: the flip is one instant, and only the test moves the clock.
+    await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 2000));
+    await tapSpace(page);
+    await expect(page.locator('.reveal-card.is-celebrating')).toHaveCount(1);
+    // React commits the flip, and framer-motion starts the card's animation, in real time, outside the page's clock: how
+    // many frames that takes depends on the machine, so counting frames would race it. Poll in real time instead, one
+    // frame of the page's clock per look, and write down every scale the card takes on. What is bounded is the page's
+    // own time: it must be there well inside the lock (a 3 s tween never would be), and `elapsed` is what the lock check
+    // below subtracts.
+    const scales: number[] = [];
+    await expect.poll(async () => {
+      await page.clock.runFor(FRAME_MS);
+      scales.push(await page.evaluate(() => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.reveal-card.is-celebrating')!).transform).a));
+      return scales.at(-1);
+    }, { message: 'a big card never reached its end scale', intervals: [25], timeout: 20000 }).toBe(BIG_SCALE);
+    const elapsed = scales.length * FRAME_MS;
+    expect(elapsed, `a big card took ${elapsed}ms of the page's time to reach its end scale: ${scales.join(', ')}`).toBeLessThan(MAX_SETTLE_MS);
+    // (The card's own 0.22s entrance, if a frame still owes it, is below 1; nothing may sit between 1 and the end scale or past it.)
+    expect(scales.every((value) => value <= 1 || value === BIG_SCALE), `a big card tweens its scale: ${scales.join(', ')}`).toBe(true);
+
+    const stage = page.locator('.active-card-container');
+    if (pause) {
+      // The lock lasts exactly SPECIAL_REVEAL_DURATION_MS, Reduced or not: a tap does nothing up to its last millisecond.
+      await expect(stage).toHaveAttribute('aria-busy', 'true');
+      await page.clock.runFor(LOCK_MS - 1 - elapsed);
+      await tapSpace(page);
+      await expect(page.locator('.takeover-banner')).toHaveCount(1);
+      await expect(stage).toHaveAttribute('aria-busy', 'true');
+      await page.clock.runFor(1);
+      await expect(stage).toHaveAttribute('aria-busy', 'false');
+    } else {
+      // Nothing holds the reveal: the first tap settles the takeover on the spot.
+      await expect(stage).toHaveAttribute('aria-busy', 'false');
+    }
+    await tapSpace(page);
+    await expect(page.locator('.takeover-banner')).toHaveCount(0);
+    await expect(page.locator('.pack-top-count')).toHaveText('Card 5 of 5');
+    await page.clock.resume();
+    expect(errors).toEqual([]);
+  });
+}
