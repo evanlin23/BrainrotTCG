@@ -121,6 +121,17 @@ button.pack-milestone:disabled {
   color: var(--text-muted);
 }
 
+/* The compact chip's stand-in for the cue line: one word, for a cosmetic only, so a phone player sees on screen that the
+   reward is a cosmetic and not rarity or odds (the full words stay in the accessible name and the tooltip). It takes the
+   cue line's slot under the name, so the name keeps its width; it is drawn only where the chip sets --goal-tag (below). */
+.pack-milestone-tag {
+  display: var(--goal-tag, none);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
 /* Progress along the bottom edge, inside the box. */
 .pack-milestone-bar {
   position: absolute;
@@ -137,10 +148,12 @@ button.pack-milestone:disabled {
   background: var(--brand);
 }
 
-/* Two lines of text need about 2.2rem with room for the bar: past roughly 125% text they no longer fit in 44px,
-   so the cue line gives way and the name and progress stay on one line. The row keeps its height. */
-@container pack-milestone (max-height: 2.2rem) {
-  .pack-milestone-detail {
+/* Two lines of text and the bar need about 2.05rem of the chip's 44px (1.725rem of text, 1px between, 3px of bar
+   clear on each side): past roughly 135% text they no longer fit, so the cue line gives way and the name and
+   progress stay on one line. The row keeps its height. */
+@container pack-milestone (max-height: 2.05rem) {
+  .pack-milestone-detail,
+  .pack-milestone-tag {
     display: none;
   }
 }
@@ -210,8 +223,8 @@ button.pack-milestone:disabled {
 }
 
 /* Beside a centred guide a phone's column is about 6rem to 12rem: the goal shrinks to its name, how far along it is
-   and the progress bar. The picture and the "Cosmetic, odds unchanged" line give way here only to the eye: that
-   text stays in the chip's accessible name and its tooltip, so the cosmetic-versus-odds distinction is not lost.
+   and the progress bar. The picture and the "Cosmetic, odds unchanged" line give way here: a cosmetic keeps a
+   one-word "Cosmetic" under the name (--goal-tag), and the full words stay in the chip's accessible name and its tooltip.
    From 34rem the column holds the whole chip.
 
    The chip is itself a size container (pack-milestone), and Chromium does not re-ask card-guide for the chip's
@@ -223,12 +236,13 @@ button.pack-milestone:disabled {
     margin-left: var(--space-2);
     padding: 0 var(--space-2);
     --goal-compact-hide: none;
+    --goal-tag: block;
   }
 }
 
 /* A count with a unit ("8/12 holos", #898) is too wide to sit beside the name in that column: it would leave the
    set name a few pixels. The count goes on a line of its own under the name, in the room the cue line leaves
-   (the cue is not drawn here), so the unit is read once and the name keeps the whole column. Past about 125% text
+   (the cue is not drawn here), so the unit is read once and the name keeps the whole column. Past about 135% text
    two lines no longer fit in 44px, so the count goes back beside the name, unit and all, and it is the name that
    gives way (an ellipsis): the unit is what tells a master set's count from set completion, so it is never hidden. */
 @container card-guide (max-width: 34rem) {
@@ -239,7 +253,7 @@ button.pack-milestone:disabled {
   }
 }
 
-@container pack-milestone (max-height: 2.2rem) {
+@container pack-milestone (max-height: 2.05rem) {
   .card-guide-entry > .pack-milestone:has(.pack-milestone-unit) .pack-milestone-line {
     flex-direction: row;
     align-items: baseline;

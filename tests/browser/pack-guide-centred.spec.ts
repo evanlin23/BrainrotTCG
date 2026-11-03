@@ -61,7 +61,13 @@ for (const size of SIZES) {
     const without = await measure(page);
     expect(Math.abs(centre(without.guide) - centre(without.pack)), 'guide centre vs pack centre, without the goal').toBeLessThanOrEqual(1);
     // Taking the goal out moves nothing: the row, the pack and the guide stay where they were.
-    expect(without).toEqual({ ...withGoal, goal: null });
+    // (to within the half pixel the sizes above allow, as layout may round a box differently without the goal)
+    expect(without.goal).toBeNull();
+    for (const part of ['pack', 'guide', 'row'] as const) {
+      for (const side of ['x', 'y', 'width', 'height'] as const) {
+        expect(Math.abs(without[part][side] - withGoal[part][side]), `${part} ${side} without the goal`).toBeLessThanOrEqual(0.5);
+      }
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);
     expect(errors).toEqual([]);
   });

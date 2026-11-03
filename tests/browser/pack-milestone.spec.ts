@@ -58,6 +58,15 @@ const show = (page: Page, goal: NextMilestoneGoal) => page.locator('.pack-milest
   const progress = chip.querySelector('.pack-milestone-progress')!;
   // A goal's own count, the way the component draws it (with its unit in a span of its own), else the worst case of "99%".
   progress.innerHTML = g.progressUnit ? `${g.progressText}<span class="pack-milestone-unit"> ${g.progressUnit}</span>` : '99%';
+  // The compact chip's one-word stand-in for the cue, drawn (as the component does) for a cosmetic only.
+  chip.querySelector('.pack-milestone-tag')?.remove();
+  if (g.kind === 'cosmetic') {
+    const tag = document.createElement('span');
+    tag.className = 'pack-milestone-tag';
+    tag.setAttribute('aria-hidden', 'true');
+    tag.textContent = 'Cosmetic';
+    chip.querySelector('.pack-milestone-detail')!.after(tag);
+  }
   chip.querySelector('.back-swatch')?.remove();
   if (g.preview) {
     const swatch = document.createElement('span');
@@ -100,14 +109,23 @@ const holdsText = (page: Page) => page.locator('.pack-milestone').evaluate((chip
   const texts = Array.from(chip.querySelectorAll('.pack-milestone-text, .pack-milestone-progress, .pack-milestone-detail'))
     .filter((el) => getComputedStyle(el).display !== 'none');
   const text = chip.querySelector('.pack-milestone-text')!;
+  const detail = chip.querySelector('.pack-milestone-detail')!;
+  const cue = document.createRange();
+  cue.setStart(detail.firstChild!, 0);
+  cue.setEnd(detail.firstChild!, Math.min('Cosmetic, odds unchanged'.length, detail.firstChild!.textContent!.length));
   return {
     clipped: chip.scrollHeight > chip.clientHeight,
     // The bar is 3px along the bottom edge: every line ends above it.
     clear: Math.min(...texts.map((el) => bottom - el.getBoundingClientRect().bottom)) >= 3,
     name: chip.querySelector('.pack-milestone-target')!.getBoundingClientRect().right <= text.getBoundingClientRect().right + 0.5,
+    nameWidth: Math.floor(chip.querySelector('.pack-milestone-target')!.getBoundingClientRect().width),
+    shown: Math.floor(text.getBoundingClientRect().width),
     height: chip.getBoundingClientRect().height,
     row: chip.parentElement!.getBoundingClientRect().height,
     lines: texts.length,
+    // Whether the second line is drawn, and if it is, whether its first words ("Cosmetic, odds unchanged") are whole.
+    detail: getComputedStyle(detail).display !== 'none',
+    cue: cue.getBoundingClientRect().right <= detail.getBoundingClientRect().right + 0.5,
   };
 });
 
@@ -139,6 +157,9 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
       expect(box.y).toBeGreaterThanOrEqual(pack.y + pack.height - 0.5);
       expect(await goal.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0);
       await expect(page.locator('.pack-milestone-detail')).toBeHidden();
+      // What the eye gets in the cue's place: a cosmetic says so in one word under the name (the full words stay below).
+      await expect(page.locator('.pack-milestone-tag')).toBeVisible();
+      await expect(page.locator('.pack-milestone-tag')).toHaveText('Cosmetic');
       const label = (await goal.getAttribute('aria-label'))!;
       expect(label).toMatch(/^Next goal: /);
       expect(label).toMatch(/odds unchanged|to go|Every reward is unlocked/);
@@ -150,7 +171,20 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
           const chipBox = chip.getBoundingClientRect();
           const text = rect('.pack-milestone-text');
           const progress = rect('.pack-milestone-progress');
+          const tag = chip.querySelector('.pack-milestone-tag');
+          // The tag costs the name nothing: its width is the same with the tag taken out of the layout.
+          const withTag = text.width;
+          if (tag) (tag as HTMLElement).style.display = 'none';
+          const without = rect('.pack-milestone-text').width;
+          if (tag) (tag as HTMLElement).style.display = '';
+          const tagBox = tag?.getBoundingClientRect();
           return {
+            tag: tag ? {
+              shown: getComputedStyle(tag).display !== 'none' && tag.textContent === 'Cosmetic',
+              // Whole, inside the chip and clear of the bar along its bottom edge.
+              whole: tag.scrollWidth <= tag.clientWidth && tagBox!.right <= chipBox.right + 0.5 && chipBox.bottom - tagBox!.bottom >= 3,
+              nameKeepsItsWidth: Math.abs(withTag - without) <= 0.5,
+            } : null,
             // Something of the name is shown, the progress is whole, nothing spills out of the chip or under the bar.
             name: text.width > 20,
             progress: progress.right <= chipBox.right + 0.5 && progress.left >= text.right - 0.5,
@@ -160,7 +194,7 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
             animations: chip.getAnimations({ subtree: true }).length,
           };
         });
-        expect(compact, `${reward.targetName} (${reward.targetKind}) at ${width}px`).toEqual({ name: true, progress: true, spills: false, height: 44, picture: 'none', animations: 0 });
+        expect(compact, `${reward.targetName} (${reward.targetKind}) at ${width}px`).toEqual({ tag: { shown: true, whole: true, nameKeepsItsWidth: true }, name: true, progress: true, spills: false, height: 44, picture: 'none', animations: 0 });
       }
       // A master set's count carries its unit (#898): whole, inside the chip, under a name that keeps room to be read.
       for (const master of MASTER_GOALS) {
@@ -177,6 +211,8 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
             clear: chipBox.bottom - Math.max(progress.bottom, text.bottom) >= 3,
           };
         });
+        // Only a cosmetic is tagged: a set goal says its count, not that it changes no odds.
+        expect(await page.locator('.pack-milestone-tag').count(), `${master.targetName} has no cosmetic tag`).toBe(0);
         expect(laid.nameWidth, `${master.targetName} ${master.progressText} name width at ${width}px`).toBeGreaterThanOrEqual(80);
         expect({ ...laid, nameWidth: 0 }, `${master.targetName} ${master.progressText} at ${width}px`).toEqual({ nameWidth: 0, countWhole: true, spills: false, height: 44, clear: true });
       }
@@ -193,6 +229,8 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
       expect(await goal.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0);
       // Beyond the aria-label, the chip says on screen what the goal is (it does not wait for a wide row): a
       // cosmetic that it changes no odds, a set goal how many cards are to go.
+      // Its one-word stand-in is for the compact chip only: here the cue line says it whole.
+      await expect(page.locator('.pack-milestone-tag')).toBeHidden();
       const shown = await page.locator('.pack-milestone-detail').innerText();
       expect(shown).toMatch(expectedCue);
       if (shown.startsWith('Cosmetic')) expect(shown).toContain('odds unchanged');
@@ -257,8 +295,9 @@ for (const [width, height] of [[600, 900], [580, 900]] as const) {
 }
 
 // The chip is a fixed 44px but its text is not: at enlarged text on a roomy screen (the row is still wide enough to show it)
-// the second line gives way, and nothing is clipped or left under the progress bar.
-for (const [width, height, percent] of [[768, 1024, 125], [768, 1024, 150], [768, 1024, 200], [1280, 800, 150], [1280, 800, 200]] as const) {
+// the second line gives way once two lines and the bar no longer fit (past about 135%), and nothing is clipped or left under
+// the progress bar. Up to 125% (and 120%, a common browser step) the cue line is still whole.
+for (const [width, height, percent] of [[768, 1024, 120], [768, 1024, 125], [768, 1024, 150], [768, 1024, 200], [1280, 800, 120], [1280, 800, 125], [1280, 800, 150], [1280, 800, 200]] as const) {
   test(`holds its text in 44px on a ${width} x ${height} screen at ${percent}% text`, async ({ page, baseURL }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop-chromium', 'A desktop layout check; the window is set here.');
     const errors = await open(page, baseURL!, { width, height });
@@ -267,6 +306,7 @@ for (const [width, height, percent] of [[768, 1024, 125], [768, 1024, 150], [768
     const before = await layout(page);
     const goal = page.locator('.card-guide-entry .pack-milestone');
     await expect(goal).toBeVisible();
+    const twoLines = percent <= 125;
     for (const reward of COSMETIC_GOALS) {
       await show(page, reward);
       const held = await holdsText(page);
@@ -275,9 +315,12 @@ for (const [width, height, percent] of [[768, 1024, 125], [768, 1024, 150], [768
         // At 200% on a 768px screen the column beside the centred guide is about 245px: the longest names (clipped with an
         // ellipsis, still in the accessible name and the tooltip) no longer fit whole there. Everywhere else the name is whole.
         name: width === 768 && percent === 200 ? expect.any(Boolean) : true,
+        // Two lines while they fit, with the cue's words whole; past that the cue is dropped, never cut.
+        detail: twoLines, lines: twoLines ? 3 : 2, ...(twoLines ? { cue: true } : {}),
       });
-      // One line, or two while they fit: past a point the cue is dropped, never cut.
-      expect([1, 2].includes(held.lines - 1)).toBe(true);
+      // Clipped or not, the name keeps room to be read: its box is 145px at 768px and 200% text (the tightest case, a 237px
+      // chip, with a "99%" count), 227px and more elsewhere, so a loss of more than a few px of that room, to the padding, the count or the tag, fails.
+      expect(held.shown, `${reward.targetName} (${reward.targetKind}) name room at ${width}px and ${percent}% text`).toBeGreaterThanOrEqual(140);
     }
     // A master set's count keeps its unit at every enlarged size (#898): whole, in the chip's height, the name giving way to it.
     for (const master of MASTER_GOALS) {
@@ -300,6 +343,42 @@ for (const [width, height, percent] of [[768, 1024, 125], [768, 1024, 150], [768
       expect({ ...laid, nameWidth: 0 }, `${master.targetName} ${master.progressText} at ${percent}% text`).toEqual({
         unitShown: true, countWhole: true, clipped: false, clear: true, height: 44, nameWidth: 0,
       });
+    }
+    expect(errors).toEqual([]);
+  });
+}
+
+// The compact chip (a row up to 34rem) at enlarged text: two lines and the bar still fit at 125%, so a cosmetic keeps its one-word
+// tag and a master set's count stays on a line of its own under the name; at 150% they no longer fit and both give way.
+for (const [percent, twoLines] of [[125, true], [150, false]] as const) {
+  test(`keeps the compact chip's second line only while it fits, at ${percent}% text`, async ({ page, baseURL }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-chromium', 'A desktop layout check; the window is set here.');
+    const errors = await open(page, baseURL!, { width: 640, height: 900 });
+    await scaleText(page, percent);
+    await settled(page);
+    const goal = page.locator('.card-guide-entry .pack-milestone');
+    await expect(goal).toBeVisible();
+    await expect(page.locator('.pack-milestone-detail')).toBeHidden();
+    const lay = () => goal.evaluate((chip) => {
+      const tag = chip.querySelector('.pack-milestone-tag');
+      const bottom = chip.getBoundingClientRect().bottom;
+      return {
+        tag: tag ? getComputedStyle(tag).display !== 'none' : null,
+        stacked: getComputedStyle(chip.querySelector('.pack-milestone-line')!).flexDirection === 'column',
+        clear: Array.from(chip.querySelectorAll('.pack-milestone-text, .pack-milestone-progress, .pack-milestone-tag, .pack-milestone-unit'))
+          .filter((el) => getComputedStyle(el).display !== 'none')
+          .every((el) => bottom - el.getBoundingClientRect().bottom >= 3),
+        clipped: chip.scrollHeight > chip.clientHeight || chip.scrollWidth > chip.clientWidth,
+        height: chip.getBoundingClientRect().height,
+      };
+    });
+    for (const reward of COSMETIC_GOALS) {
+      await show(page, reward);
+      expect(await lay(), `${reward.targetName} (${reward.targetKind}) at ${percent}% text`).toEqual({ tag: twoLines, stacked: false, clear: true, clipped: false, height: 44 });
+    }
+    for (const master of MASTER_GOALS) {
+      await show(page, master);
+      expect(await lay(), `${master.targetName} ${master.progressText} at ${percent}% text`).toEqual({ tag: null, stacked: twoLines, clear: true, clipped: false, height: 44 });
     }
     expect(errors).toEqual([]);
   });

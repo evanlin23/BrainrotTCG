@@ -11,7 +11,8 @@ export interface PackMilestoneGoalProps {
 /**
  * One goal as a two-line chip in the Card guide's row (see PackMilestone.css): a picture of the reward when
  * it has one, the thing to chase and how far along it is, then a short line that says cosmetics change no
- * odds. When there is somewhere to go, the chip is the link to it. Nothing in it moves.
+ * odds. A phone's compact chip has no room for that line, so a cosmetic shows a one-word "Cosmetic" in its place
+ * (PackMilestone.css). When there is somewhere to go, the chip is the link to it. Nothing in it moves.
  */
 const PackMilestoneGoal = ({ goal, onNavigate, disabled = false }: PackMilestoneGoalProps) => {
   const { action } = goal;
@@ -31,6 +32,7 @@ const PackMilestoneGoal = ({ goal, onNavigate, disabled = false }: PackMilestone
           <span className="pack-milestone-progress" aria-hidden="true">{goal.progressText}{goal.progressUnit && <span className="pack-milestone-unit"> {goal.progressUnit}</span>}</span>
         </span>
         <span className="pack-milestone-detail" aria-hidden="true">{goal.detail}</span>
+        {goal.kind === 'cosmetic' && <span className="pack-milestone-tag" aria-hidden="true">Cosmetic</span>}
       </span>
       <span className="pack-milestone-bar" aria-hidden="true">
         <span className="pack-milestone-fill" style={{ width: `${Math.min(100, Math.max(0, goal.progressPct))}%` }} />

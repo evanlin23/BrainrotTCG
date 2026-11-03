@@ -81,6 +81,21 @@ describe('PackMilestoneGoal', () => {
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith('rewards');
   });
 
+  it('tags a cosmetic with one visible word for the compact chip, hidden from the accessible name, and tags nothing else', () => {
+    render(cosmetic);
+    const tag = container.querySelector('.pack-milestone-tag')!;
+    expect(tag.textContent).toBe('Cosmetic');
+    expect(tag.getAttribute('aria-hidden')).toBe('true');
+    // The name and tooltip say it in full once, as before.
+    expect(container.querySelector('button.pack-milestone')!.getAttribute('aria-label')).toBe(
+      'Next goal: Pack Rat (title), 50% of the way to level 3. Cosmetic, odds unchanged · Lv 3. Select rewards.',
+    );
+    for (const goal of [binder, master, done]) {
+      render(goal);
+      expect(container.querySelector('.pack-milestone-tag'), `${goal.targetName} is not a cosmetic`).toBeNull();
+    }
+  });
+
   it('shows a card back goal with a picture of that back, and no picture for a title', () => {
     render({ ...cosmetic, targetName: 'Midnight', targetKind: 'card back', preview: { kind: 'card-back', id: 'midnight' } });
     const swatch = container.querySelector('button.pack-milestone > .back-swatch')!;
