@@ -110,12 +110,14 @@ describe('bounded collection grid (#344)', () => {
   it("mounts only the newest eras' pockets for today's full collection", () => {
     const collection = own(SETS.flatMap((set) => getSetCards(set.id)));
     render(collection);
-    // The two newest 12-card eras fill the opening budget; the old grid mounted every era at once.
+    // The two newest eras fill the opening budget (a draft still being built can be short of 12 cards);
+    // the old grid mounted every era at once.
     const [newest, previous] = [...SETS].reverse();
+    const opening = getSetCards(newest.id).length + getSetCards(previous.id).length;
     expect(unboundedPockets(collection)).toBeGreaterThanOrEqual(127);
     expect(openEras()).toEqual([previous.name, newest.name]);
-    expect(mountedPockets()).toBe(24);
-    expect(page().querySelectorAll('.collection-grid img')).toHaveLength(24);
+    expect(mountedPockets()).toBe(opening);
+    expect(page().querySelectorAll('.collection-grid img')).toHaveLength(opening);
     // Only a showing grid is named by its header; a collapsed header controls nothing mounted.
     for (const header of headers()) {
       if (header.getAttribute('aria-expanded') === 'true') expect(gridOf(header)!.matches('ul.collection-grid')).toBe(true);
@@ -185,7 +187,10 @@ describe('bounded collection grid (#344)', () => {
     render(own([oldest, middle, newest].map((set) => getSetCards(set.id)[0])), oldest.id);
     expect(openEras()).toEqual([oldest.name, newest.name]);
     expect(gridOf(headerOf(middle.name))).toBeNull();
-    expect(mountedPockets()).toBe(24);
+    expect(mountedPockets()).toBe(
+      // A draft era shows only the one card owned; an openable one shows its whole pocket.
+      getSetCards(oldest.id).length + (isOpenable(newest) ? getSetCards(newest.id).length : 1),
+    );
   });
 
   it.each([
@@ -205,11 +210,13 @@ describe('bounded collection grid (#344)', () => {
     const [first] = SETS.filter(isOpenable);
     const rest = SETS.filter((set) => set.id !== first.id).flatMap((set) => getSetCards(set.id));
     render(own(rest));
-    expect(mountedPockets()).toBe(24);
+    const [newest, previous] = [...SETS].reverse();
+    const opening = getSetCards(newest.id).length + getSetCards(previous.id).length;
+    expect(mountedPockets()).toBe(opening);
     render(own([...rest, getSetCards(first.id)[0]]));
     expect(headerOf(first.name).getAttribute('aria-expanded')).toBe('true');
     expect(gridOf(headerOf(first.name))!.children).toHaveLength(getSetCards(first.id).length);
-    expect(mountedPockets()).toBe(24 + getSetCards(first.id).length);
+    expect(mountedPockets()).toBe(opening + getSetCards(first.id).length);
   });
 });
 

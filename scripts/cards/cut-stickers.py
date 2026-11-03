@@ -45,6 +45,8 @@ EXTS = ('png', 'jpg', 'jpeg', 'webp')
 OVERRIDES: dict[str, dict[str, str]] = {
     # The largest part is the gorilla, which is the hero; the hundred men are scenery.
     'six-seven-season': {'100-men-vs-1-gorilla': 'die'},
+    # The puppet fills the crop, so its fur touches both sides; the cut is the puppet and its crown.
+    'drop-2026-11': {'liberty-biberty': 'die'},
 }
 
 # Grades (shares of the crop's area, or of the foreground's).
