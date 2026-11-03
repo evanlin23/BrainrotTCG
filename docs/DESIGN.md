@@ -523,31 +523,42 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   narrowed to that column: its left edge stays clear of the pack, whose width is the smaller of 80vw and what
   the stage's height gives it, estimated from the window a little on the large side (`Toasts.css`). It is
   held between `--toast-floor` (7.5rem, in tokens.css) and 24rem; narrower than 15rem it stacks, the icon and X on one row
-  and the text under them, with the title clamped to two lines (one, with the description, in a window 640 px tall
-  or less, so that doubled text stays off the Card guide row; the full text is still the button's name). The same
-  rule holds for every toast in the queue, the What's new one included.
+  and the text under them, with the title clamped to two lines (the full text is still the button's name). The
+  same rule holds for every toast in the queue, the What's new one included.
   A square or portrait window has no such column, since the pack takes 80% of the width. The toast could go nowhere
   else on the home screen (the strip beside the picker row is under 60 px wide at 900 px, and the header row is full),
   so the pack gives way instead: from 900 px up its width is also capped at the window less two toast floors, gutters
   and gaps (`--pack-cap`, PackOpener.css), which leaves the toast its floor at the right at every size. The cap
   changes nothing where a column already exists (windows about 1.2 times wider than tall, at normal text, and every
   size checked at 1366x768 and up); it trims the pack in 1024x900 (730 to 655 px wide), 900x1200 (720 to 572),
-  1280x1200 and 1080x1920, and at doubled text on a 900 px wide window (323 to 300 at 900x700). One case is not
-  fixed: doubled text in a window under about 580 px tall (900x500, 1280x550, 1280x570), where the page itself has
-  almost no room left (the pack is about 100 px tall). The toast, 173 px tall once stacked, then reaches the Card
-  guide row at the foot of the stage and covers the right end of the next-goal chip and, at 900 px wide, the
-  guide link's edge. It still covers the pack, the set picker, the tabs, Settings and the wordmark in no
-  window, and from 590 px up (900x590, 900x600, 900x650) it covers nothing. At normal text no window from 900 px
-  wide up reaches the row (checked from 900x500). Fixing the band needs the goal chip or the toast to give way
-  there, which is the owner's call. It is at least 44 px tall at every size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
+  1280x1200 and 1080x1920, and at doubled text on a 900 px wide window (323 to 300 at 900x700).
+  A short window has the least room: at doubled text the header alone is 168 px, and the set picker, the pack,
+  the Change pack row and the Card guide row (with the next-goal chip) fill the rest, so the whole toast (173 to
+  212 px tall) would reach the Change pack row, the chip and the guide link in windows under about 660 px
+  tall (900x500, 1280x550, 1280x570, 900x600). So in a window under 21rem tall (the app's height in rem, from
+  900 px wide up: 672 px at doubled text, 336 px at normal text, where it never applies) the toast is compact: one
+  44 px line of its kicker ("8 achievements unlocked", "Level up") and the X, with no icon, and it starts 4.5rem
+  under the header, just under the set picker. The title and a level-up's line are clipped, not removed, so the
+  button's name still has all of it. It is a rule on the app's height in rem (a size container on the home
+  screen, `Toasts.css`) and not a px media query, so it follows the text size wherever the page sets it, and
+  does not clamp where there is room (normal text keeps the whole toast in 900x500, and doubled text in 900x680
+  and up). With it, the toast covers no control at all from 900x480 up at doubled text (the least clearance
+  is 10 px, to the set picker and the Change pack row), at 100% and every size probed from 900x500 up, and
+  it still covers none of the pack, the set picker, the tabs, Settings and the wordmark. One bound remains:
+  below about 470 px tall at doubled text and 900 px wide (the pack is then under 20 px wide) the Change pack
+  row is under the toast's left end (900x460: 123x10 px), and below about 430 px tall at 1280 px wide the
+  Card guide link and the chip are. There is no room left there for any 44 px toast above those rows (the stage
+  is the window less 168 px of header, 109 px of set picker and 120 px of rows), and nothing is hidden to make
+  room: the toast has an X and goes in 5 to 6 s. It is at least 44 px tall at every size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
   hold the toasts until they clear, and a toast the player had 1.5 s to see is let go then, not shown again in
   full. In pack focus mode it still overlays, under the pack's X, or beside the X at the right on a short
   screen (520 px tall or less, where the headline below it is kept clear by tight padding).
   `tests/browser/toast-home.spec.ts` checks every home control (the pack, the set picker, the tabs, Settings, the
   wordmark, the guide link and the next-goal chip) at 360, 390, 640x360, 844x390, 900x700, 1024x768,
   1280x800, 1440x900 and 1920x1080, the square and portrait windows 1024x1000, 900x1200, 1280x1200 and 1080x1920,
-  and the short windows 900x500, 1280x550, 1280x570, 900x590, 900x600 and 900x650, at 200% text at 360 and on every
-  wide screen from 900x590 up (under 580 px tall it pins the limit above: nothing but the guide row is covered),
+  and the short windows 900x480, 900x500, 1280x550, 1280x570, 900x590, 900x600, 900x650 and 900x680, at 200% text at
+  360 and on every wide size (every control on the screen, whatever it is, must be clear of the toast, and the
+  window under 672 px tall must get the compact toast),
   the pack's summary on every
   wide screen at normal and doubled text, that nothing moves as the toast goes, the turn to landscape, and the sheet hold.
   `tests/browser/toast-touch.spec.ts` checks the tap, the X, the swipe, the seen toast, the pack hold, the reduced
