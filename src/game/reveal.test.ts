@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as engine from '../engine';
-import { isBigPull, isSpecialReveal, isTakeoverReveal, markNew, nextSpecialRevealIndex, revealOrder, takeoverReason } from './reveal';
+import { isBigPull, isSpecialReveal, isTakeoverReveal, markNew, nextSpecialRevealIndex, revealOrder, TAKEOVER_KICKER, takeoverReason, takeoverReasons, takeoverStart } from './reveal';
 
 describe('reveal order', () => {
   it('shows the most valuable card last, otherwise pack order', () => {
@@ -163,6 +163,49 @@ describe('reveal order', () => {
       expect(takeoverReason(card, context)).toBeNull();
       expect(isTakeoverReveal(card)).toBe(false);
       expect(takeoverReason(card)).toBeNull();
+    });
+  });
+  describe('takeover accumulation across a pack (#1293 b)', () => {
+    const common = (uniqueId: number, isNew: boolean) => ({ uniqueId, rarity: 'COMMON' as const, isNew });
+    const keys = ['s/a', 's/b', 's/c'];
+
+    it('counts what the player owns of the set and of the collection before the pack', () => {
+      const start = takeoverStart(keys, [...keys, 's/d'], (key) => key === 's/a' || key === 's/d');
+      expect(start).toEqual({ set: { ownedBefore: 1, size: 3 }, collection: { ownedBefore: 2, size: 4 } });
+    });
+
+    it('leaves the collection out for a set that is not part of it', () => {
+      expect(takeoverStart(keys, undefined, () => false)).toEqual({ set: { ownedBefore: 0, size: 3 } });
+    });
+
+    it('triggers on the new card that completes the set, not the first new card of the pack', () => {
+      const start = takeoverStart(keys, undefined, (key) => key === 's/a');
+      const reasons = takeoverReasons([common(1, true), common(2, true)], start);
+      expect([...reasons]).toEqual([[2, 'SET']]);
+    });
+
+    it('does not count duplicates toward completion, so a duplicate after the last new card earns nothing', () => {
+      const start = takeoverStart(keys, undefined, (key) => key === 's/a');
+      expect([...takeoverReasons([common(1, true), common(2, false), common(3, true)], start)]).toEqual([[3, 'SET']]);
+      expect(takeoverReasons([common(1, true), common(2, false)], start).size).toBe(0);
+    });
+
+    it('gives the collection precedence on the card that completes both, and a Brainrot its own reason otherwise', () => {
+      const start = takeoverStart(keys, keys, (key) => key !== 's/c');
+      expect(takeoverReasons([common(1, true)], start).get(1)).toBe('COLLECTION');
+      const brainrot = { uniqueId: 9, rarity: 'BRAINROT' as const, isNew: false };
+      expect(takeoverReasons([brainrot], takeoverStart(keys, keys, () => false)).get(9)).toBe('BRAINROT');
+    });
+
+    it('does not change the context it was given', () => {
+      const start = takeoverStart(keys, keys, (key) => key === 's/a');
+      const before = JSON.stringify(start);
+      takeoverReasons([common(1, true), common(2, true)], start);
+      expect(JSON.stringify(start)).toBe(before);
+    });
+
+    it('names each reason in the banner kicker', () => {
+      expect(TAKEOVER_KICKER).toEqual({ COLLECTION: 'Collection complete', SET: 'Set complete', BRAINROT: 'Brainrot' });
     });
   });
 });

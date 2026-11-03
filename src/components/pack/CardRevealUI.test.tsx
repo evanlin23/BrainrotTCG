@@ -5,6 +5,7 @@ import { ALL_CARDS, cardNumber } from '../../data/cards';
 import { siteLabel } from '../../game/pulls';
 import CardRevealUI from './CardRevealUI';
 import type { CardWithMeta } from '../cards/Card';
+import type { TakeoverReason } from '../../game/reveal';
 
 const card: CardWithMeta = {
   ...ALL_CARDS[0],
@@ -14,9 +15,9 @@ const card: CardWithMeta = {
   isHolo: false,
   finish: 'DIAMOND', // 10,000 points
 };
-const render = (revealLocked: boolean, currentCard = card) => renderToStaticMarkup(
+const render = (revealLocked: boolean, currentCard = card, takeover: TakeoverReason | null = null) => renderToStaticMarkup(
   <CardRevealUI currentCard={currentCard} currentIndex={0} totalCards={5} hasMovedMouse
-    onInteraction={() => {}} onSkip={() => {}} celebrating revealLocked={revealLocked} />,
+    onInteraction={() => {}} onSkip={() => {}} celebrating revealLocked={revealLocked} takeover={takeover} />,
 );
 
 describe('good-pull reveal', () => {
@@ -61,6 +62,45 @@ describe('good-pull reveal', () => {
       finish: null,
     };
     expect(render(false, brainrotCard)).toContain('showcase-halo');
+  });
+});
+
+describe('takeover reveal (#1293 b)', () => {
+  const common: CardWithMeta = { ...card, finish: null, isNew: true };
+
+  it('gives a 10,000-point Diamond duplicate no takeover, only its card-local showcase', () => {
+    const html = render(false, card);
+    expect(html).not.toContain('takeover-overlay');
+    expect(html).toContain('showcase-halo');
+    expect(html).toContain('--special-reveal-duration:3000ms');
+  });
+
+  it('puts the backdrop behind a set-completing Common, with no points halo, and keeps it a plain card', () => {
+    const html = render(false, common, 'SET');
+    expect(html).toContain('class="takeover-overlay"');
+    expect(html).toContain('data-reason="SET"');
+    expect(html).not.toContain('showcase-halo');
+    expect(html).toContain('is-celebrating');
+    // The overlay is decoration: the banner is the one announcement, so nothing here is a status.
+    expect(html).toMatch(/<div class="takeover-overlay"[^>]*aria-hidden="true"/);
+    expect(html).not.toContain('role="status"');
+  });
+
+  it('replaces the halo with the takeover on a Brainrot', () => {
+    const html = render(false, { ...common, rarity: 'BRAINROT' }, 'BRAINROT');
+    expect(html).toContain('data-reason="BRAINROT"');
+    expect(html).not.toContain('showcase-halo');
+  });
+
+  it('draws no takeover for a face-down card', () => {
+    expect(render(false, { ...common, isRevealed: false }, 'SET')).not.toContain('takeover-overlay');
+  });
+
+  it('says a press continues once the card is up, and keeps Big pull! while the lock holds', () => {
+    expect(render(false, common, 'SET')).toMatch(/Click or press Space to continue/);
+    expect(render(false, common, 'SET')).toMatch(/aria-label="Continue\. Card 1 of 5/);
+    expect(render(false, common)).not.toMatch(/Click or press Space to continue/);
+    expect(render(true, { ...common, rarity: 'BRAINROT' }, 'BRAINROT')).toContain('Big pull!');
   });
 });
 
