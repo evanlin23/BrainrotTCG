@@ -36,6 +36,27 @@ const rule = (path: string, selector: string) => {
   return new RegExp(`(?:^|\\})\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
 };
 
+/** Declarations that a rule targeting a select sets beyond border-radius and width, as "file: selector sets property". */
+const selectOverrides = (path: string, css: string): string[] => {
+  const found: string[] = [];
+  // `[^{}]` can't cross a brace and nothing is consumed beyond the rule's own `}`, so rules that
+  // follow each other, or sit inside @media and @container, are all seen.
+  for (const [, prelude, body] of css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    // A statement at-rule (@import, @layer a;) before the selector isn't part of it.
+    const selectorStr = prelude.slice(prelude.lastIndexOf(';') + 1).trim();
+    if (selectorStr.startsWith('@')) continue;
+    const targetsSelect = selectorStr.split(',').some((selector) => {
+      const stripped = selector.replace(/:[\w-]+(?:\([^)]*\))?/g, '').trim();
+      return /(?:^|[\s>+~])(?:select(?:\.[a-zA-Z0-9_-]+)*|\.collection-select)$/.test(stripped);
+    });
+    if (!targetsSelect) continue;
+    for (const [, prop] of body.matchAll(/(?:^|[;{\s])([\w-]+)\s*:/g)) {
+      if (prop !== 'border-radius' && prop !== 'width') found.push(`${path}: ${selectorStr} sets ${prop}`);
+    }
+  }
+  return found;
+};
+
 const PX: Record<string, number> = { px: 1, rem: 16, em: 16, '%': 0.16 };
 const LENGTH = /^(\d*\.?\d+)(px|rem|em|%)$/;
 const FLUID = /^\d*\.?\d+(vw|vh|vmin|vmax|svh|dvh|lvh|cqw|cqh|cqi|cqb|cqmin|cqmax)$/;
@@ -211,4 +232,51 @@ it('keeps the canvas palette in step with tokens.css', () => {
   expect(palette.FOIL_STOPS.map(same)).toEqual(['--foil-pink', '--brand', '--foil-mint', '--foil-blue', '--foil-violet', '--foil-pink'].map(token));
   expect(same(tokens['--foil'])).toBe(
     'linear-gradient(var(--foil-angle),var(--foil-pink),var(--brand)30%,var(--foil-mint)55%,var(--foil-blue)80%,var(--foil-violet))');
+});
+
+it('styles select dropdowns in base.css and keeps other stylesheets from overriding core styles', () => {
+  const selectRule = rule('styles/base.css', 'select');
+  expect(selectRule).toMatch(/appearance:\s*none/);
+  expect(selectRule).toMatch(/-webkit-appearance:\s*none/);
+  expect(selectRule).toMatch(/color-scheme:\s*dark/);
+  expect(selectRule).toMatch(/--select-chevron:\s*16px/);
+  expect(selectRule).toMatch(/padding:\s*0\s+calc\(var\(--space-2\)\s*\+\s*var\(--select-chevron\)\s*\+\s*var\(--space-2\)\)\s*0\s*var\(--space-3\)/);
+
+  // Chevron stroke matches --text-muted
+  const strokeMatch = /stroke="(?:%23|#)([0-9a-fA-F]{6})"/.exec(selectRule);
+  expect(strokeMatch).toBeTruthy();
+  expect(`#${strokeMatch![1].toLowerCase()}`).toBe(token('--text-muted'));
+
+  // Forced colors restore native dropdown parsed by brace matching
+  const baseCss = sheets.find((s) => s.path === 'styles/base.css')!.css;
+  const mediaIndex = baseCss.indexOf('@media (forced-colors: active)');
+  expect(mediaIndex).toBeGreaterThan(-1);
+  let depth = 0;
+  let mediaBlock = '';
+  for (let i = baseCss.indexOf('{', mediaIndex); i < baseCss.length; i++) {
+    if (baseCss[i] === '{') depth++;
+    else if (baseCss[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        mediaBlock = baseCss.slice(mediaIndex, i + 1);
+        break;
+      }
+    }
+  }
+  expect(mediaBlock).toMatch(/select\s*\{[^}]*appearance:\s*auto/);
+
+  // Scan every other stylesheet: any rule targeting select or .collection-select can only override border-radius or width
+  const violations = sheets.filter(({ path }) => path !== 'styles/base.css').flatMap(({ path, css }) => selectOverrides(path, css));
+  expect(violations).toEqual([]);
+});
+
+it('scans every rule for select overrides, including consecutive and nested ones', () => {
+  expect(selectOverrides('x.css', '.x { display: block } .y select { height: 30px }')).toEqual(['x.css: .y select sets height']);
+  expect(selectOverrides('x.css', '.a { color: red }\n.b { color: red }\n.c select { padding: 0 }\n.d select { margin: 0 }'))
+    .toEqual(['x.css: .c select sets padding', 'x.css: .d select sets margin']);
+  expect(selectOverrides('x.css', '@media (width < 400px) { .a { color: red } select { height: 30px } }')).toEqual(['x.css: select sets height']);
+  expect(selectOverrides('x.css', '@media (width < 400px) { .a { color: red } @container (width < 1px) { .b { top: 0 } .collection-select { gap: 0 } } }'))
+    .toEqual(['x.css: .collection-select sets gap']);
+  expect(selectOverrides('x.css', '@import url(a.css);\n.y select { height: 30px }')).toEqual(['x.css: .y select sets height']);
+  expect(selectOverrides('x.css', '.x { display: block } .y select { width: 100%; border-radius: 0 } .z { top: 0 }')).toEqual([]);
 });
