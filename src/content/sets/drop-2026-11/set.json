@@ -1,0 +1,90 @@
+{
+  "id": "drop-2026-11",
+  "version": 1,
+  "name": "Paws & Fries",
+  "era": "Oct 2026",
+  "tagline": "Snow leopards, fake fries & a very yellow puppet",
+  "releasedAt": "2026-11-03",
+  "draft": true,
+  "palette": [
+    "#2F7BFF",
+    "#8A3FFC",
+    "#FFC400"
+  ],
+  "packSize": 5,
+  "odds": {
+    "COMMON": 5000,
+    "UNCOMMON": 2500,
+    "RARE": 1500,
+    "EPIC": 700,
+    "LEGENDARY": 250,
+    "BRAINROT": 50
+  },
+  "holoOdds": 500,
+  "modifiers": 1,
+  "cards": [
+    {
+      "id": "fat-talking-tom-and-angela",
+      "name": "Fat Talking Tom and Angela",
+      "rarity": "COMMON",
+      "caption": "Starting my diet tomorrow",
+      "flavor": "Oct 12, 2026: pudgy Talking Tom and Angela edits became matching pfps and lazy-day mood.",
+      "year": 2026,
+      "art": "Talking Tom, the grey cat in a blue paw-print shirt, edited chubby, standing by a pink flower stream (KYM gallery image; the Angela half of the pair is not shown)."
+    },
+    {
+      "id": "randy-marsh",
+      "name": "Randy Marsh",
+      "rarity": "UNCOMMON",
+      "caption": "What's up, brah?",
+      "flavor": "Oct 2026: South Park's Randy squares up for a bro down with Bane, Steve and an ICE agent.",
+      "year": 2026,
+      "art": "Randy Marsh mid bro-down, arms spread, in his teal shirt on white (Know Your Meme's main image for What's Up Brah?)."
+    },
+    {
+      "id": "ronnie-coleman-fries",
+      "name": "Ronnie Coleman Fries",
+      "rarity": "UNCOMMON",
+      "caption": "Everybody thought fries",
+      "flavor": "A 2024 Club Shay Shay clip about oven potatoes became October 2026's 'not fries' template.",
+      "year": 2026,
+      "art": "Still of Ronnie Coleman in a blue polo during his 2024 Club Shay Shay interview, cropped from Know Your Meme's main image."
+    },
+    {
+      "id": "snow-leopard-paws-at-you",
+      "name": "Snow Leopard Paws At You",
+      "rarity": "RARE",
+      "caption": "*paws at you*",
+      "flavor": "Oct 2026: a zoo snow leopard got Mei Mei the cat's face and a very pointed paw.",
+      "year": 2026,
+      "art": "A 2024 Ishikawa Zoo snow leopard photo by @black03_white03 with the Mei Mei cat face swapped in, paw raised (the edit as screenshotted by @harvest_skies)."
+    },
+    {
+      "id": "saitama-vs-goku",
+      "name": "Saitama vs. Goku",
+      "rarity": "EPIC",
+      "caption": "Goku wins? Cope.",
+      "flavor": "Oct 18, 2026: Death Battle let Goku beat Saitama and fans lost their minds.",
+      "year": 2026,
+      "art": "Saitama glaring, from the Saitama half of Death Battle's thumbnail for the episode (Know Your Meme's main image), cropped to leave out the logo."
+    },
+    {
+      "id": "liberty-biberty",
+      "name": "Liberty Biberty",
+      "rarity": "LEGENDARY",
+      "caption": "Boston wants him gone",
+      "flavor": "Liberty Mutual's yellow puppet mascot drew about 100 protesters in Boston in Oct 2026.",
+      "year": 2026,
+      "art": "Still from the Liberty Mutual ad of Biberty, the Henson-made yellow fur ball in a Statue of Liberty crown (Know Your Meme's main image), cropped to leave out the logo."
+    },
+    {
+      "id": "scientists-reveal-the-hi",
+      "name": "Scientists Reveal the Hi",
+      "rarity": "BRAINROT",
+      "caption": "The secret is: Hi",
+      "flavor": "Oct 2026: a wide-eyed ginger cat and a fake BBC headline that always ends in a tiny 'Hi'.",
+      "year": 2026,
+      "art": "The orange cat from the BBC's May 2025 ginger-cat article thumbnail, as used in the meme (Know Your Meme's main image), cropped to leave out the caption."
+    }
+  ]
+}

@@ -24,6 +24,7 @@ import sixSevenSeason from './six-seven-season/set.json';
 import springBreakdown from './spring-breakdown/set.json';
 import rightNowV1 from './right-now/set.v1.json';
 import rightNow from './right-now/set.json';
+import drop202611 from './drop-2026-11/set.json';
 
 /** Every version of every set. Display order = timeline order (Genesis first). */
 // Version 1 of each set is from before card modifiers; version 2 adds them (spec section 5.4).
@@ -44,6 +45,7 @@ export const ALL_SET_VERSIONS: SetDefinition[] = [
   springBreakdown,
   rightNowV1,
   rightNow,
+  drop202611,
 ].map((s) => validateSet(s));
 
 const byKey = new Map(ALL_SET_VERSIONS.map((s) => [setKey(s), s]));

@@ -1,0 +1,28 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {
+    "liberty-biberty": "die"
+  },
+  "stickers": {
+    "liberty-biberty": {
+      "art": "art/liberty-biberty.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.661,
+        "mainShare": 1.0,
+        "edges": 3,
+        "solidity": 0.701
+      },
+      "flag": "scenery",
+      "override": true,
+      "crop": [
+        0,
+        27,
+        617,
+        693
+      ],
+      "mask": "liberty-biberty.png",
+      "source": "411780b65eeab54e"
+    }
+  }
+}
