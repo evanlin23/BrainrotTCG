@@ -36,6 +36,7 @@ async function skipToShowcase(page: Page) {
     if (await page.locator('.pack-top-bar .showcase-ribbon').count()) return true;
     await page.clock.runFor(FRAME_MS);
     return false;
+  // 15 s: the clock is frozen, so a long ceiling can't let the 3 s hold lapse; it only bounds a run that never gets there.
   }, { message: 'the skip never reached the big pull', intervals: [25], timeout: 15000 }).toBe(true);
   // The ribbon and the halo are CSS animations as long as the hold, but on the document's own clock, which the page's
   // doesn't stop: left running, the ribbon fades out 2.6 s of real time in, however long the clock stays frozen.
@@ -60,6 +61,7 @@ async function settle<T>(page: Page, read: () => T | null, message: string): Pro
     value = await page.evaluate(read) as T | null;
     if (value === null) await page.clock.runFor(FRAME_MS);
     return value !== null;
+  // 15 s: the clock is frozen, so a long ceiling can't let the 3 s hold lapse; it only bounds a run that never gets there.
   }, { message, intervals: [25], timeout: 15000 }).toBe(true);
   return value as unknown as T;
 }
