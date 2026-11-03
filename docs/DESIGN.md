@@ -52,6 +52,10 @@ from a 390 px wide screen.
    the cue line gives way and the name and progress stay on one line (`tests/browser/pack-milestone.spec.ts`
    measures every reward's name at 580 and 600px and the compact chip at 360 and 390px, its text at 125% to 200% on 768 and 1280px, and
    `pack-guide-centred.spec.ts` that the guide's centre is the pack's within 1px with and without the goal).
+   The chip is a size container inside the row's, and Chromium keeps a descendant's answer to an outer named container
+   through a window resize, so only the chip reads the row's width and its descendants read what it passes down in
+   custom properties (`pack-milestone-resize.spec.ts` walks the window across the 34rem line and
+   compares each width with a fresh load).
    The summary lists the cards in the order they were revealed (best last), each opening up close, where
    its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the

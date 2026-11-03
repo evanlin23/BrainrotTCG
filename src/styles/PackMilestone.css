@@ -51,10 +51,11 @@ button.pack-milestone:disabled {
   cursor: default;
 }
 
-/* A reward with a picture (a card back) shows it small, at the start; its size is the row's, not the text's. */
+/* A reward with a picture (a card back) shows it small, at the start; its size is the row's, not the text's. Where the
+   row is narrow the chip sets --goal-compact-hide to none (below) and the picture gives way. */
 .pack-milestone .back-swatch {
   position: relative;
-  display: block;
+  display: var(--goal-compact-hide, block);
   flex-shrink: 0;
   height: 28px;
   /* Its width follows from the height: Profile.css gives every swatch a width of its own, which would win
@@ -81,8 +82,10 @@ button.pack-milestone:disabled {
 
 .pack-milestone-line {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+  /* A count with a unit stacks under the name in a narrow row: the chip sets these three (below). */
+  flex-direction: var(--goal-unit-direction, row);
+  align-items: var(--goal-unit-align, baseline);
+  gap: var(--goal-unit-gap, var(--space-2));
   min-width: 0;
 }
 
@@ -108,8 +111,10 @@ button.pack-milestone:disabled {
   white-space: nowrap;
 }
 
-/* Always shown: on a phone it is the line that says a cosmetic changes nothing about rarity or odds. */
+/* On a phone it is the line that says a cosmetic changes nothing about rarity or odds; it gives way only in a narrow row
+   (--goal-compact-hide, below) or a chip too short for it (the pack-milestone query below). */
 .pack-milestone-detail {
+  display: var(--goal-compact-hide, block);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -207,15 +212,17 @@ button.pack-milestone:disabled {
 /* Beside a centred guide a phone's column is about 6rem to 12rem: the goal shrinks to its name, how far along it is
    and the progress bar. The picture and the "Cosmetic, odds unchanged" line give way here only to the eye: that
    text stays in the chip's accessible name and its tooltip, so the cosmetic-versus-odds distinction is not lost.
-   From 34rem the column holds the whole chip. */
+   From 34rem the column holds the whole chip.
+
+   The chip is itself a size container (pack-milestone), and Chromium does not re-ask card-guide for the chip's
+   descendants when only the window resizes (the answer stayed stale until a reload, as for the toast, #1350). So the
+   chip, whose nearest container is the row, answers the card-guide query alone and passes the answer down in custom
+   properties; its descendants read only those, and the chip's own height. */
 @container card-guide (max-width: 34rem) {
   .card-guide-entry > .pack-milestone {
     margin-left: var(--space-2);
     padding: 0 var(--space-2);
-  }
-  .card-guide-entry > .pack-milestone .back-swatch,
-  .card-guide-entry > .pack-milestone .pack-milestone-detail {
-    display: none;
+    --goal-compact-hide: none;
   }
 }
 
@@ -225,17 +232,18 @@ button.pack-milestone:disabled {
    two lines no longer fit in 44px, so the count goes back beside the name, unit and all, and it is the name that
    gives way (an ellipsis): the unit is what tells a master set's count from set completion, so it is never hidden. */
 @container card-guide (max-width: 34rem) {
-  .card-guide-entry > .pack-milestone:has(.pack-milestone-unit) .pack-milestone-line {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0;
+  .card-guide-entry > .pack-milestone:has(.pack-milestone-unit) {
+    --goal-unit-direction: column;
+    --goal-unit-align: stretch;
+    --goal-unit-gap: 0;
   }
-  @container pack-milestone (max-height: 2.2rem) {
-    .card-guide-entry > .pack-milestone:has(.pack-milestone-unit) .pack-milestone-line {
-      flex-direction: row;
-      align-items: baseline;
-      gap: var(--space-2);
-    }
+}
+
+@container pack-milestone (max-height: 2.2rem) {
+  .card-guide-entry > .pack-milestone:has(.pack-milestone-unit) .pack-milestone-line {
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--space-2);
   }
 }
 
