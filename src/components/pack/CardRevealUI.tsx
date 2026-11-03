@@ -83,6 +83,9 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   const big = !!currentCard && isBigPull(currentCard);
   const special = !!currentCard && isSpecialReveal(currentCard);
   const celebration = celebrating && !!revealed && (special || !!takeover);
+  // The celebration's 3 s is the input hold and the halo's clock (PackOpener), not a tween under reduced motion:
+  // the card lands on its end scale at once, without the bounce or a 3 s ease (#1289).
+  const settleSeconds = celebration ? (reducedMotion ? 0 : SPECIAL_REVEAL_DURATION_MS / 1000) : 0.22;
   // Points alone get the halo; a takeover brings its own backdrop and banner instead.
   const halo = celebration && special && !takeover;
   const slow = !!currentCard && !special && (currentCard.rarity === 'LEGENDARY' || currentCard.rarity === 'BRAINROT');
@@ -145,7 +148,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
               initial={{ y: 24, opacity: 0, scale: 0.96 }}
               animate={{ y: 0, opacity: 1, scale: celebration && !reducedMotion ? [1, 1.055, 1.03] : revealed && big ? 1.03 : 1 }}
               exit={{ x: -360, opacity: 0, rotate: -10, transition: { duration: 0.22 } }}
-              transition={{ duration: celebration ? SPECIAL_REVEAL_DURATION_MS / 1000 : 0.22, ease: 'easeOut' }}
+              transition={{ duration: settleSeconds, ease: 'easeOut' }}
               drag={revealed && !revealLocked ? 'x' : false}
               dragSnapToOrigin
               dragElastic={0.6}

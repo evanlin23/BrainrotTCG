@@ -11,7 +11,8 @@ import { packArtSettled } from '../../game/packArt';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack, prefetchNextPack } from '../../game/pulls';
 import { PlayerUnreadableError, StaleSaveError } from '../../game/player';
-import { TAKEOVER_DURATION_MS } from '../../game/reveal';
+import { SPECIAL_REVEAL_DURATION_MS, TAKEOVER_DURATION_MS } from '../../game/reveal';
+import { setMotionSetting } from '../../utils/motion';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 import { REFUSAL_COPY } from './refusal';
@@ -1336,6 +1337,41 @@ describe('the takeover reveal (#1293 b)', () => {
     expect(banners()[0].textContent).not.toContain('Continue in a moment');
     press();
     expect(banners()).toHaveLength(0);
+  });
+
+  // Reduced motion (#1289) stills the celebration's motion, not its length: the hold is the player's own
+  // setting, and Off is how a reduced-motion player shortens it.
+  describe.each([
+    ['the Motion setting', () => setMotionSetting('reduced')],
+    ['the device', () => vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }))],
+  ])('with reduced motion from %s', (_name, reduce) => {
+    beforeEach(reduce);
+    afterEach(() => setMotionSetting('auto'));
+
+    it('keeps a Brainrot\'s lock to the millisecond with the pause on, then a tap settles it', async () => {
+      await deal(everyKey, DEFAULT_SETTINGS, brainrot);
+      await passCards(4);
+      press();
+      expect(banners()[0].textContent).toContain('Continue in a moment');
+      await advance(SPECIAL_REVEAL_DURATION_MS - 1);
+      press();
+      expect(banners()).toHaveLength(1);
+      await advance(1);
+      expect(banners()[0].textContent).not.toContain('Continue in a moment');
+      press();
+      expect(banners()).toHaveLength(0);
+    });
+
+    it('settles a Brainrot on the first tap with the pause off', async () => {
+      await deal(everyKey, { ...DEFAULT_SETTINGS, pauseBigPulls: false }, brainrot);
+      await passCards(4);
+      press();
+      expect(banners()).toHaveLength(1);
+      expect(banners()[0].textContent).not.toContain('Continue in a moment');
+      press();
+      expect(banners()).toHaveLength(0);
+      expect(document.querySelector('.pack-summary')).toBeNull();
+    });
   });
 
   it('lets Skip stop at a Brainrot and play its takeover out whole before the pack ends, and passes a set-completing Common', async () => {
