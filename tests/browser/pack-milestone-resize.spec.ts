@@ -2,27 +2,35 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
 import { xpForLevel, type SetDefinition } from '../../src/engine';
 import { getNextMilestone, type NextMilestoneGoal } from '../../src/game/nextMilestone';
-import { expectStill, monitor, scaleText } from './support';
+import { monitor, scaleText } from './support';
 
 /**
  * Resizing the window with the next goal under the pack (follow-up to #1350). The goal is a size container
  * (pack-milestone) inside the Card guide's row (card-guide), and its text and picture read the row's width through it
- * (PackMilestone.css: the 20rem, 34rem and 36rem lines). A player drags a window's edge, so each rule must give the
+ * (PackMilestone.css: the 34rem line). A player drags a window's edge, so each rule must give the
  * answer a fresh load at that width gives, whichever way the window got there: a plain setViewportSize walk, up and
  * down across each line and with several steps on the same side of it, at normal and doubled text.
  *
  * One test per chip (the picture and cue of a cosmetic, the count and unit of a master set), each walking all its
- * windows with the chip left alone, so that a stale answer cannot be hidden by the chip being redrawn.
+ * windows with the chip left alone, so that a stale answer cannot be hidden by the chip being redrawn. The fresh
+ * loads they compare with are the slow part, so one load per window and text size serves both chips (the chip's words
+ * are put in after the load, as pack-milestone.spec.ts does) and is kept for the other test.
+ *
+ * Only the 34rem line is walked: the 20rem line hides the chip itself (its nearest container is the row) and the 36rem
+ * line moves Change pack, which is not inside the chip, so neither is read through the chip's container. The walk
+ * holds the window a while above the line (a far and a near window), then crosses it in a small step and goes on down
+ * to a far window and back up: on the old CSS that order kept the wide chip through the crossing at 100% and 200%
+ * text (a jump straight from far above to just below did not, so the order is part of the test).
  */
 
 const HEIGHT = 900;
 const FIRST_WIDTH = 700;
-/** The lines, in rem of the row's inner width, that PackMilestone.css reads from card-guide. */
-const LINES = [20, 34, 36];
+/** The line, in rem of the row's inner width, that the chip's descendants read from card-guide (PackMilestone.css). */
+const LINES = [34];
 /** Doubled text is 32px to the rem. */
 const TEXT_SIZES = [100, 200];
-/** Offsets from a line, in px at normal text (scaled with the text), in the order walked: down then up across it, and back, several steps to a side. */
-const OFFSETS = [60, 24, 6, -6, -24, -60, -24, 6, 24, 60, 24, -6, -24];
+/** Offsets from the line, in px at normal text (scaled with the text), in the order walked: far then near above it, a small step across it, near then far below, and back up across it to near and far above. */
+const OFFSETS = [60, 24, -6, -24, -60, 24, 60];
 
 const COSMETIC_GOAL = Array.from({ length: 31 }, (_, i) => getNextMilestone(
   { xp: xpForLevel(i + 1), uniqueBySet: {}, holoUniqueBySet: {} },
@@ -38,6 +46,8 @@ const MASTER_GOAL = (() => {
   const n = set.cards.length;
   return getNextMilestone({ xp: 0, uniqueBySet: { [set.id]: n }, holoUniqueBySet: { [set.id]: n - 1 } }, set as unknown as SetDefinition);
 })();
+
+const GOALS = { cosmetic: COSMETIC_GOAL, master: MASTER_GOAL } as const;
 
 /** Puts a goal's words into the chip on the page, as pack-milestone.spec.ts does. */
 const show = (page: Page, goal: NextMilestoneGoal) => page.locator('.pack-milestone').evaluate((chip, g) => {
@@ -55,15 +65,14 @@ const show = (page: Page, goal: NextMilestoneGoal) => page.locator('.pack-milest
   }
 }, goal);
 
-/** A returning player's home at a window size, with the goal's words put in. */
-async function load(page: Page, baseURL: string, goal: NextMilestoneGoal, width: number, text: number) {
+/** A returning player's home at a window size; the goal's words are put in once the page has loaded. */
+async function load(page: Page, goal: NextMilestoneGoal, width: number, text: number) {
   await page.setViewportSize({ width, height: HEIGHT });
-  const errors = await monitor(page, baseURL, 1, { returning: true });
   await page.goto('./');
-  await expectStill(page.locator('.pack-display'), 'the pack has settled');
+  // Attached, not visible: a row of 20rem or less shows no goal.
+  await expect(page.locator('.pack-milestone')).toBeAttached();
   if (text !== 100) await scaleText(page, text);
   await show(page, goal);
-  return errors;
 }
 
 /** The row's inner width (what the card-guide queries compare), in px. */
@@ -89,40 +98,49 @@ const decided = (page: Page) => page.locator('.card-guide-entry').evaluate((row)
     .map((selector) => [selector, pick(selector)]));
 });
 
-async function walk(page: Page, baseURL: string, goal: NextMilestoneGoal, text: number) {
+type Decided = Awaited<ReturnType<typeof decided>>;
+/** What a fresh load gives, by project, text size, width and chip: kept for the other test of the worker. */
+const loaded = new Map<string, Decided>();
+const key = (project: string, text: number, width: number, chip: string) => `${project}/${text}/${width}/${chip}`;
+
+async function walk(page: Page, baseURL: string, project: string, chip: string, text: number) {
   const inner0 = await rowInner(page);
   const windows = LINES.flatMap((line) => OFFSETS.map((offset) => {
     const inner = line * 16 * (text / 100) + offset * (text / 100);
     return { line, width: Math.round(FIRST_WIDTH + inner - inner0), inner: Math.round(inner) };
   })).filter(({ width }) => width >= 320);
 
-  // What a fresh load gives at each width, found first on a page of its own, so that the walk below is only plain resizes.
-  const loaded = new Map<number, Awaited<ReturnType<typeof decided>>>();
-  const other = await page.context().newPage();
-  for (const { width } of windows) {
-    if (loaded.has(width)) continue;
-    const errors = await load(other, baseURL, goal, width, text);
-    loaded.set(width, await decided(other));
+  // What a fresh load gives at each window, found first on a page of its own (watched once), so that the walk below is only plain resizes.
+  const missing = [...new Set(windows.map(({ width }) => width))].filter((width) => !loaded.has(key(project, text, width, chip)));
+  if (missing.length) {
+    const other = await page.context().newPage();
+    const errors = await monitor(other, baseURL, 1, { returning: true });
+    for (const width of missing) {
+      for (const [name, goal] of Object.entries(GOALS)) {
+        await load(other, goal, width, text);
+        loaded.set(key(project, text, width, name), await decided(other));
+      }
+    }
+    await other.close();
     expect(errors).toEqual([]);
   }
-  await other.close();
 
   for (const { line, width, inner } of windows) {
     const at = `${width}px wide (the row's inner width ${inner}px, ${(inner / (16 * text / 100)).toFixed(2)}rem, near the ${line}rem line) at ${text}%`;
     await page.setViewportSize({ width, height: HEIGHT });
-    await expectStill(page.locator('.pack-display'), 'the pack has settled');
     expect(Math.abs((await rowInner(page)) - inner), `${at}: the row is the width planned`).toBeLessThanOrEqual(1);
-    await expect.poll(() => decided(page), { message: `${at}: the chip is the one a fresh load gives, wherever the window came from` }).toEqual(loaded.get(width));
+    await expect.poll(() => decided(page), { message: `${at}: the chip is the one a fresh load gives, wherever the window came from` }).toEqual(loaded.get(key(project, text, width, chip)));
   }
 }
 
-for (const [name, goal] of [['picture and cue of a cosmetic goal', COSMETIC_GOAL], ['count and unit of a master-set goal', MASTER_GOAL]] as const) {
-  test(`resizing a window with the ${name} up gives the chip a fresh load gives, across the 20rem, 34rem and 36rem lines, at normal and doubled text`, async ({ page, baseURL }) => {
-    test.setTimeout(600000);
+for (const [name, chip] of [['picture and cue of a cosmetic goal', 'cosmetic'], ['count and unit of a master-set goal', 'master']] as const) {
+  test(`resizing a window with the ${name} up gives the chip a fresh load gives, across the 34rem line, at normal and doubled text`, async ({ page, baseURL }, testInfo) => {
+    test.setTimeout(300000);
+    const errors = await monitor(page, baseURL!, 1, { returning: true });
     for (const text of TEXT_SIZES) {
-      const errors = await load(page, baseURL!, goal, FIRST_WIDTH, text);
-      await walk(page, baseURL!, goal, text);
-      expect(errors).toEqual([]);
+      await load(page, GOALS[chip], FIRST_WIDTH, text);
+      await walk(page, baseURL!, testInfo.project.name, chip, text);
     }
+    expect(errors).toEqual([]);
   });
 }

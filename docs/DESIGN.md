@@ -54,7 +54,7 @@ from a 390 px wide screen.
    `pack-guide-centred.spec.ts` that the guide's centre is the pack's within 1px with and without the goal).
    The chip is a size container inside the row's, and Chromium keeps a descendant's answer to an outer named container
    through a window resize, so only the chip reads the row's width and its descendants read what it passes down in
-   custom properties (`pack-milestone-resize.spec.ts` walks the window across the 20rem, 34rem and 36rem lines and
+   custom properties (`pack-milestone-resize.spec.ts` walks the window across the 34rem line and
    compares each width with a fresh load).
    The summary lists the cards in the order they were revealed (best last), each opening up close, where
    its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
