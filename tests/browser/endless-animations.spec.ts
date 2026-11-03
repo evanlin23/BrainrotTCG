@@ -205,8 +205,8 @@ test('the pack foil previews on the profile page slide on the compositor too', a
  */
 const LOCK_MS = 3000;
 const FRAME_MS = 16;
-/** Frames to allow for the flip to reach the card: React renders and runs its effects in real time, outside the page's clock. */
-const MAX_FRAMES = 8;
+/** The most of the page's own time a card may take to reach its end scale: inside the 3 s lock, which the check after it counts down. */
+const MAX_SETTLE_MS = 2000;
 const BIG_SCALE = 1.03;
 
 const cases = [
@@ -246,16 +246,19 @@ for (const { name, os, settings, pause } of cases) {
     await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 2000));
     await tapSpace(page);
     await expect(page.locator('.reveal-card.is-celebrating')).toHaveCount(1);
-    // Step the page's frames until the card's scale stops changing, writing down every value it takes on the way.
+    // React commits the flip, and framer-motion starts the card's animation, in real time, outside the page's clock: how
+    // many frames that takes depends on the machine, so counting frames would race it. Poll in real time instead, one
+    // frame of the page's clock per look, and write down every scale the card takes on. What is bounded is the page's
+    // own time: it must be there well inside the lock (a 3 s tween never would be), and `elapsed` is what the lock check
+    // below subtracts.
     const scales: number[] = [];
-    let elapsed = 0;
-    while (elapsed < MAX_FRAMES * FRAME_MS) {
+    await expect.poll(async () => {
       await page.clock.runFor(FRAME_MS);
-      elapsed += FRAME_MS;
       scales.push(await page.evaluate(() => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.reveal-card.is-celebrating')!).transform).a));
-      if (scales.at(-1) === BIG_SCALE) break;
-    }
-    expect(scales.at(-1), `a big card is still on its way to its end scale after ${elapsed}ms: ${scales.join(', ')}`).toBe(BIG_SCALE);
+      return scales.at(-1);
+    }, { message: 'a big card never reached its end scale', intervals: [25], timeout: 20000 }).toBe(BIG_SCALE);
+    const elapsed = scales.length * FRAME_MS;
+    expect(elapsed, `a big card took ${elapsed}ms of the page's time to reach its end scale: ${scales.join(', ')}`).toBeLessThan(MAX_SETTLE_MS);
     // (The card's own 0.22s entrance, if a frame still owes it, is below 1; nothing may sit between 1 and the end scale or past it.)
     expect(scales.every((value) => value <= 1 || value === BIG_SCALE), `a big card tweens its scale: ${scales.join(', ')}`).toBe(true);
 
