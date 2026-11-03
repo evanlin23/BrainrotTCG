@@ -9,10 +9,11 @@ import cardBackImage from '../../assets/images/card_back.webp';
 import RarityBadge from '../ui/RarityBadge';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import { useCardSwipe, useSidewaysFlickGuard } from '../../hooks/useRevealGestures';
-import { isBigPull, isSpecialReveal, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
+import { isBigPull, isSpecialReveal, SPECIAL_REVEAL_DURATION_MS, type TakeoverReason } from '../../game/reveal';
 import { siteLabel } from '../../game/pulls';
 import { cardNumber } from '../../data/cards';
 import { useFirstCardCue } from '../../hooks/useFirstCardCue';
+import TakeoverOverlay from './TakeoverOverlay';
 
 const Motion = motion;
 
@@ -36,9 +37,11 @@ const RevealCard = (props: ComponentPropsWithRef<typeof Motion.button>) => {
 };
 
 /** The line under the card: what the next press does, in the controls this device supports. */
-const revealHint = ({ touch, revealed, locked, last }: { touch: boolean; revealed: boolean; locked: boolean; last: boolean }) => {
+const revealHint = ({ touch, revealed, locked, last, takeover }: { touch: boolean; revealed: boolean; locked: boolean; last: boolean; takeover: boolean }) => {
   if (locked) return 'Big pull!';
   if (!revealed) return touch ? 'Tap card to flip' : 'Click or press Space to flip';
+  // The first press ends the takeover and shows the card as it settles; the next one moves on.
+  if (takeover) return touch ? 'Swipe or tap to continue' : 'Click or press Space to continue';
   const goes = last ? 'to see the pack summary' : 'for the next card';
   return touch ? `Swipe or tap ${goes}` : `Click or press Space ${goes}`;
 };
@@ -56,6 +59,11 @@ interface CardRevealUIProps {
   revealLocked?: boolean;
   /** Visual celebration runs independently of the optional input lock. */
   celebrating?: boolean;
+  /**
+   * Why this card has the screen to itself (a Collection or Set it completes, or a Brainrot), for as long as
+   * its takeover runs; PackOpener works it out. The takeover takes the place of the card-local showcase.
+   */
+  takeover?: TakeoverReason | null;
   skipping?: boolean;
   /** The pack's set, named in the provenance line under the card. */
   setName?: string;
@@ -67,18 +75,20 @@ interface CardRevealUIProps {
  * One card at a time off the top of the stack, rarest last. Big pulls light the back's edge before
  * the flip and get a spotlight after it; a flipped card can be swiped away or tapped.
  */
-const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMovedMouse, onInteraction, onSkip, revealLocked = false, celebrating = false, skipping = false, setName, firstPack = false }: CardRevealUIProps) => {
+const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMovedMouse, onInteraction, onSkip, revealLocked = false, celebrating = false, takeover = null, skipping = false, setName, firstPack = false }: CardRevealUIProps) => {
   const touch = useCoarsePointer();
   const reducedMotion = usePrefersReducedMotion();
   const revealed = currentCard?.isRevealed;
   const remaining = totalCards - currentIndex - 1;
   const big = !!currentCard && isBigPull(currentCard);
   const special = !!currentCard && isSpecialReveal(currentCard);
-  const celebration = celebrating && !!revealed && special;
+  const celebration = celebrating && !!revealed && (special || !!takeover);
+  // Points alone get the halo; a takeover brings its own backdrop and banner instead.
+  const halo = celebration && special && !takeover;
   const slow = !!currentCard && !special && (currentCard.rarity === 'LEGENDARY' || currentCard.rarity === 'BRAINROT');
   // Face up, the next move is a card, or on the last card the pack summary: the same click, Space, Enter, swipe
   // or tap either way, so the words follow what it opens (#790).
-  const hint = revealHint({ touch, revealed: !!revealed, locked: revealLocked, last: remaining <= 0 });
+  const hint = revealHint({ touch, revealed: !!revealed, locked: revealLocked, last: remaining <= 0, takeover: !!takeover && !!revealed });
 
   // The first card of the first pack, face down: its back lifts once over the hint, or only the hint under
   // reduced motion. The first input (a press, a key, the flip) ends it.
@@ -106,10 +116,11 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   // card and its rarity, which the art shows by colour alone (the live region says it once, as it lands).
   const cardLabel = !revealed
     ? `Flip card ${currentIndex + 1} of ${totalCards}`
-    : `${remaining > 0 ? 'Next card' : 'See the pack summary'}. Card ${currentIndex + 1} of ${totalCards}: ${cardFaceLabel(currentCard)}`;
+    : `${takeover ? 'Continue' : remaining > 0 ? 'Next card' : 'See the pack summary'}. Card ${currentIndex + 1} of ${totalCards}: ${cardFaceLabel(currentCard)}`;
 
   return (
     <>
+      {takeover && revealed && <TakeoverOverlay card={currentCard} reason={takeover} />}
       {/* The way out and the card count are in the pack's top bar (PackTopBar), the same on every stage. */}
       <div ref={stageEl} className={`active-card-container ${cardBack ? `back-${cardBack}` : ''} ${revealed && big ? 'is-spotlit' : ''}`} aria-busy={revealLocked} style={{ '--special-reveal-duration': `${SPECIAL_REVEAL_DURATION_MS}ms` } as React.CSSProperties}>
         {/* The cards still to come, as a stack behind the current one. */}
@@ -142,7 +153,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
             >
               {/* The halo glows behind the card (it paints under it), so the art stays clear for a screenshot.
                   The pull is announced once, by the ribbon in the top bar (PackOpener's ShowcaseRibbon). */}
-              {celebration && <div className="showcase-halo" aria-hidden="true" />}
+              {halo && <div className="showcase-halo" aria-hidden="true" />}
               <Card card={currentCard} isFlipped={currentCard.isRevealed} tell={big} slowFlip={slow} liftCue={firstCardCue === 'play'} />
             </RevealCard>
           )}

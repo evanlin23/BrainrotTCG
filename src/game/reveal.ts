@@ -75,6 +75,48 @@ export const takeoverReason = (card: TakeoverCard, context?: TakeoverContext): T
 export const isTakeoverReveal = (card: TakeoverCard, context?: TakeoverContext): boolean =>
   takeoverReason(card, context) !== null;
 
+/** A takeover is the hold (SPECIAL_REVEAL_DURATION_MS) and a beat for the banner, then it settles by itself. */
+export const TAKEOVER_DURATION_MS = SPECIAL_REVEAL_DURATION_MS + 1_500;
+
+/** What a takeover's banner says first. The card's or set's name follows it. */
+export const TAKEOVER_KICKER: Record<TakeoverReason, string> = {
+  COLLECTION: 'Collection complete',
+  SET: 'Set complete',
+  BRAINROT: 'Brainrot',
+};
+
+/**
+ * What the player owned of the pack's set, and of the whole collection, before the pack. Pass
+ * `collectionKeys` only when the pack's set is part of the collection (a draft preview's is not).
+ */
+export const takeoverStart = (setKeys: readonly string[], collectionKeys: readonly string[] | undefined, owned: (key: string) => boolean): TakeoverContext => {
+  const count = (keys: readonly string[]) => keys.filter(owned).length;
+  return {
+    set: { ownedBefore: count(setKeys), size: setKeys.length },
+    ...(collectionKeys && { collection: { ownedBefore: count(collectionKeys), size: collectionKeys.length } }),
+  };
+};
+
+/**
+ * The takeover each card of a pack earns, by its `uniqueId`. Cards go in reveal order, and every new
+ * card adds to what was owned, so when one pack holds several new cards the one that actually completes
+ * the set (or collection) is the one that triggers, not the first or the best.
+ */
+export const takeoverReasons = <T extends TakeoverCard & { uniqueId: number }>(cards: readonly T[], start: TakeoverContext): Map<number, TakeoverReason> => {
+  const set = start.set && { ...start.set };
+  const collection = start.collection && { ...start.collection };
+  const reasons = new Map<number, TakeoverReason>();
+  for (const card of cards) {
+    const reason = takeoverReason(card, { set, collection });
+    if (reason) reasons.set(card.uniqueId, reason);
+    if (card.isNew) {
+      if (set) set.ownedBefore += 1;
+      if (collection) collection.ownedBefore += 1;
+    }
+  }
+  return reasons;
+};
+
 /** Skip can pass ordinary cards, but every still-hidden valuable card must get its own reveal. */
 export const nextSpecialRevealIndex = (cards: readonly (Revealable & { isRevealed: boolean })[]): number =>
   cards.findIndex((card) => !card.isRevealed && isSpecialReveal(card));
