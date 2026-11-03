@@ -182,6 +182,16 @@ export function fetchFailureReason(error: unknown, secrets: readonly string[]): 
 }
 
 /**
+ * A page error line kept for a failure message: the first line only, every URL cut to its origin and path,
+ * the Access token (when set) redacted, at most 200 characters. The raw text can carry query strings.
+ */
+export function sanitizeErrorLine(line: string, secrets: readonly string[] = [process.env.CF_ACCESS_CLIENT_ID ?? '', process.env.CF_ACCESS_CLIENT_SECRET ?? '']): string {
+  let kept = line.split('\n', 1)[0].replace(/\b(?:https?|wss?):\/\/[^\s'"()]+/g, sanitizeUrl);
+  for (const secret of secrets) if (secret) kept = kept.split(secret).join('[redacted]');
+  return kept.slice(0, 200);
+}
+
+/**
  * What the guard's teardown adds to a test's errors: unexpected attempts, monitored requests that
  * failed, and the requests still pending. Pending requests are recorded at close, and a fetch still
  * running then ends only as teardown: a passing test simply didn't need them, so they are named only
@@ -632,13 +642,17 @@ export async function releaseTickets(page: Page) {
 }
 
 /**
- * What the page holds when the app has not mounted: the document's state, what is in #root, how far the
- * load got, the app's script files with their status and size, and the page errors seen so far. Paths
- * only, never a query, a header or a request body. Never throws: a closed page reports as unreadable.
+ * What the page holds when the app has not mounted: the document's state, the first 120 characters of the
+ * text in #root, how far the load got, the app's script files (path, status, size, time) and the last 5
+ * page errors. Every URL is cut to its origin and path and each error to its first line (sanitizeErrorLine),
+ * so no query, header, request body or stored data is kept. Never throws and never waits long: a page that
+ * is closed, or too busy to answer within `answerMs`, reports as unreadable with the errors alone.
  */
-export async function bootDiagnosis(page: Page, errors: readonly string[] = []): Promise<string> {
+export async function bootDiagnosis(page: Page, errors: readonly string[] = [], answerMs = 2000): Promise<string> {
+  const recent = errors.slice(-5).map((line) => sanitizeErrorLine(line));
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const state = await page.evaluate(() => {
+    const read = page.evaluate(() => {
       const root = document.getElementById('root');
       const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
       return {
@@ -653,9 +667,14 @@ export async function bootDiagnosis(page: Page, errors: readonly string[] = []):
         }),
       };
     });
-    return JSON.stringify({ ...state, errors: errors.slice(-5).map((error) => error.slice(0, 300)) }, null, 2);
+    read.catch(() => undefined); // A read that answers after the race is over has nobody to tell.
+    const silence = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`no answer in ${answerMs / 1000}s`)), answerMs); });
+    const state = await Promise.race([read, silence]);
+    return JSON.stringify({ ...state, errors: recent }, null, 2);
   } catch (error) {
-    return `page unreadable: ${(error as Error).message.split('\n')[0]}`;
+    return `page unreadable: ${(error as Error).message.split('\n')[0]}\n${JSON.stringify({ errors: recent }, null, 2)}`;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

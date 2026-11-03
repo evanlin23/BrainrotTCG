@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import { BEACON_URL, pagesBeaconTag, RUM_URL } from '../../scripts/cloudflare-analytics';
-import { BEACON_STUB, expectAppMounted, guardConnectionHeaders, monitor, teardownMessages } from './support';
+import { BEACON_STUB, bootDiagnosis, expectAppMounted, guardConnectionHeaders, monitor, teardownMessages } from './support';
 
 let primaryServer: Server;
 let externalServer: Server;
@@ -598,14 +598,31 @@ test('a wait for the app that runs out says what the page held instead', async (
   await page.goto(primaryUrl);
   await page.evaluate(() => setTimeout(() => { throw new Error('boot exploded'); }, 0));
   await expect.poll(() => errors.some((error) => error.includes('boot exploded'))).toBe(true);
+  // Raw error lines carry full URLs; the message keeps their origin and path only, and no later line.
+  errors.push(`404 ${primaryUrl}assets/index-abc.js?token=hunter2#frag`, 'second line\nstored: {"name":"secret save"}');
   const failure = await expectAppMounted(page, errors, { timeout: 500 }).then(() => '', (error: Error) => error.message);
   expect(failure).toContain('The app did not mount. The page held:');
   expect(failure).toContain('"readyState": "complete"');
   expect(failure).toContain('Network Guard Active');
   expect(failure).toContain('boot exploded');
+  expect(failure).toContain(`404 ${primaryUrl}assets/index-abc.js`);
+  expect(failure).toContain('second line');
+  for (const leaked of ['hunter2', 'frag', 'secret save']) expect(failure).not.toContain(leaked);
   // The same page with the app's logo in it passes, and names nothing.
   await page.evaluate(() => { document.getElementById('root')!.innerHTML = '<h1 class="app-logo">Brainrot TCG</h1>'; });
   await expectAppMounted(page, errors, { timeout: 500 });
+});
+
+// A page too busy to answer (a starved main thread) must not turn the failure into the test's own timeout:
+// the diagnosis gives up after `answerMs` and still names the errors, which need no page.
+test('the diagnosis of a page that never answers gives up and keeps the errors', async () => {
+  const silent = { evaluate: () => new Promise(() => {}) } as unknown as Page;
+  const started = Date.now();
+  const diagnosis = await bootDiagnosis(silent, ['404 http://127.0.0.1:1/a.js?x=1'], 200);
+  expect(Date.now() - started).toBeLessThan(5000);
+  expect(diagnosis).toContain('page unreadable: no answer in 0.2s');
+  expect(diagnosis).toContain('404 http://127.0.0.1:1/a.js');
+  expect(diagnosis).not.toContain('x=1');
 });
 
 // Teardown failure is the core acceptance: test.fail() passes only if the guard fails the test
