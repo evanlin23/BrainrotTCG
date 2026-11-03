@@ -24,7 +24,8 @@
  * - every assets/ address api/sets.json and api/cards.json give is a hashed file in the build;
  * - the build has at most MAX_SITE_FILES files (Cloudflare Pages takes 20,000 per deploy);
  * - the code and styles index.html loads before the app can first render come to at most
- *   MAX_FIRST_LOAD_BYTES gzipped (#776).
+ *   MAX_FIRST_LOAD_BYTES gzipped (#776);
+ * - the built JavaScript holds no card art brief (#1365).
  *
  *   npm run build && npm run check:site                      (no env: under /BrainrotTCG/, as GitHub Pages serves it)
  *   BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/ npm run build    (Cloudflare Pages)
@@ -43,6 +44,8 @@ import { checkAssets, type AssetCheck, type AssetValidationError } from './check
 import { isMainModule } from './main-module.ts';
 import { generatePreviews, optionsFromEnv, type PreviewOptions } from './preview-pages.ts';
 import { setLinkHash } from '../src/game/route.ts';
+import { ALL_SET_VERSIONS } from '../src/content/sets/index.ts';
+import type { SetDefinition } from '../src/engine/index.ts';
 
 export type SiteCheckOptions = Pick<PreviewOptions, 'outDir' | 'base' | 'site' | 'versions' | 'sets'>;
 
@@ -369,6 +372,26 @@ export const firstLoadFiles = (html: string, base: string): string[] =>
 export const checkFirstLoad = (bytes: number, max = MAX_FIRST_LOAD_BYTES): AssetValidationError[] =>
   bytes > max ? [{ path: 'index.html', error: `Loads ${bytes.toLocaleString('en-US')} bytes (gzip) before the app can render, over ${max.toLocaleString('en-US')} (MAX_FIRST_LOAD_BYTES, #776)` }] : [];
 
+/**
+ * Build-only fields stay out of the browser's code (#1365): a card's `art` brief is for card builds
+ * and prompts, and the bundle's copy of the set data is made without it (scripts/strip-art-briefs.ts).
+ * `scripts` are the built JavaScript files (path relative to the build -> text).
+ */
+export const checkNoArtBriefs = (scripts: ReadonlyMap<string, string>, sets: readonly SetDefinition[] = ALL_SET_VERSIONS): AssetValidationError[] => {
+  const briefs = new Set(sets.flatMap((set) => set.cards.map((card) => card.art).filter((art): art is string => !!art)));
+  const errors: AssetValidationError[] = [];
+  for (const [file, text] of scripts) {
+    for (const brief of briefs) {
+      // Inside a string literal the brief appears escaped, or, for plain text, as it is.
+      if (text.includes(brief) || text.includes(JSON.stringify(brief).slice(1, -1))) {
+        errors.push({ path: file, error: `Contains a card art brief ("${brief.slice(0, 40)}…"), which the browser never reads (#1365, scripts/strip-art-briefs.ts)` });
+        break;
+      }
+    }
+  }
+  return errors;
+};
+
 export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Promise<SiteCheckResult> => {
   const { base } = options;
   // SITE_URL may end in / or not: compare against it ending in exactly one, as the build writes it.
@@ -509,6 +532,8 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
   const index = readFileSync(path.join(outDir, 'index.html'));
   const upFront = firstLoadFiles(index.toString('utf8'), base).filter((file) => present.has(file));
   errors.push(...checkFirstLoad(upFront.reduce((sum, file) => sum + gzipSync(readFileSync(path.join(outDir, file))).length, gzipSync(index).length)));
+
+  errors.push(...checkNoArtBriefs(new Map(files.filter((file) => file.startsWith('assets/') && file.endsWith('.js')).map((file) => [file, readFileSync(path.join(outDir, file), 'utf8')])), options.versions));
 
   errors.push(...checkManifest(optional('manifest.webmanifest'), base, present));
 
