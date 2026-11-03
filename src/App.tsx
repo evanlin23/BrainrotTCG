@@ -615,16 +615,18 @@ function App() {
 
       {/* Right under the header, and the save warning when it shows: a toast takes no room: on a phone it lies over the header, on a wide screen it is at the top right, narrowed to clear the pack (Toasts.css). Held while a pack is torn and revealed, so it is never over the pack. */}
       <div className="toast-region" role="status" aria-live="polite">
-        {AchievementToasts && (
-          <AchievementToasts
-            queue={visibleNotifications}
-            onDismiss={dismissNotifications}
-            onOpen={(target) => (target === 'collection' ? openPage('cards') : target === 'news' ? openPage('news') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
-            paused={isAnyModalOpen || onPage || anySheetOpen || packBusy}
-            held={packShowcase}
-            reduced={reducedMotion}
-          />
-        )}
+        <div className="toast-frame">
+          {AchievementToasts && (
+            <AchievementToasts
+              queue={visibleNotifications}
+              onDismiss={dismissNotifications}
+              onOpen={(target) => (target === 'collection' ? openPage('cards') : target === 'news' ? openPage('news') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
+              paused={isAnyModalOpen || onPage || anySheetOpen || packBusy}
+              held={packShowcase}
+              reduced={reducedMotion}
+            />
+          )}
+        </div>
       </div>
 
       {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}

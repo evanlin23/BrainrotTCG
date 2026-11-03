@@ -5,8 +5,8 @@
      free column at the top right (both below). */
   position: relative;
   top: var(--space-1);
-  /* Not what keeps a toast off a sheet: on a wide screen the size container below (layout containment) makes
-     .app a stacking context, so this 200 ranks only inside it and can't outrank the portalled sheet (100);
+  /* Not what keeps a toast off a sheet: on a wide screen .app is isolated below (a stacking context), so this
+     200 ranks only inside it and can't outrank the portalled sheet (100);
      on a phone it would. Either way a toast is held while a sheet is open (App.tsx, `paused`). */
   z-index: var(--z-toast);
   flex: none;
@@ -14,6 +14,11 @@
   height: 0;
   margin: 0 auto;
   pointer-events: none;
+}
+
+.toast-frame {
+  /* Only a wide screen's home screen gives it a box (below); everywhere else the toast is the region's child. */
+  display: contents;
 }
 
 .toast {
@@ -211,11 +216,9 @@
    picker is 4rem to 5rem tall, and 3.9rem with doubled text), because with larger text the picker runs
    the width of the page. Still a zero-height row: it takes no room. */
 @media (min-width: 900px) {
-  /* The window's height, in rem, for the short-window rule below: the app is exactly one viewport tall
-     (index.css), so nothing inside it moves when it becomes a container, and (since rem follows the text size,
-     which a media query in rem does not when the page itself sets it) the rule is the same at every text size. */
+  /* A stacking context, so the toast's 200 (above) ranks only inside .app and can't outrank a portalled sheet. */
   .app:not(.is-focus) {
-    container: app / size;
+    isolation: isolate;
   }
 
   .app.is-focus .toast-region {
@@ -223,15 +226,34 @@
   }
 
   .app:not(.is-focus) .toast-region {
-    container-type: inline-size;
-    top: 5.25rem;
+    top: 0;
+  }
+
+  /* The one container every wide-screen toast query reads, for its width (the toast's, below) and for the
+     window's height in rem (the short-window rule). It is the toast's column, as wide as the toast is
+     (see above) and as tall as the window, fixed at the region's place under the header (top is auto: the
+     static position) and at the window's right edge, so it takes no room, adds nothing to what .app can
+     scroll (pack-fit.spec.ts holds that at none), and lets every click through to the page except the toast.
+     One container, on purpose: a rule inside two nested containers that reads the OUTER one (a width query on
+     the region under a height query on .app, as this was until the follow-up to #1220) is not re-evaluated by
+     Chromium when only the outer container's size changes, so a window dragged taller or shorter kept the
+     compact (or the whole) toast of the size before, in a real window as well as in emulation
+     (toast-resize.spec.ts). Height in rem, since rem follows the text size, which a media query in rem does not
+     when the page itself sets it. 100dvh less the safe inset is the app's height. The toast's offset under the
+     header is its margin, since a container cannot be restyled by its own queries. */
+  .app:not(.is-focus) .toast-frame {
+    display: block;
+    position: fixed;
+    right: calc(var(--gutter) + var(--safe-right));
     width: clamp(var(--toast-floor), calc(50vw - var(--gutter) - var(--space-3) - min(40vw, 800px, (100dvh - 12rem) / 1.806)), 24rem);
-    max-width: none;
-    margin: 0 var(--gutter) 0 auto;
+    height: calc(100dvh - var(--safe-top));
+    container-type: size;
+    pointer-events: none;
   }
 
   .app:not(.is-focus) .toast {
     position: static;
+    margin-top: 5.25rem;
   }
 
   .app:not(.is-focus) .toast-open {
@@ -296,9 +318,9 @@
      The staging banner (a note of up to 3.5rem, at any text size, above the header) takes that much of the
      stage, so it is compact 4rem sooner (25rem tall); the same rules, so keep the two blocks in step.
      The save warning is taller and its height unknown, so toasts wait behind it instead (App.tsx). */
-  @container app (max-height: 21rem) {
-    .app:not(.is-focus) .toast-region {
-      top: 4.5rem;
+  @container (max-height: 21rem) {
+    .app:not(.is-focus) .toast {
+      margin-top: 4.5rem;
     }
 
     .app:not(.is-focus) .toast-open {
@@ -339,9 +361,9 @@
     }
   }
 
-  @container app (max-height: 25rem) {
-    .app:not(.is-focus):has(> .staging-banner) .toast-region {
-      top: 4.5rem;
+  @container (max-height: 25rem) {
+    .app:not(.is-focus):has(> .staging-banner) .toast {
+      margin-top: 4.5rem;
     }
 
     .app:not(.is-focus):has(> .staging-banner) .toast-open {
