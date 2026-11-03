@@ -4,10 +4,38 @@
 /* index.html's placeholder: styled by this sheet, which loads before anything paints, so it shows
    while the app's code is still on its way and goes when the app first renders (#776). */
 .boot-status {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   min-height: 100dvh;
   margin: 0;
+  padding: var(--space-3) var(--gutter);
+  box-sizing: border-box;
+  text-align: center;
+  color: var(--text-muted);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.boot-status h1 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.boot-status p {
+  max-width: 26rem;
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.boot-status [role="status"] {
+  margin: 0;
+  font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
@@ -194,6 +222,14 @@ a.app-logo--link:focus-visible {
   }
 }
 
+/*
+ * In-app Reduced Motion and OS prefers-reduced-motion (#765, #1289):
+ * The Motion setting puts data-motion="reduced" on <html> (src/utils/motion.ts).
+ * The build step scripts/reduced-motion-css.ts automatically mirrors every
+ * @media (prefers-reduced-motion: reduce) block under :where(:root[data-motion="reduced"])
+ * and restricts @media (prefers-reduced-motion: no-preference) to :where(:root:not([data-motion="reduced"])).
+ * Stylesheets author prefers-reduced-motion as the single source of truth.
+ */
 @media (prefers-reduced-motion: reduce) {
   .app-logo .title-char {
     animation: none;

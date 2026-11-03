@@ -52,6 +52,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // First, so a throwing unmount can't leave it behind. jsdom has no scrollIntoView; a test that gives it one
+  // (defineProperty) loses it here, pass or fail.
+  delete (Element.prototype as Partial<Element>).scrollIntoView;
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
@@ -563,7 +566,7 @@ describe('How Rankings work', () => {
 
     it('opens, is scrolled to and takes focus when the Rankings page is asked for it', async () => {
       const scroll = vi.fn();
-      Element.prototype.scrollIntoView = scroll;
+      Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scroll });
       loadHallOfFame.mockResolvedValue([ENTRY]);
       const load = sheetLoader(() => Promise.resolve({ default: HallOfFamePage }));
       const section = { id: RANKINGS_HELP_ID, n: 1 };
@@ -573,7 +576,6 @@ describe('How Rankings work', () => {
       expect(scroll).toHaveBeenCalledTimes(1);
       expect(scroll.mock.contexts[0]).toBe(how());
       expect(document.activeElement).toBe(how()!.querySelector('summary'));
-      delete (Element.prototype as Partial<Element>).scrollIntoView;
     });
 
     it('stays closed when no section, or another one, was asked for', async () => {

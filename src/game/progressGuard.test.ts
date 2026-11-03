@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { guardProgress, watchProgress } from './progressGuard';
 
@@ -21,10 +21,6 @@ const storeIfCurrent = (guard: ReturnType<typeof guardProgress>, key: string, va
 beforeEach(() => {
   localStorage.clear();
   localStorage.setItem(STORAGE_KEYS.STATS, stats(1));
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
 });
 
 describe('guardProgress', () => {

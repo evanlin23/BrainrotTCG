@@ -374,6 +374,7 @@ test('worker outbound fetch is blocked and healthy worker still works', async ({
     const worker = new Worker('/worker-clean.js');
     return new Promise((resolve) => {
       worker.onmessage = (e) => resolve(e.data);
+      worker.onerror = (e) => resolve('error: ' + (e.message || 'clean worker failed'));
     });
   });
   expect(cleanResult).toBe('clean-worker-success');
@@ -383,9 +384,10 @@ test('worker outbound fetch is blocked and healthy worker still works', async ({
     const worker = new Worker('/worker-egress.js');
     return new Promise((resolve) => {
       worker.onmessage = (e) => resolve(e.data);
+      worker.onerror = (e) => resolve('error: ' + (e.message || 'egress worker failed'));
     });
   });
-  expect(egressResult).not.toBe('leaked');
+  expect(egressResult).toMatch(/^blocked: /);
   expect(externalHits).toBe(0);
   // The worker's own egress attempt is recorded, not just refused.
   await expect.poll(() => errors.blocked.some((b) => b.includes(externalOrigin))).toBe(true);
@@ -497,9 +499,13 @@ test('sanitization strips query parameters, hashes, bodies, and bounding to 40 e
 function openSocket(page: Page, url: string) {
   return page.evaluate((target) => new Promise<string>((resolve) => {
     const socket = new WebSocket(target);
-    socket.onopen = () => resolve('open');
-    socket.onerror = () => resolve('error');
-    socket.onclose = () => resolve('closed');
+    const finish = (result: string) => {
+      socket.close();
+      resolve(result);
+    };
+    socket.onopen = () => finish('open');
+    socket.onerror = () => finish('error');
+    socket.onclose = () => finish('closed');
   }), url);
 }
 
@@ -689,6 +695,12 @@ test.describe('continueAllowed keeps the original same-origin routing', () => {
     const errors = await monitor(page, primaryUrl, 0, { continueAllowed: true, failOnUnexpected: false });
     await page.goto(primaryUrl);
     const other = await page.context().newPage();
+    // The context-wide response listener can record this escape without the page's own CDP session
+    // (Playwright usually reports the hop), so the escape alone can't show the second page is watched.
+    // Chromium only: the CDP watch is off elsewhere (cdpAttached stays 0).
+    if (page.context().browser()?.browserType().name() === 'chromium') {
+      await expect.poll(() => errors.cdpAttached).toBe(2);
+    }
     await other.goto(primaryUrl);
     await other.evaluate(() => fetch('/redirect-escape').catch(() => undefined));
     await expect.poll(() => errors.blocked.some((b) => b.includes('redirect escape') && b.includes(externalOrigin))).toBe(true);

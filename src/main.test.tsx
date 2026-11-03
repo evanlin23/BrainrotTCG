@@ -41,7 +41,6 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.innerHTML = '';
-  vi.restoreAllMocks();
 });
 
 /** A fresh run of main.tsx, as a page load would be. */

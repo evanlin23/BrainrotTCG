@@ -35,7 +35,6 @@ beforeEach(() => {
 afterEach(() => {
   resetReopenCache();
   vi.useRealTimers();
-  vi.restoreAllMocks();
   localStorage.clear();
   Reflect.deleteProperty(document, 'visibilityState');
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_BACKS, COLLECTION_MILESTONES, PACK_FOILS, TITLES, collectionMilestone, levelUpLine, nextReward, setProgress, titleFor, usable } from './progression';
+import { CARD_BACKS, COLLECTION_MILESTONES, PACK_FOILS, TITLES, collectionMilestone, levelUpLine, nextReward, nextRewards, setProgress, titleFor, usable } from './progression';
 
 describe('progression', () => {
   it('starts everyone with a title, a card back and a pack foil', () => {
@@ -22,6 +22,23 @@ describe('progression', () => {
     expect(nextReward(30)).toBeUndefined();
   });
 
+  it('lets a choosable cosmetic lead where a title shares its level (#212)', () => {
+    // Level 12 holds Meme Historian (title) and Gold foil; level 20 holds Aura Farmer (title) and Prismatic (card back).
+    expect(nextReward(11)).toMatchObject({ level: 12, kind: 'pack foil', name: 'Gold foil', id: 'gold' });
+    expect(nextReward(19)).toMatchObject({ level: 20, kind: 'card back', name: 'Prismatic', id: 'prism' });
+    expect(nextRewards(11).map((r) => [r.name, r.kind])).toEqual([['Gold foil', 'pack foil'], ['Meme Historian', 'title']]);
+    expect(nextRewards(19).map((r) => [r.name, r.kind])).toEqual([['Prismatic', 'card back'], ['Aura Farmer', 'title']]);
+    // Away from a tie: one reward, the same one nextReward names.
+    expect(nextRewards(3).map((r) => [r.name, r.kind])).toEqual([['Midnight', 'card back']]);
+    expect(nextRewards(3)[0]).toEqual(nextReward(3));
+    expect(nextRewards(30)).toEqual([]);
+    // Every level with several rewards puts the title last, so nextReward never hides a choosable one behind it.
+    for (let level = 0; level < 31; level++) {
+      const kinds = nextRewards(level).map((r) => r.kind);
+      expect(kinds.lastIndexOf('title'), `level ${level}`).toBe(kinds.includes('title') ? kinds.length - 1 : -1);
+    }
+  });
+
   it('words a level-up by what the player can actually do (#719)', () => {
     // A title has no picker: it equips itself, and the line never sends the player to pick it.
     expect(levelUpLine(2, 3)).toBe('Title equipped: Pack Rat.');
@@ -35,6 +52,9 @@ describe('progression', () => {
     );
     // Nothing new: a teaser for the next reward, or the end of the list.
     expect(levelUpLine(1, 2)).toBe('Next: Pack Rat at level 3.');
+    // A level that holds two rewards names both, choosable first (#212).
+    expect(levelUpLine(10, 11)).toBe('Next: the Gold foil pack foil and the Meme Historian title at level 12.');
+    expect(levelUpLine(18, 19)).toBe('Next: the Prismatic card back and the Aura Farmer title at level 20.');
     expect(levelUpLine(29, 30)).toBe('Title equipped: Brainrot Royalty.');
     expect(levelUpLine(30, 31)).toBe('Keep opening.');
     // Only a title is ever "equipped": no line tells the player to pick a title.

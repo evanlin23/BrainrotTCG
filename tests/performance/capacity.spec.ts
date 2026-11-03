@@ -303,7 +303,7 @@ test.describe('growing saves', () => {
         rows.push({ phase: 'pack', size, pack, openToResultMs: openMs, localStorageBytes: bytes.total, historyBytes, historyGrowthBytes: historyBytes - previousHistoryBytes });
         previousHistoryBytes = historyBytes;
         if (pack < config.packs) {
-          await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+          await page.getByRole('button', { name: /^Open .+ again$/ }).click();
           await expect(openButton(page)).toBeVisible();
           await ticketReady(page, size + pack);
         }
@@ -363,7 +363,7 @@ test.describe('long session', () => {
       expect(historyBytes - previousHistoryBytes).toBeLessThanOrEqual(BUDGETS.historyGrowthPerPack.max);
       previousHistoryBytes = historyBytes;
 
-      await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+      await page.getByRole('button', { name: /^Open .+ again$/ }).click();
       await expect(openButton(page)).toBeVisible();
       const tabs = page.getByRole('navigation', { name: 'Main', exact: true });
       // Pages opened and closed between packs.
@@ -435,6 +435,7 @@ test.describe('reconstruction', () => {
     const historyBefore = (await snapshot(page)).history;
 
     // Active: the player asks for them.
+    await profile.locator('.profile-fold-toggle').filter({ hasText: 'Level, stats and collection' }).click();
     await profile.getByRole('button', { name: 'Re-open them', exact: true }).click();
     await page.waitForFunction((nonces) => nonces.every((n) => window.capacity.jobs.some((job) => job.kind === 'done' && job.nonce === n)), uncachedNonces, { timeout: 90_000 });
     await expect(profile).not.toContainText("don't have their cards on this device");

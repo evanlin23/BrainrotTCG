@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { byBest, findPackByCards, findPackWithCard, firstOpened, getHistory, historyCards, historyForKey, isHallOfFameWorthy, isStored, migratePullLog, recordMissing, recordPack, recordTicket, ticketsRecorded, type HistoryEntry } from './history';
 import { HALL_OF_FAME_MIN_SCORE, scorePulled } from '../engine';
@@ -22,6 +22,17 @@ const installStorage = (maxChars = Infinity) => {
 };
 
 const KEY = 'ab'.repeat(32);
+
+// The pack store keeps re-opened packs in module-level memory that outlives a test, and the history
+// reads it for any ticket it has no cards for. Clear it around every test in the file, not just in the
+// describes that put packs in, or a pack stored by one test leaks into whichever test runs next once
+// the order changes (#1322).
+beforeEach(() => {
+  resetPackStore();
+});
+afterEach(() => {
+  resetPackStore();
+});
 
 const pack = (nonce: number, overrides: Partial<OpenedPack> = {}) =>
   ({
@@ -597,3 +608,24 @@ describe('malformed cached history card codes and safe recovery (#652)', () => {
   });
 });
 
+
+// Two tests that are only meaningful together: the first leaves a stored pack behind, the second sits in a
+// describe with no reset of its own and must still start empty (#1322).
+describe('isolation of the re-opened pack store between tests (#1322)', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('leaves a stored pack behind', async () => {
+    const data = installStorage();
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([{ s: 'right-now', v: 1, n: 0, k: KEY.slice(0, 16), h: 'Pair', x: 100, t: 1000 }]));
+    await putStoredPacks([{ setKey: 'right-now@1', publicKeyHex: KEY, nonce: 0, cards: 'jimothy*,jimothy,verity' }]);
+    expect(getHistory()[0].cards).not.toBeNull();
+  });
+
+  it('starts the next test with no stored packs', () => {
+    const data = installStorage();
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([{ s: 'right-now', v: 1, n: 0, k: KEY.slice(0, 16), h: 'Pair', x: 100, t: 1000 }]));
+    expect(getHistory()[0].cards).toBeNull();
+  });
+});

@@ -9,7 +9,7 @@ from a 390 px wide screen.
 ## Principles
 
 1. **The pack is the hero.** Each screen has one primary action: on the home screen it's opening the
-   pack; during a reveal it's the next card; in the summary it's moving on to the next pack. Everything else
+   pack; during a reveal it's the next card; in the summary it's opening the set again (Open {set name} again). Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is the logo (mark
    and wordmark), the gear and the pack: the tabs, the era picker and the quiet Card guide link come
    once their first pack is saved and they leave it (#898, #628).
@@ -31,15 +31,23 @@ from a 390 px wide screen.
    from the tear until the pack is put away) opens the selected set's card guide. The row carries no
    news: the latest unread entry arrives as a toast (see What's new, below). The next goal (#212) takes
    its place in the same row, to the right of the Card guide link, which stays centred under the pack
-   with the goal or without it (the row is three columns, the guide alone in the middle): one two-line, 44px chip (a small card-back picture when the reward is a
+   with the goal or without it (the row is three columns, the guide alone in the middle; the left column
+   is empty but for **Change pack**, item 8 of the Flow below): one two-line, 44px chip (a small card-back picture when the reward is a
    card back, the name, a percentage or count, and "Cosmetic, odds unchanged" or the cards still to
-   go), a link to Profile rewards or the binder. It comes from the same verified-pack level and set
-   counts the profile shows, adds no height, never moves and has no animation, and hides on a phone on its
+   go), a link to Profile rewards or the binder. A master set's count names its unit once, beside the count ("8/12 holos", with "4 to go" under it), so it is not read as set completion (#898); a Complete goal's bare count is plainly cards. Where a level holds two rewards (12: Gold foil and
+   Meme Historian; 20: Prismatic card back and Aura Farmer) the chip names the choosable cosmetic
+   (with its card-back picture when it is a card back) and not the title that equips itself; the
+   Profile "Next:" line names both (#212). The chip comes from the same verified-pack level and set
+   counts the profile shows, adds no height and has no animation. It keeps its place, except on an upright
+   phone, where it drops a line with the guide while **Change pack** (item 8 of the Flow) shows and moves back
+   up once the Packs sheet is first opened. It hides on a phone on its
    side and in a row of 20rem or less (a 320px phone, enlarged text), rather
    than shift or squeeze the guide. In a row up to 34rem (every phone) the column beside the centred
    guide is small, so the chip shrinks to one line, the name (an ellipsis if long), the percentage and
    the progress bar; the picture and the cue line are not drawn there, but the cue stays in its accessible
-   name and tooltip. From 34rem it is the whole chip, capped at 18rem wide so on a desktop it stays near
+   name and tooltip. A master set's count, "8/12 holos", is too wide to sit beside the name there, so it takes
+   the second line under the name; at 125% text or more, where two lines no longer fit, it sits beside the name
+   again with its unit, and the name ellipsizes further, so the unit is never dropped (#898). From 34rem it is the whole chip, capped at 18rem wide so on a desktop it stays near
    the pack instead of running to the screen's edge. Past about 125% text the two lines no longer fit in 44px, so
    the cue line gives way and the name and progress stay on one line (`tests/browser/pack-milestone.spec.ts`
    measures every reward's name at 580 and 600px and the compact chip at 360 and 390px, its text at 125% to 200% on 768 and 1280px, and
@@ -59,7 +67,7 @@ from a 390 px wide screen.
    loads (a load straight into #/cards waits until the packs screen is shown). The fall passes over the
    header and any warning banner, so the pack takes no presses until it first reaches its place: a tap on
    the gear or a banner's Download then reaches them. Every return (Back, Escape,
-   the X, Next pack) uses a short entrance instead: it fades in while rising about 24px over 180 ms, with
+   the X, Open again) uses a short entrance instead: it fades in while rising about 24px over 180 ms, with
    no rotation, so the stage never passes over the header or the gear and takes a tap as soon as it is at
    rest. Reduced motion makes the return instant (#720).
 4. **Places are pages, moments are sheets.** Cards, Rankings, Profile and Settings are pages with an
@@ -159,16 +167,47 @@ results line (`PackSummaryUI.tsx`) that goes.
    see the pack summary"), since the same press does.
 5. **Result.** One composition, a graded slab: the five cards in reveal order (best last) under one
    label, **[score] Brainrot Score** then **[combo] x[multiplier]**, plus a Rankings line: Submit
-   when the pull qualifies, or, when it doesn't, one short muted sentence that says why there is no
-   Submit (#1004). Score and combo are one line each; the reason sentence is the only
-   text that can wrap, to three lines at 360 and 390. No 1-in-X, XP or fingerprint (that is on the
-   share). Next pack is the one primary action, Share secondary. Tiles keep their own New stickers:
-   they name different cards.
-6. **Next pack and share.** Next pack returns to a sealed pack under the same cue rules (no replayed
+   when the pull qualifies and would make the list, or the one-sentence reason there is none when it doesn't
+   qualify (#1004) or qualifies but wouldn't beat the lowest listed score (#1072). If the list is
+   unavailable, neutral wording ('Qualifies for Rankings') offers Submit without claiming a rank. Score
+   and combo are one line each; the reason sentence is the only text that can wrap, to three lines at
+   360 and 390. No 1-in-X, XP or fingerprint (that is on the share). Open {set name} again is the one primary action,
+   Share secondary. Tiles keep their own New stickers: they name different cards.
+6. **Open again and share.** Open {set name} again returns to a sealed pack under the same cue rules (no replayed
    demonstration once a pack is saved). Share makes the best card's image and link, as today.
 7. **Desktop (900 px up).** The same flow in a centred column; the pack opens by click, Space, Enter
    or drag. A pack carousel is **not** added now: a new player has one pack and the picker already
    serves returning players. Revisit with two or more started eras. Phones keep the picker.
+8. **Discovering other packs (2026-10-28 direction).** Players kept opening the same pack without
+   knowing others exist. Two entry points, built one slice at a time, both opening the **existing
+   Packs sheet** (the one the era picker opens; no second picker, no automatic set switching, the
+   selected set stays until the player picks another):
+   - *Now, the summary.* A quiet **Try another pack** control sits between the cards and
+     the stuck actions (so the stuck area stays the size it was), with up to two small wrapper
+     thumbnails of other sets at a fixed size. It shows
+     only when another set is available (the same list the picker uses, so draft or hidden sets count
+     only when the picker would show them). The primary becomes **Open {set name} again**, for players
+     chasing that set. It is never shown mid-reveal.
+   - *The landing.* A quiet ghost **Change pack · N available** control (44px target, named "Change pack,
+     N available") leads the row under the sealed pack, so it comes right after the pack in the keyboard
+     order, outside the pack's stage (a press on it never starts a tear). N is the same list the picker
+     uses, less the selected set; with no other set there is no control. It shows only to a returning
+     player (one who has saved a pack or owns a card; `showAllPages` alone shows the tabs, not this) who has never opened the Packs sheet on this device: opening the sheet from
+     anywhere (the era picker, the summary's control or this one) hides it for good, kept in a device
+     flag outside the save (`PACKS_SHEET_SEEN`, game/packsSheet.ts; storage that refuses it still hides it
+     for the visit). It is hidden from the tear until the pack is put away, so never mid-reveal or on the
+     summary. A pick lands focus on the pack, and so does a close with no pick, since the control has gone.
+     Where the row has room (a wide phone on its side, a desktop) it takes the row's empty left column,
+     beside the centred guide, so the row and the pack keep their size; on an upright phone (a row up to
+     36rem) it takes a line of its own above the guide and the goal, and the pack fits the 44px less. A phone
+     on its side never gives the pack that line: where its row is too narrow to share (a 568x320 phone) the
+     control is not shown, as the goal is not there. Nor is it in a row of 20rem or less (a 320px phone),
+     where that line would shrink the pack until a swipe across it fell short of the tear. The limit is in
+     rem, so it follows the text size: on a phone, text enlarged past these points hides the control (a 360px
+     phone above about 103%, 390px above about 111%, 430px above about 122%). That is an accepted trade: the era
+     picker opens the same sheet.
+     The label wraps inside the button rather than run past it. It has no animation; under reduced motion
+     its state changes are instant (`tests/browser/change-pack.spec.ts`).
 
 ### Guardrails
 
@@ -189,7 +228,7 @@ results rules below (#339).
   removed, landing de-cluttered, honest cue.
 - #627: stationary-click loop from pack to summary; ignore clicks for about 400 ms after a stage
   change and during Opening so no viewer opens. The loop deliberately ends at the summary, where
-  the player reads the score, views cards and shares, so a stray click must not skip it; Next pack
+  the player reads the score, views cards and shares, so a stray click must not skip it; Open again
   stays the one deliberate move. This replaces #627's pack-after-pack criterion. The keyboard
   follows the same window: on the summary Space and Enter are ignored until it ends
   (`useKeyboardControls`), so a stuck or repeated press that opened the summary can't close it.
@@ -214,7 +253,7 @@ results rules below (#339).
   browser" too: it says what was checked and where, never whose device made the packs, so one
   line is true for the owner and a guest alike without a branch on who is looking. A shared link
   re-opens only the best packs by default and then pauses: that state shows no progress bar or
-  spinner, its footnote reads "* the pack count is the link's own; cards, holo and best score are from the N
+  spinner, its footnote reads "* the pack count is the link's own; cards, holo pulls and best score are from the N
   best packs only, and the rest of the packs are not checked", "How do we know?" says the best packs
   were re-opened in your browser and the rest are not checked until you ask (the level and pack
   count are only what the link claims), and the level stays "claimed". "Verify all N packs" (short label, the hint is
@@ -391,7 +430,23 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   "Card back and foil" (`#rewards`, a closed `<details>` whose summary counts what is unlocked;
   level-up toasts open it); All packs (a pack that set an all-time best when it opened keeps a solid
   medal on its row, a best in its set an outlined one, `packMedals`); then a one-line "Saved in this browser · Back up" footnote.
-  Sections share one left edge and `--space-6` between them. Its shareable image is the "Profile
+  The name and Player ID stay visible. Best pack and card; level, stats and collection; Personal
+  records; Achievements; Card back and foil; All packs; Best cards; and any legacy best pack each
+  sit behind an independent, initially closed section header. Headers use full-width native
+  disclosures with chevrons, like the collection's set toggles. Closing a section preserves its
+  contents and ongoing reads. Achievement and reward navigation requests open their target again,
+  including the full achievements list. Reward availability and the pack count stay in their headers
+  (Achievements' count leaves its header while open, since the body states it). A save, trust or
+  privacy notice is never left in a closed section: when one applies (the saved packs couldn't be
+  read; the profile link couldn't be made; partial totals; re-opening stopped; Best cards that couldn't
+  be loaded; a Best pack or Best card check that failed) its section opens, and the notice is announced
+  once. A failed read of the saved packs opens Level alone, with the one alert and its retry; Card back
+  and foil stays closed and says so in its header. While a section is open its body states the notice, so
+  its header shows no note (not even the usual one); once the player closes it, the header says what, in
+  the warning colour. On a narrow screen the header's note wraps under the title and the chevron stays at
+  the right edge beside it. A new player's "Open your first pack"
+  sits on the page outside any section, and Best pack and card has no header until there is something to show.
+  Sections share one left edge with a quiet separator. Its shareable image is the "Profile
   card"; "Player ID" stays the name of the key's fingerprint, as on proofs. Leaving Profile saves a
   changed name, unless saving that same name just failed.
 - **Rankings** (`pages/HallOfFamePage.tsx`): tabs Today (the default) and All-time, 20 rows at a
@@ -412,14 +467,16 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   A closed "How Rankings work" disclosure sits above the lists in every state (loading, failed,
   feed unavailable, empty, populated, both tabs): who qualifies, that nothing is filed
   automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
-  Where Submit is missing because a pull doesn't qualify, the results screen and the share sheet say
-  so in one sentence made from the same rule text (`ui/rankingsRule.ts`) and name "How Rankings
-  work", which is a button (`link-btn link-btn--inline`: the sentence's own size, with a 44 px hit
-  area around the words that never overlaps the control beside or below it) that opens Rankings with
-  that section open and in view (the app's section request, id `how-rankings-work`; focus lands on
-  its summary). The share sheet closes first; the results screen stays mounted under the page, as for
-  any page, and Close returns to it. Both surfaces say "Rankings", and "Hall of Fame" appears only
-  in the disclosure's "other screens call this the Hall of Fame".
+  Where Submit is missing because a pull doesn't qualify or qualifies but wouldn't beat the lowest
+  listed score (#1072), the results screen and the share sheet say so in one sentence made from the same
+  rule text (`ui/rankingsRule.ts`) and name "How Rankings work", which is a button (`link-btn
+  link-btn--inline`: the sentence's own size, with a 44 px hit area around the words that never overlaps
+  the control beside or below it) that opens Rankings with that section open and in view (the app's
+  section request, id `how-rankings-work`; focus lands on its summary). When the list is unavailable,
+  neutral wording ("Qualifies for Rankings") offers Submit without claiming a rank. The share sheet
+  closes first; the results screen stays mounted under the page, as for any page, and Close returns to
+  it. Both surfaces say "Rankings", and "Hall of Fame" appears only in the disclosure's "other screens call
+  this the Hall of Fame".
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest
@@ -506,11 +563,13 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   put away in this visit asks for it: not on a page load, not on a route change, never before a first pack
   is saved, never while a pack is torn, revealed or on its summary. It is queued behind the pack's own
   toasts so only one is up at a time, and a toast that has not been shown when the next pack starts leaves
-  the queue and comes back after that pack is put away. Tapping it opens the page; its X, a timeout and
-  opening the page all read the entry. Read state is the one `DISMISSED_NEWS` key, as the old chip kept it
-  (opening `#/news` writes it too, even for a first-time visitor with no save); when storage refuses the
-  write, the entry stays read for the rest of the visit. On a wide screen it is placed like every toast (top
-  right, covering no control, see Toasts). `tests/browser/news-toast.spec.ts`
+  the queue and comes back after that pack is put away. It also waits while a save warning or recovery
+  note is showing (it would sit over the banner and its buttons) and comes in once that is gone. Tapping it
+  opens the page; its X, a timeout and opening the page all read the entry. Read state is the one
+  `DISMISSED_NEWS` key, as the old chip kept it (opening `#/news` writes it too, even for a first-time
+  visitor with no save); when storage refuses the write, the entry stays read for the rest of the visit. On a
+  wide screen it is placed like every toast (top right, covering no control, see Toasts).
+  `tests/browser/news-toast.spec.ts`
   checks the toast over phone sizes and 200% text, the wide screen, the page, the quota failure and the
   ordering.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
@@ -618,8 +677,7 @@ it explains the formula, not pull excitement. The one exception is a shared pull
 names a real combo, so `PackCardViewer` drops the headline there (`titled`), and only when the multiplier is
 above 1; a No Matches pull keeps its line.
 
-(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. A pack that strictly beats the player's best before it (all sets, their own key, one record per ticket; a first pack or a tie is no record, #1287) leads the heading with a small **NEW BEST** line (a solid medal: all-time) and adds **previous best [score] · +[n]%** under the combo (the **· +[n]%** only when it rounds to 1% or more), both static and known at the first paint (`src/game/personalRecords.ts`). A pack that doesn't beat that but strictly beats the player's earlier packs in its own set leads instead with **Best in [set]** (an outlined medal, one line: a long set name is cut short on screen) and **previous set best [score] · +[n]%**; a pack that is the player's #2 or #3 so far (an earlier equal score ranks above; it needs at least 2 earlier packs and must beat one of them) gets one quiet line, **your #2 pack ever**, under the combo and nothing in the heading. A pack whose ticket the profile admits another set's record of is no record. Then the Rankings line: Submit when the pull
-qualifies, or the one-sentence reason there is none when it doesn't (#1004). The Card guide (one tap, no fold) has
+(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. A pack that strictly beats the player's best before it (all sets, their own key, one record per ticket; a first pack or a tie is no record, #1287) leads the heading with a small **NEW BEST** line (a solid medal: all-time) and adds **previous best [score] · +[n]%** under the combo (the **· +[n]%** only when it rounds to 1% or more), both static and known at the first paint (`src/game/personalRecords.ts`). A pack that doesn't beat that but strictly beats the player's earlier packs in its own set leads instead with **Best in [set]** (an outlined medal, one line: a long set name is cut short on screen) and **previous set best [score] · +[n]%**; a pack that is the player's #2 or #3 so far (an earlier equal score ranks above; it needs at least 2 earlier packs and must beat one of them) gets one quiet line, **your #2 pack ever**, under the combo and nothing in the heading. A pack whose ticket the profile admits another set's record of is no record. Then the Rankings line: Submit when the pull qualifies and would make the list, or the one-sentence reason there is none when it doesn't qualify (#1004) or qualifies but wouldn't beat the lowest listed score (#1072). If the list is unavailable, neutral wording ('Qualifies for Rankings') offers Submit without claiming a rank. The line keeps its reserved height so cards below never move. The Card guide (one tap, no fold) has
 points per rarity, the holo, finish and misprint bonuses, the combo multipliers (with a note that a combo counts copies of the same card, and worked
 examples), and Score = card points added up × combo multiplier. There is no per-pack breakdown.
 
@@ -629,12 +687,16 @@ After the last card everything that matters fits one phone screen (checked at 39
 no horizontal scroll): the headline (score and combo with its odds on one line each; for a new
 personal best, the **NEW BEST** line above the score and the previous-best line under the combo, or the same
 two lines for a set best, or one rank line for a #2 or #3 pack; then the
-Rankings line: a Submit, or one muted sentence saying why there is none, which can wrap to three
-lines at 360 and 390), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
+Rankings line: a Submit when it would make the list, neutral 'Qualifies for Rankings' when the list is unavailable, or one muted sentence saying why there is none (doesn't qualify or wouldn't beat the lowest listed score, #1072), which can wrap to three
+lines at 360 and 390; the line keeps its reserved height so cards below never move), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
 compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
 shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
-actions: **Next pack** primary (it returns to the packs screen, where the next sealed pack waits; opening it is a swipe or Open pack away), **Share** secondary, stuck to the bottom of the summary's
-scroller above the safe area. The cards are the last content: only the actions sit below them,
+actions: **Open {set name} again** primary (it returns to the packs screen, where the next sealed pack waits; opening it is a swipe or Open pack away), **Share** secondary, stuck to the bottom of the summary's
+scroller above the safe area. When another pack exists, a quiet **Try another pack** line (a 44px
+target with up to two wrapper thumbnails; the Packs sheet opens from it) sits between the cards and the
+stuck actions, so the primary stays last and lowest. When the two actions wrap on a phone, each fills its
+own row (Share above the primary), never a small Share orphaned above a wide primary. On a short phone (up to 480px wide and 700px tall) a summary that shows **Try another pack** adds 3rem above the
+headline, so a two-line toast hangs clear of it; with one set the summary is unchanged. The cards are the last content: only the actions sit below them,
 nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP
 or level here: level-ups toast and progress lives on Profile. Keyboard focus is scrolled clear of
 the stuck actions, whose faded strip passes taps through. Focus starts on the heading.

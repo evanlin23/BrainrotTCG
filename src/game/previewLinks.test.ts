@@ -3,6 +3,7 @@ import { FINISHES_RAREST_FIRST, MODIFIERS_V1, POKER_HANDS, type HandKey } from '
 import { ALL_SET_VERSIONS } from '../content/sets';
 import {
   cardPreviewPath,
+  compareCardIds,
   hasModifierPages,
   headline,
   MODIFIER_TOKENS,
@@ -102,5 +103,28 @@ describe('modifier headline', () => {
     expect(hasModifierPages('genesis', ALL_SET_VERSIONS)).toBe(false);
     expect(hasModifierPages('web-ancients', ALL_SET_VERSIONS)).toBe(true); // v1 has none, v2 does
     expect(hasModifierPages('no-such-set', ALL_SET_VERSIONS)).toBe(false);
+  });
+
+  it('orders Two Pair by code-unit sort where localeCompare differs (#1315)', () => {
+    const syntheticPairs = [
+      { id1: 'B', id2: 'a', expected: ['B', 'a'] },
+      { id1: 'a_b', id2: 'a-b', expected: ['a-b', 'a_b'] },
+    ];
+    for (const { id1, id2, expected } of syntheticPairs) {
+      // Document that localeCompare produces the inverse order:
+      expect([id1, id2].sort((x, y) => x.localeCompare(y))).not.toEqual(expected);
+      expect([id1, id2].sort(compareCardIds)).toEqual(expected);
+
+      const packCards = [
+        { key: `test-set/${id2}` },
+        { key: `test-set/${id2}` },
+        { key: `test-set/${id1}` },
+        { key: `test-set/${id1}` },
+        { key: 'test-set/kicker' },
+      ];
+      const preview = previewOf(packCards);
+      expect(preview?.hand).toBe('TWO_PAIR');
+      expect(preview?.cardIds).toEqual(expected);
+    }
   });
 });

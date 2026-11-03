@@ -8,7 +8,7 @@ import { chromium } from '@playwright/test';
 import { preview as startPreview } from 'vite';
 import { bridgeHandler, browserCommand, isolate, stepBudget } from './browser';
 import { claudeArgs, claudeVersion, runClaude, stopGroup } from './claude';
-import { agentEnvironment, clean, coordinatorPrompt, instructionFiles, isBasePath, parseOptions, parseOutcome, tasks, uncommittedBuildInputs } from './contracts';
+import { agentEnvironment, clean, coordinatorPrompt, instructionFiles, isBasePath, parseOptions, parseOutcome, redactReportTasks, tasks, uncommittedBuildInputs } from './contracts';
 
 const root = process.cwd();
 const output = resolve('test-results/agent-audit.json');
@@ -132,6 +132,7 @@ try {
   await browser?.close();
   if (temporary) await rm(temporary, { recursive: true, force: true });
   await mkdir(resolve('test-results'), { recursive: true });
+  if (Array.isArray(report.tasks)) redactReportTasks(report.tasks);
   await writeFile(output, JSON.stringify(report, null, 2) + '\n');
   console.log(`Local audit ${report.outcome}; sanitized report: test-results/agent-audit.json`);
   process.exitCode = report.outcome === 'completed' ? 0 : 1;

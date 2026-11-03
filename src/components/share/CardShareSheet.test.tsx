@@ -61,7 +61,6 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 

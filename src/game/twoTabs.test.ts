@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
 import type { CollectionItem, Settings, Stats } from '../types';
@@ -59,7 +59,6 @@ beforeEach(() => {
   localStorage.clear();
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
-afterEach(() => vi.restoreAllMocks());
 
 describe('two tabs of one player opening packs at once', () => {
   it('puts the pack a stale write dropped back on the shelf, so the next load adds and counts it', () => {

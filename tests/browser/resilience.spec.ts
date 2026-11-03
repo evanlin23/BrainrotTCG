@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import {
-  FEED_DOWN, expectDecoded, expectRecordedPack, holdTickets, monitor, pickWithImport, relaysAnswerEmpty, releaseTickets, sameStorage,
+  FEED_DOWN, expectDecoded, expectRecordedPack, holdTickets, monitor, openFold, pickWithImport, relaysAnswerEmpty, releaseTickets, sameStorage,
   settingsOf, snapshot, storageOf,
 } from './support';
 
@@ -559,7 +559,7 @@ test.describe('offline mid-session', () => {
     await expectDecoded(art, 5);
 
     // Rankings loads online; offline, it says the live feed is down; back online, Retry brings it back.
-    await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+    await page.getByRole('button', { name: /^Open .+ again$/ }).click();
     await packsScreen(page);
     const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
     const rankingsStatus = rankings.getByRole('status');
@@ -624,11 +624,11 @@ test.describe('offline mid-session', () => {
     expect(cardCount(collection)).toBe(5);
 
     // Cards, offline, reads the saved pack: one tile per distinct card, none of them the empty note.
-    await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+    await page.getByRole('button', { name: /^Open .+ again$/ }).click();
     await packsScreen(page);
     // The first saved pack is also the first time the news chunk is asked for (a fresh player never loads it
     // online): offline it gives no news, so there is no news toast, and nothing else breaks.
-    const newsChunk = /\/news-[^/]+\.js$/;
+    const newsChunk = /\/assets\/news-[^/]+\.js$/;
     await expect.poll(() => cut.some((url) => newsChunk.test(url))).toBe(true);
     await expect(page.locator('.toast').filter({ hasText: "What's new" })).toHaveCount(0);
     await nav(page).getByRole('button', { name: 'Cards', exact: true }).click();
@@ -648,9 +648,8 @@ test.describe('offline mid-session', () => {
       ...cut.flatMap((url) => [`net::ERR_INTERNET_DISCONNECTED ${url}`, 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED']),
       ...finishes(),
     ].sort();
-    await expect.poll(() => JSON.stringify([...errors].sort()) === JSON.stringify(expected())).toBe(true);
+    await expect(async () => { expect([...errors].sort()).toEqual(expected()); }).toPass({ timeout: 5000 });
     for (const finish of finishes()) expect(cut.some((url) => finish.includes(new URL(url).pathname)), finish).toBe(true);
-    expect([...errors].sort()).toEqual(expected());
   });
 });
 
@@ -742,6 +741,8 @@ test.describe('Argon2 chunk fetched ahead (#776)', () => {
     await nav(page).getByRole('button', { name: 'Profile', exact: true }).click();
     const bestCards = () => page.getByRole('main', { name: 'Profile', exact: true }).getByRole('region', { name: 'Best cards', exact: true });
     const rows = () => bestCards().locator('button.best-card-row');
+    // Closed, its rows are neither seen nor asked for (their pictures are lazy), and getByRole finds nothing in it.
+    await openFold(bestCards());
     await expect(rows()).toHaveCount(10);
     const before = await rows().locator('.pull-row-score').allTextContents();
     await nav(page).getByRole('button', { name: 'Open', exact: true }).click();
@@ -758,6 +759,8 @@ test.describe('Argon2 chunk fetched ahead (#776)', () => {
     offline = true;
     await page.context().setOffline(true);
     await nav(page).getByRole('button', { name: 'Profile', exact: true }).click();
+    // The page starts folded again: open Best cards first, so the status check below can fail.
+    await openFold(bestCards());
     await expect(rows()).toHaveCount(10, { timeout: 30000 });
     expect(await rows().locator('.pull-row-score').allTextContents()).toEqual(before);
     await expect(bestCards().getByRole('status')).toHaveCount(0);

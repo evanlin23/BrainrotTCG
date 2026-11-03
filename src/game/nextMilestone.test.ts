@@ -57,6 +57,18 @@ describe('getNextMilestone', () => {
     expect(getNextMilestone(stats(xpForLevel(5)), set)).toMatchObject({ targetKind: 'pack foil', preview: undefined });
   });
 
+  it('shows the choosable cosmetic, with its picture, where a title shares the level (#212)', () => {
+    // Level 19 -> level 20 holds Aura Farmer (title) and the Prismatic card back: the card back is the goal.
+    const prism = getNextMilestone(stats(xpForLevel(19)), set);
+    expect(prism).toMatchObject({ kind: 'cosmetic', targetName: 'Prismatic', targetKind: 'card back', detail: 'Cosmetic, odds unchanged · Lv 20' });
+    expect(prism.preview).toEqual({ kind: 'card-back', id: 'prism' });
+    expect(prism.action).toEqual({ text: 'Select rewards', target: 'rewards' });
+    // Level 11 -> level 12 holds Meme Historian (title) and the Gold foil: the foil is the goal (a foil has no picture).
+    const gold = getNextMilestone(stats(xpForLevel(11)), set);
+    expect(gold).toMatchObject({ kind: 'cosmetic', targetName: 'Gold foil', targetKind: 'pack foil', preview: undefined });
+    expect(gold.action).toEqual({ text: 'Select rewards', target: 'rewards' });
+  });
+
   it('is never at 100% before the goal is reached', () => {
     const goal = getNextMilestone(stats(xpForLevel(4) - 1), set);
     expect(goal.progressPct).toBe(99);
@@ -66,11 +78,17 @@ describe('getNextMilestone', () => {
   });
 
   it('moves from completing a set to mastering it, counting holos', () => {
-    expect(getNextMilestone(stats(0, 3), set)).toMatchObject({ kind: 'set-complete', detail: '3/4 cards, 1 to go' });
+    // Under "complete" the bare count is the set's cards, so it stays short.
+    expect(getNextMilestone(stats(0, 3), set)).toMatchObject({ kind: 'set-complete', detail: '3/4 cards, 1 to go', progressText: '3/4', progressLabel: '3 of 4' });
+    expect(getNextMilestone(stats(0, 3), set).progressUnit).toBeUndefined();
     expect(getNextMilestone(stats(0, 4, 1), set)).toMatchObject({
       kind: 'set-master',
       targetName: 'Mock Set master set',
-      detail: '1/4 as holos, 3 to go',
+      // The count is holos, not the set's completion (#898): its unit sits with the count, once, and the cue is only what is left.
+      detail: '3 to go',
+      progressText: '1/4',
+      progressUnit: 'holos',
+      progressLabel: '1 of 4 holos',
       progressPct: 25,
       action: { target: 'cards' },
     });

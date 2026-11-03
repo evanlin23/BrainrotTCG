@@ -49,6 +49,7 @@ test('lists the opened pack best first, opens a card to Share, and gives focus b
 
   const section = profile.getByRole('region', { name: 'Best cards', exact: true });
   await expect(section.getByRole('heading', { name: 'Best cards', exact: true })).toBeVisible();
+  await section.locator(':scope > details > summary').click();
   // Each of the pack's five cards is a button, best first.
   await expect(section.getByRole('button')).toHaveCount(5);
   const rows = section.locator('button.best-card-row');
@@ -73,7 +74,8 @@ test('lists the opened pack best first, opens a card to Share, and gives focus b
   // iOS focuses no button on a tap, so there the viewer's focus return is script focus with no click behind it. Chromium
   // rings that when a key was typed last (focus-visible matches), though the modality stays "pointer" (a typed
   // character changes nothing, inputModality.ts), so only the row's CSS keeps it quiet.
-  await section.getByRole('heading', { name: 'Best cards', exact: true }).click();
+  // Focus the header without toggling the section closed.
+  await section.getByRole('heading', { name: 'Best cards', exact: true }).focus();
   await page.keyboard.press('q');
   await row.evaluate((el: HTMLElement) => el.focus());
   await expect(row).toBeFocused();

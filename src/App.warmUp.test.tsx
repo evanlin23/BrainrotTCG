@@ -40,7 +40,6 @@ afterEach(() => {
   vi.doUnmock('./components/achievements/AchievementToasts');
   container.remove();
   vi.useRealTimers();
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
   window.location.hash = '';

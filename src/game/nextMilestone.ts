@@ -14,7 +14,9 @@ export interface NextMilestoneGoal {
   detail: string;
   /** Short enough for a phone: "50%", "3/12". */
   progressText: string;
-  /** The same progress in words, for a screen reader: "50% of the way to level 3". */
+  /** What the count counts, when the goal's name does not say it: "holos" under "master set", where a bare "8/12" reads as set completion (#898). Shown beside progressText, once. */
+  progressUnit?: string;
+  /** The same progress in words, for a screen reader: "50% of the way to level 3", "8 of 12 holos". */
   progressLabel: string;
   /** Whole percent, never 100 until the goal is actually reached. */
   progressPct: number;
@@ -59,9 +61,11 @@ export const getNextMilestone = (stats: MilestoneStats, set: SetDefinition): Nex
     return {
       kind: completing ? 'set-complete' : 'set-master',
       targetName: `${set.name} ${completing ? 'complete' : 'master set'}`,
-      detail: `${counted}/${size} ${completing ? 'cards' : 'as holos'}, ${size - counted} to go`,
+      // The master count's unit sits with the count (progressUnit), so its detail doesn't say it a second time.
+      detail: completing ? `${counted}/${size} cards, ${size - counted} to go` : `${size - counted} to go`,
       progressText: `${counted}/${size}`,
-      progressLabel: `${counted} of ${size}`,
+      progressUnit: completing ? undefined : 'holos',
+      progressLabel: completing ? `${counted} of ${size}` : `${counted} of ${size} holos`,
       progressPct: percent(counted, size),
       action: { text: 'View binder', target: 'cards' },
     };

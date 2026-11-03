@@ -34,12 +34,10 @@ afterEach(async () => {
   } finally {
     localStorage.clear();
     sessionStorage.clear();
-    history.replaceState(null, '', '/BrainrotTCG/');
     document.body.replaceChildren();
     document.body.className = '';
     vi.clearAllTimers();
     vi.useRealTimers();
-    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   }
 });

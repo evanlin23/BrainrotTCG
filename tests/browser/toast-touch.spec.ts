@@ -251,7 +251,7 @@ for (const viewport of PHONES) {
     test.setTimeout(120000);
     await page.setViewportSize(viewport);
     const { errors } = await toSummaryWithToast(page, baseURL!);
-    await page.getByRole('button', { name: /Next pack/ }).tap();
+    await page.getByRole('button', { name: /^Open .+ again$/ }).tap();
     const toast = page.locator('.toast');
     await expect(toast).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.set-current')).toBeVisible();

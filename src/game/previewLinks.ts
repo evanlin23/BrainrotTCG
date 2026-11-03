@@ -41,6 +41,12 @@ export interface Preview {
 }
 
 /**
+ * Consistent card key/id order for link previews: code-unit comparison matches Array#sort()
+ * so share links and generated static preview pages agree on pair order (#1315).
+ */
+export const compareCardIds = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
  * The preview for a pack, from its cards (`set/card` keys; rarest last, as revealOrder sorts them):
  * the matching cards, most copies first (Two Pair in id order, so each pair of cards has one
  * picture), or the best card if nothing matches.
@@ -50,7 +56,7 @@ export const previewOf = (cards: readonly { key: string }[]): Preview | undefine
   const counts = new Map<string, number>();
   for (const card of cards) counts.set(card.key, (counts.get(card.key) ?? 0) + 1);
   const hand = handFromCounts([...counts.values()]);
-  const matching = [...counts].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const matching = [...counts].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || compareCardIds(a[0], b[0]));
   const keys = matching.length ? matching.map(([key]) => key) : [cards[cards.length - 1].key];
   return { setId: keys[0].split('/')[0], cardIds: keys.map((key) => key.split('/')[1]), hand };
 };

@@ -96,8 +96,8 @@ describe('poster text fitting', () => {
 
   beforeEach(() => {
     canvas = fakeCanvas();
-    HTMLCanvasElement.prototype.getContext = vi.fn(() => canvas.ctx) as unknown as typeof HTMLCanvasElement.prototype.getContext;
-    HTMLCanvasElement.prototype.toBlob = vi.fn((cb: BlobCallback) => cb(new Blob(['png'], { type: 'image/png' })));
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => canvas.ctx) as unknown as typeof HTMLCanvasElement.prototype.getContext);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((cb: BlobCallback) => cb(new Blob(['png'], { type: 'image/png' })));
     vi.stubGlobal(
       'Image',
       class {

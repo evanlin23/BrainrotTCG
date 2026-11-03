@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,8 +6,8 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { buildCardsCatalog, buildSetsCatalog } from './build-api.ts';
-import { checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkManifest, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
-import { robotsTxt, sitemapXml } from './crawler-files.ts';
+import { canonicalLink, check404Page, checkApiLinks, checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkManifest, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, rootBootCopy, type SiteCheckOptions } from './check-site.ts';
+import { notFoundHtml, robotsTxt, sitemapXml } from './crawler-files.ts';
 import { generatePreviews } from './preview-pages.ts';
 
 interface Host {
@@ -27,8 +27,12 @@ const SET = { ...OPENABLE, cards: OPENABLE.cards.slice(0, 2) };
 
 const picture = (width = 1200, height = 630) => sharp({ create: { width, height, channels: 3, background: '#121114' } });
 let JPEG: Buffer;
+const templateKey = (host: Host) => `${host.site}:${host.base}`;
+const TEMPLATES = new Map<string, { outDir: string; pages: string[]; images: string[] }>();
 beforeAll(async () => {
   JPEG = await picture().jpeg().toBuffer();
+  TEMPLATES.set(templateKey(GITHUB), await seedBuild(GITHUB));
+  TEMPLATES.set(templateKey(CLOUDFLARE), await seedBuild(CLOUDFLARE));
 });
 
 /** A manifest as public/manifest.webmanifest has it: URLs relative to itself, so they hold under any base. */
@@ -56,10 +60,10 @@ const writePages = async (outDir: string, { base, site }: Host) => {
   return { pages: [...pages.keys()], images: [...images] };
 };
 
-/** A small build for a host, laid out like `npm run build`'s: the app shell, what it loads, and the preview pages. */
-const build = async (host: Host) => {
+/** Pre-builds a golden fixture for a host so individual test cases can quickly copy rather than re-running generatePreviews. */
+const seedBuild = async (host: Host) => {
   const { base, site } = host;
-  const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'check-site-test-'))}/`;
+  const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'check-site-template-'))}/`;
   dirs.push(outDir);
   write(
     `${outDir}index.html`,
@@ -67,6 +71,8 @@ const build = async (host: Host) => {
 <html lang="en">
   <head>
     <link rel="icon" type="image/svg+xml" href="${base}favicon.svg" />
+    <link rel="canonical" href="${site}" />
+    <meta name="description" content="Rip open meme packs from every era of the internet." />
     <meta property="og:title" content="Brainrot TCG" />
     <meta property="og:url" content="${site}" />
     <meta property="og:image" content="${site}og-image.jpg" />
@@ -77,7 +83,7 @@ const build = async (host: Host) => {
     <script type="module" crossorigin src="${base}assets/index-AbCd1234.js"></script>
     <link rel="stylesheet" crossorigin href="${base}assets/index-AbCd1234.css">
   </head>
-  <body><div id="root"></div></body>
+  <body><div id="root"><div class="boot-status"><h1>Brainrot TCG</h1><p>Rip open meme packs from every era of the internet.</p><p role="status">Loading…</p></div></div></body>
 </html>
 `,
   );
@@ -91,7 +97,20 @@ const build = async (host: Host) => {
   write(`${outDir}og-image.jpg`, JPEG);
   write(`${outDir}robots.txt`, robotsTxt(site));
   write(`${outDir}sitemap.xml`, sitemapXml(site));
+  write(`${outDir}404.html`, notFoundHtml(base));
   const { pages, images } = await writePages(outDir, host);
+  return { outDir, pages, images };
+};
+
+/** A small build for a host, laid out like `npm run build`'s: the app shell, what it loads, and the preview pages. */
+const build = async (host: Host) => {
+  const { base, site } = host;
+  const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'check-site-test-'))}/`;
+  dirs.push(outDir);
+  const template = TEMPLATES.get(templateKey(host)) ?? await seedBuild(host);
+  cpSync(template.outDir, outDir, { recursive: true });
+  const pages = [...template.pages];
+  const images = [...template.images];
   const options: SiteCheckOptions = { outDir, base, site, versions: [SET], sets: [SET] };
   return { options, outDir, pages, images };
 };
@@ -109,6 +128,47 @@ describe('metaTags', () => {
       'twitter:image': 'https://a.example/x.jpg',
       'og:image:width': '1200',
       'og:title': 'A & B',
+    });
+  });
+});
+
+describe('canonicalLink', () => {
+  it('reads a canonical link tag in whatever order its attributes are in', () => {
+    expect(canonicalLink('<link rel="canonical" href="https://example.com/" />')).toBe('https://example.com/');
+    expect(canonicalLink('<link href="https://example.com/" rel="canonical">')).toBe('https://example.com/');
+    expect(canonicalLink('<link rel="CANONICAL" href="https://example.com/a&amp;b" />')).toBe('https://example.com/a&b');
+  });
+
+  it('returns undefined when there is no canonical link', () => {
+    expect(canonicalLink('<link rel="icon" href="/favicon.svg" />')).toBeUndefined();
+    expect(canonicalLink('')).toBeUndefined();
+  });
+});
+
+describe('rootBootCopy', () => {
+  it('extracts h1 count, h1 text, and blurb text from #root', () => {
+    const html = `<div id="root"><div class="boot-status"><h1>Brainrot TCG</h1><p>Meme cards &amp; packs.</p><p role="status">Loading…</p></div></div>`;
+    expect(rootBootCopy(html)).toEqual({
+      h1Count: 1,
+      h1Text: 'Brainrot TCG',
+      blurb: 'Meme cards & packs.',
+    });
+  });
+
+  it('returns undefined when there is no #root', () => {
+    expect(rootBootCopy('<body><div>Hello</div></body>')).toBeUndefined();
+  });
+
+  it('detects multiple or missing h1 tags', () => {
+    expect(rootBootCopy('<div id="root"><p class="boot-status">Loading…</p></div>')).toEqual({
+      h1Count: 0,
+      h1Text: '',
+      blurb: '',
+    });
+    expect(rootBootCopy('<div id="root"><h1>One</h1><h1>Two</h1><p>Blurb</p></div>')).toEqual({
+      h1Count: 2,
+      h1Text: 'One',
+      blurb: 'Blurb',
     });
   });
 });
@@ -153,6 +213,33 @@ describe('checkCrawlerFiles', () => {
   });
 });
 
+describe('check404Page', () => {
+  const base = '/BrainrotTCG/';
+
+  it('passes the 404 page the build writes, including with nofollow', () => {
+    expect(check404Page(notFoundHtml(base), base)).toEqual([]);
+    expect(check404Page(notFoundHtml(base).replace('content="noindex"', 'content="noindex, nofollow"'), base)).toEqual([]);
+  });
+
+  it('fails a missing 404.html', () => {
+    expect(check404Page(undefined, base)).toEqual([{ path: '404.html', error: 'Missing' }]);
+  });
+
+  it('fails a 404 page without noindex', () => {
+    const html = notFoundHtml(base).replace('<meta name="robots" content="noindex">', '');
+    expect(check404Page(html, base)).toEqual([
+      { path: '404.html', error: 'Has no <meta name="robots" content="noindex">' },
+    ]);
+  });
+
+  it('fails a 404 page that does not link to home', () => {
+    const html = notFoundHtml(base).replace(`href="${base}"`, 'href="/other/"');
+    expect(check404Page(html, base)).toEqual([
+      { path: '404.html', error: `Does not link to home (${base})` },
+    ]);
+  });
+});
+
 describe('pageUrl', () => {
   it('gives a directory page its directory and any other page its own name', () => {
     const site = CLOUDFLARE.site;
@@ -167,12 +254,12 @@ describe('checkSite', () => {
     const { options, pages, images } = await build(host);
     expect(pages).toHaveLength(20 + (SET.modifiers ? 12 : 0));
     expect(images).toContain(SET_PICTURE);
-    expect(await checkSite(options)).toEqual({ pages: pages.length + 1, images: images.length + 1, errors: [] });
+    expect(await checkSite(options)).toEqual({ pages: pages.length + 2, images: images.length + 1, errors: [] });
   });
 
   it.each([GITHUB, CLOUDFLARE])('checks a build for $name the same whether SITE_URL ends in / or not', async (host) => {
     const { options, pages, images } = await build(host);
-    const result = { pages: pages.length + 1, images: images.length + 1, errors: [] };
+    const result = { pages: pages.length + 2, images: images.length + 1, errors: [] };
     expect(await checkSite({ ...options, site: host.site.replace(/\/$/, '') })).toEqual(result);
     expect(await checkSite({ ...options, site: host.site })).toEqual(result);
   });
@@ -235,6 +322,45 @@ describe('checkSite', () => {
     ]);
   });
 
+  it('fails a build whose index.html has no canonical link, or has the wrong address', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    const file = `${outDir}index.html`;
+    const original = readFileSync(file, 'utf8');
+    writeFileSync(file, original.replace(/\s*<link rel="canonical"[^>]*>/, ''));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: 'Has no <link rel="canonical">' },
+    ]);
+    writeFileSync(file, original.replace(`href="${CLOUDFLARE.site}"`, 'href="https://wrong.test/"'));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: `canonical is https://wrong.test/, not ${CLOUDFLARE.site}` },
+    ]);
+  });
+
+  it('fails a build whose index.html has no boot copy, multiple headings, or mismatched blurb', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    const file = `${outDir}index.html`;
+    const original = readFileSync(file, 'utf8');
+
+    // Reverting to the old bare loading line fails:
+    writeFileSync(file, original.replace(/<div id="root">[\s\S]*?<\/div>\s*<\/body>/, '<div id="root"><p class="boot-status">Loading…</p></div></body>'));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: '#root has 0 <h1> headings, not 1' },
+      { path: 'index.html', error: '#root has no blurb paragraph' },
+    ]);
+
+    // Multiple h1s fail:
+    writeFileSync(file, original.replace('<h1>Brainrot TCG</h1>', '<h1>Brainrot TCG</h1><h1>Duplicate</h1>'));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: '#root has 2 <h1> headings, not 1' },
+    ]);
+
+    // Blurb not matching meta description fails:
+    writeFileSync(file, original.replace('<meta name="description" content="Rip open meme packs from every era of the internet." />', '<meta name="description" content="Different description." />'));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: '#root blurb does not match <meta name="description">' },
+    ]);
+  });
+
   it("fails a link-preview picture that isn't a JPEG", async () => {
     const { options, outDir } = await build(GITHUB);
     const file = `${outDir}index.html`;
@@ -291,6 +417,13 @@ describe('checkSite', () => {
       ]),
     );
     expect(errors).toHaveLength(2);
+  });
+
+  it('fails a build missing 404.html', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    unlinkSync(`${outDir}404.html`);
+    const { errors } = await checkSite(options);
+    expect(errors).toEqual([{ path: '404.html', error: 'Missing' }]);
   });
 
   it.each([GITHUB, CLOUDFLARE])("fails a build for $name whose index.html loads more than the first-load budget up front (#776)", async (host) => {
@@ -415,6 +548,12 @@ describe('checkManifest', () => {
     expect(checkManifest(undefined, GITHUB.base, present)).toEqual([{ path: 'manifest.webmanifest', error: 'Missing' }]);
     expect(checkManifest('{', GITHUB.base, present)).toEqual([{ path: 'manifest.webmanifest', error: "Isn't valid JSON" }]);
     expect(check({ ...MANIFEST, icons: [] }, GITHUB.base).map((e) => e.error)).toEqual(['Has no icons']);
+  });
+
+  it('fails a manifest with an unparseable URL rather than throwing', () => {
+    expect(check({ ...MANIFEST, start_url: 'http://[invalid' }, GITHUB.base)).toEqual([
+      { path: 'manifest.webmanifest', error: "start_url http://[invalid isn't a valid URL" },
+    ]);
   });
 });
 

@@ -7,9 +7,12 @@
  *   own address), and the picture they name is in the build, decodes as a JPEG, and has the size
  *   its og:image:width/height tags give (both are required);
  * - every page has og:title, og:image, twitter:image and a summary_large_image twitter:card, and
- *   index.html has og:url;
+ *   index.html has og:url, a canonical link matching SITE_URL, and semantic #root boot markup
+ *   (exactly one h1 and a blurb matching meta description);
  * - robots.txt and sitemap.xml are real (not the app's page) and name SITE_URL, and the sitemap lists
  *   the app and no share, set or #/ address (scripts/crawler-files.ts);
+ * - 404.html is there, has <meta name="robots" content="noindex">, and links to BASE_PATH (Cloudflare Pages
+ *   serves it with HTTP 404 for missing assets and unknown paths, preventing SPA fallback, #1292);
  * - every share and set page scripts/preview-pages.ts writes for the set registry is there and
  *   forwards to BASE_PATH (a set's page to #/set/<set id> there);
  * - the web app manifest (manifest.webmanifest) is there, and its start_url, scope and every icon,
@@ -66,6 +69,60 @@ export const metaTags = (html: string): Map<string, string> => {
     if (key !== undefined && content !== undefined) tags.set(key, content);
   }
   return tags;
+};
+
+/** A page's canonical link address (<link rel="canonical" href="...">), if it has one. */
+export const canonicalLink = (html: string): string | undefined => {
+  for (const [tag] of html.matchAll(/<link\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
+    const attributes = new Map([...tag.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map((m) => [m[1].toLowerCase(), unescape(m[2] ?? m[3])]));
+    if (attributes.get('rel')?.toLowerCase() === 'canonical') return attributes.get('href');
+  }
+  return undefined;
+};
+
+/** The inner HTML inside <div id="root">...</div>. */
+export const extractRootContent = (html: string): string | undefined => {
+  const startMatch = /<div\b[^>]*\bid=["']root["'][^>]*>/i.exec(html);
+  if (!startMatch) return undefined;
+  const startIndex = startMatch.index + startMatch[0].length;
+  let depth = 1;
+  const tagRegex = /<\/?div\b[^>]*>/gi;
+  tagRegex.lastIndex = startIndex;
+  let match: RegExpExecArray | null;
+  while ((match = tagRegex.exec(html)) !== null) {
+    if (match[0].startsWith('</')) {
+      depth--;
+      if (depth === 0) return html.slice(startIndex, match.index);
+    } else {
+      depth++;
+    }
+  }
+  return undefined;
+};
+
+export interface RootBootCopy {
+  h1Count: number;
+  h1Text: string;
+  blurb: string;
+}
+
+/** Semantic boot copy inside #root: an h1 heading, and a blurb paragraph (excluding [role="status"]). */
+export const rootBootCopy = (html: string): RootBootCopy | undefined => {
+  const rootInner = extractRootContent(html);
+  if (rootInner === undefined) return undefined;
+  const h1Matches = [...rootInner.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi)];
+  let blurb = '';
+  for (const match of rootInner.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/gi)) {
+    if (!/role=["']status["']|\bboot-status\b/i.test(match[1])) {
+      blurb = unescape(match[2].replace(/<[^>]+>/g, '').trim());
+      break;
+    }
+  }
+  return {
+    h1Count: h1Matches.length,
+    h1Text: h1Matches[0] ? unescape(h1Matches[0][1].replace(/<[^>]+>/g, '').trim()) : '',
+    blurb,
+  };
 };
 
 /** Where a page in the build is served: a directory's index.html at the directory. */
@@ -205,6 +262,27 @@ export const checkCrawlerFiles = (site: string, robots: string | undefined, site
 };
 
 /**
+ * Problems with a build's 404 page (404.html, undefined when missing).
+ * On Cloudflare Pages, a root 404.html serves a real HTTP 404 for missing assets and unknown paths
+ * instead of falling back to the 200 homepage SPA fallback (#1292). Links home to base.
+ */
+export const check404Page = (html: string | undefined, base: string): AssetValidationError[] => {
+  const file = '404.html';
+  if (html === undefined) return [{ path: file, error: 'Missing' }];
+  const errors: AssetValidationError[] = [];
+  const meta = metaTags(html);
+  const robots = meta.get('robots');
+  if (!robots || !/\bnoindex\b/i.test(robots)) {
+    errors.push({ path: file, error: 'Has no <meta name="robots" content="noindex">' });
+  }
+  const links = [...html.matchAll(/\bhref="([^"]*)"/g)].map((m) => unescape(m[1]));
+  if (!links.includes(base)) {
+    errors.push({ path: file, error: `Does not link to home (${base})` });
+  }
+  return errors;
+};
+
+/**
  * Problems with a build's web app manifest (undefined when missing) at `base`. Its URLs are resolved
  * against the manifest's own address, as a browser does, so a root-absolute "/icon.png" that Vite
  * copied from public/ unchanged shows up as outside the base, and a relative one resolves under
@@ -227,7 +305,13 @@ export const checkManifest = (manifest: string | undefined, base: string, presen
       errors.push({ path: file, error: `${name} is missing` });
       return undefined;
     }
-    const url = new URL(value, manifestUrl);
+    let url: URL;
+    try {
+      url = new URL(value, manifestUrl);
+    } catch {
+      errors.push({ path: file, error: `${name} ${value} isn't a valid URL` });
+      return undefined;
+    }
     if (url.origin !== origin || !url.pathname.startsWith(base)) {
       errors.push({ path: file, error: `${name} ${value} resolves to ${url.href}, outside BASE_PATH ${base}` });
       return undefined;
@@ -322,9 +406,14 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     if (!present.has(target)) fail(from, `Links to ${link}, which isn't in the build (${target})`);
   };
 
+  const notFoundPath = path.join(outDir, '404.html');
+  const notFoundContent = existsSync(notFoundPath) ? readFileSync(notFoundPath, 'utf8') : undefined;
+  errors.push(...check404Page(notFoundContent, base));
+
   const images = new Map<string, AssetCheck>();
   const htmlPages = files.filter((file) => file.endsWith('.html'));
   for (const file of htmlPages) {
+    if (file === '404.html') continue;
     const html = readFileSync(path.join(outDir, file), 'utf8');
     for (const [, link] of html.matchAll(/\s(?:src|href)="([^"]*)"/g)) checkLink(file, unescape(link));
     // The page's own code and styles are hashed (the cache contract), and so come from this site's
@@ -349,6 +438,21 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     const url = meta.get('og:url');
     if (file === 'index.html' && url === undefined) fail(file, 'Has no og:url');
     if (url !== undefined && url !== pageUrl(site, file)) fail(file, `og:url is ${url}, not ${pageUrl(site, file)}`);
+    if (file === 'index.html') {
+      const canonical = canonicalLink(html);
+      if (canonical === undefined) fail(file, 'Has no <link rel="canonical">');
+      else if (canonical !== site) fail(file, `canonical is ${canonical}, not ${site}`);
+
+      const boot = rootBootCopy(html);
+      if (boot === undefined) {
+        fail(file, 'Has no #root container');
+      } else {
+        if (boot.h1Count !== 1) fail(file, `#root has ${boot.h1Count} <h1> headings, not 1`);
+        const description = meta.get('description');
+        if (!boot.blurb) fail(file, '#root has no blurb paragraph');
+        else if (description === undefined || boot.blurb !== description) fail(file, '#root blurb does not match <meta name="description">');
+      }
+    }
     for (const key of ['og:image', 'twitter:image']) {
       const url = meta.get(key);
       if (url !== undefined && !url.startsWith(site)) fail(file, `${key} is ${url}, not under SITE_URL ${site}`);

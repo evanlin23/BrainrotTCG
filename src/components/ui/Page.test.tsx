@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Page, { type PageSection } from './Page';
 import { sheetLoader } from './sheetEntry';
+import ProfileSection from '../profile/ProfileSection';
 
 vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
@@ -37,6 +38,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // First, so a throwing unmount can't leave it behind. jsdom has no scrollIntoView; a test that gives it one
+  // (defineProperty) loses it here, pass or fail.
+  delete (Element.prototype as Partial<Element>).scrollIntoView;
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
@@ -126,7 +130,7 @@ describe('Page', () => {
 
   it('brings a requested section into view once loaded, and again when asked again', async () => {
     const scroll = vi.fn();
-    Element.prototype.scrollIntoView = scroll;
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scroll });
     const load = sheetLoader(() => Promise.resolve({ default: Screen }));
     const page = (section: PageSection) => <Page load={load} title="Settings" section={section} screenProps={{ label: '' }} onClose={onClose} />;
 
@@ -139,6 +143,14 @@ describe('Page', () => {
     render(page({ id: 'extra', n: 2 }));
     expect(document.activeElement?.textContent).toBe('Extra');
     expect(scroll).toHaveBeenCalledTimes(2);
-    delete (Element.prototype as Partial<Element>).scrollIntoView;
+  });
+
+  it('lands a requested folded section on its summary, which Enter and Space toggle, not on the heading inside it', async () => {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+    const Folded = () => <ProfileSection id="fold" title="Rewards" openRequest={1}>Body</ProfileSection>;
+    const load = sheetLoader(() => Promise.resolve({ default: Folded as unknown as typeof Screen }));
+    render(<Page load={load} title="Profile" section={{ id: 'fold', n: 1 }} screenProps={{ label: '' }} onClose={onClose} />);
+    await flush();
+    expect(document.activeElement?.tagName).toBe('SUMMARY');
   });
 });

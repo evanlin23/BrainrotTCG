@@ -65,7 +65,6 @@ beforeEach(() => {
 afterEach(async () => {
   // Settle anything left open, so the next test's read isn't queued behind it.
   for (const read of reads) await read.finish();
-  vi.restoreAllMocks();
 });
 
 let players = 0;

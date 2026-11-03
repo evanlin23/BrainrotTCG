@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
 import { xpForLevel, type SetDefinition } from '../../src/engine';
 import { getNextMilestone, type NextMilestoneGoal } from '../../src/game/nextMilestone';
@@ -28,18 +29,35 @@ const layout = (page: Page) => page.evaluate(() => {
 /** The pack falls in on load: wait until it stops moving before measuring anything. */
 const settled = (page: Page) => expectStill(page.locator('.pack-display'), 'the pack has settled');
 
-/** Every cosmetic goal a player can be shown, worked out by the real rules (a set with no cards has no set goal to get in the way). */
+/** Every cosmetic goal a player can be shown (one per name and kind: Prismatic is both a card back and a pack foil, so the name alone would drop one), worked out by the real rules (a set with no cards has no set goal to get in the way). */
 const COSMETIC_GOALS = Array.from({ length: 31 }, (_, i) => getNextMilestone(
   { xp: xpForLevel(i + 1), uniqueBySet: {}, holoUniqueBySet: {} },
   { cards: [] } as unknown as SetDefinition,
-)).filter((goal, i, all) => goal.kind === 'cosmetic' && all.findIndex((g) => g.targetName === goal.targetName) === i);
+)).filter((goal, i, all) => goal.kind === 'cosmetic' && all.findIndex((g) => g.targetName === goal.targetName && g.targetKind === goal.targetKind) === i);
 
-/** Puts a goal's words into the chip on the page (and its card-back picture, if it has one), at its worst case of "99%". */
+/**
+ * The master-set goal (#898) of every real set at its widest: its longest name and its most cards, one holo short of mastered
+ * (at 100% the goal would be "done"), worked out by the real rules. Sets come from disk, as in support.ts.
+ */
+const MASTER_GOALS = (() => {
+  const sets = readdirSync(new URL('../../src/content/sets/', import.meta.url), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => JSON.parse(readFileSync(new URL(`../../src/content/sets/${entry.name}/set.json`, import.meta.url), 'utf8')) as { id: string; name: string; cards: unknown[] });
+  const widest = [sets.reduce((a, b) => (b.cards.length > a.cards.length ? b : a)), sets.reduce((a, b) => (b.name.length > a.name.length ? b : a))];
+  return widest.map((set) => {
+    const n = set.cards.length;
+    return getNextMilestone({ xp: 0, uniqueBySet: { [set.id]: n }, holoUniqueBySet: { [set.id]: n - 1 } }, set as unknown as SetDefinition);
+  });
+})();
+
+/** Puts a goal's words into the chip on the page (and its card-back picture, if it has one), at its worst case of "99%", or a master set's own count. */
 const show = (page: Page, goal: NextMilestoneGoal) => page.locator('.pack-milestone').evaluate((chip, g) => {
   chip.querySelector('.pack-milestone-target')!.textContent = g.targetName;
-  chip.querySelector('.pack-milestone-kind')!.textContent = ` ${g.targetKind}`;
+  chip.querySelector('.pack-milestone-kind')!.textContent = g.targetKind ? ` ${g.targetKind}` : '';
   chip.querySelector('.pack-milestone-detail')!.textContent = g.detail;
-  chip.querySelector('.pack-milestone-progress')!.textContent = '99%';
+  const progress = chip.querySelector('.pack-milestone-progress')!;
+  // A goal's own count, the way the component draws it (with its unit in a span of its own), else the worst case of "99%".
+  progress.innerHTML = g.progressUnit ? `${g.progressText}<span class="pack-milestone-unit"> ${g.progressUnit}</span>` : '99%';
   chip.querySelector('.back-swatch')?.remove();
   if (g.preview) {
     const swatch = document.createElement('span');
@@ -94,7 +112,7 @@ const holdsText = (page: Page) => page.locator('.pack-milestone').evaluate((chip
 });
 
 /** What the chip says on screen about its own goal, by the kind of goal it is. */
-const expectedCue = /^(Cosmetic, odds unchanged · Lv \d+|\d+\/\d+ (cards|as holos), \d+ to go|Every reward is unlocked)$/;
+const expectedCue = /^(Cosmetic, odds unchanged · Lv \d+|\d+\/\d+ cards, \d+ to go|\d+ to go|Every reward is unlocked)$/;
 
 for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 844, 100], [360, 640, 100], [320, 568, 100], [320, 568, 200]] as const) {
   test(`sits in the guide's row without moving anything on a ${width} x ${height} phone at ${percent}% text`, async ({ page, baseURL }, testInfo) => {
@@ -144,6 +162,24 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
         });
         expect(compact, `${reward.targetName} (${reward.targetKind}) at ${width}px`).toEqual({ name: true, progress: true, spills: false, height: 44, picture: 'none', animations: 0 });
       }
+      // A master set's count carries its unit (#898): whole, inside the chip, under a name that keeps room to be read.
+      for (const master of MASTER_GOALS) {
+        await show(page, master);
+        const laid = await goal.evaluate((chip) => {
+          const rect = (selector: string) => chip.querySelector(selector)!.getBoundingClientRect();
+          const chipBox = chip.getBoundingClientRect();
+          const [text, progress, unit] = [rect('.pack-milestone-text'), rect('.pack-milestone-progress'), rect('.pack-milestone-unit')];
+          return {
+            nameWidth: Math.floor(text.width),
+            countWhole: progress.right <= chipBox.right + 0.5 && unit.right <= progress.right + 0.5 && unit.width > 0,
+            spills: chip.scrollWidth > chip.clientWidth,
+            height: chipBox.height,
+            clear: chipBox.bottom - Math.max(progress.bottom, text.bottom) >= 3,
+          };
+        });
+        expect(laid.nameWidth, `${master.targetName} ${master.progressText} name width at ${width}px`).toBeGreaterThanOrEqual(80);
+        expect({ ...laid, nameWidth: 0 }, `${master.targetName} ${master.progressText} at ${width}px`).toEqual({ nameWidth: 0, countWhole: true, spills: false, height: 44, clear: true });
+      }
     } else {
       await expect(goal).toBeVisible();
       const [box, guide, row, pack] = [(await goal.boundingBox())!, (await page.locator('.card-guide-link').boundingBox())!, before.row, before.pack];
@@ -171,9 +207,21 @@ for (const [width, height, percent] of [[600, 900, 100], [580, 900, 100], [390, 
         expect(picture === null, `${reward.targetName} has a picture only if it is a card back`).toBe(!reward.preview);
         if (picture) expect(picture, `${reward.targetName} picture`).toEqual({ height: 28, ratio: 0.671 });
       }
+      // A master set says its unit once on the whole chip, beside the count, not again in the cue below it (#898), and fits.
+      for (const master of MASTER_GOALS) {
+        await show(page, master);
+        const words = await goal.evaluate((chip) => ({
+          unit: chip.querySelector('.pack-milestone-unit')!.getBoundingClientRect().right <= chip.getBoundingClientRect().right + 0.5,
+          holos: (chip.querySelector('.pack-milestone-progress')!.textContent + ' ' + chip.querySelector('.pack-milestone-detail')!.textContent).split('holo').length - 1,
+          spills: chip.scrollWidth > chip.clientWidth,
+        }));
+        expect(words, `${master.targetName} at ${width}px`).toEqual({ unit: true, holos: 1, spills: false });
+      }
       // The Prismatic back loops its colours wherever it is shown (that loop is held, #1164): never inside the chip.
-      // No goal ever names it (a title shares its level), so it is put in by hand, as the pictures above are.
-      await show(page, { ...COSMETIC_GOALS.find((reward) => reward.preview)!, targetName: 'Prismatic', preview: { kind: 'card-back', id: 'prism' } });
+      // A goal does name it (#212: at level 20 the card back leads the title that shares its level), so it is among the rewards above too.
+      const prism = COSMETIC_GOALS.find((reward) => reward.preview?.id === 'prism');
+      expect(prism, 'the Prismatic card back is a goal a player can be shown').toBeDefined();
+      await show(page, prism!);
       expect((await fits(page)).animations, 'the Prismatic back is still in the chip').toBe(0);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
@@ -230,6 +278,28 @@ for (const [width, height, percent] of [[768, 1024, 125], [768, 1024, 150], [768
       });
       // One line, or two while they fit: past a point the cue is dropped, never cut.
       expect([1, 2].includes(held.lines - 1)).toBe(true);
+    }
+    // A master set's count keeps its unit at every enlarged size (#898): whole, in the chip's height, the name giving way to it.
+    for (const master of MASTER_GOALS) {
+      await show(page, master);
+      const laid = await goal.evaluate((chip) => {
+        const rect = (selector: string) => chip.querySelector(selector)!.getBoundingClientRect();
+        const chipBox = chip.getBoundingClientRect();
+        const [text, progress, unit] = [rect('.pack-milestone-text'), rect('.pack-milestone-progress'), rect('.pack-milestone-unit')];
+        const bottom = chipBox.bottom;
+        return {
+          unitShown: getComputedStyle(chip.querySelector('.pack-milestone-unit')!).display !== 'none' && unit.width > 0,
+          countWhole: progress.right <= chipBox.right + 0.5 && unit.right <= progress.right + 0.5,
+          clipped: chip.scrollHeight > chip.clientHeight || chip.scrollWidth > chip.clientWidth,
+          clear: bottom - Math.max(progress.bottom, text.bottom) >= 3,
+          height: chipBox.height,
+          nameWidth: Math.floor(text.width),
+        };
+      });
+      expect(laid.nameWidth, `${master.targetName} ${master.progressText} name width at ${percent}% text`).toBeGreaterThanOrEqual(30);
+      expect({ ...laid, nameWidth: 0 }, `${master.targetName} ${master.progressText} at ${percent}% text`).toEqual({
+        unitShown: true, countWhole: true, clipped: false, clear: true, height: 44, nameWidth: 0,
+      });
     }
     expect(errors).toEqual([]);
   });

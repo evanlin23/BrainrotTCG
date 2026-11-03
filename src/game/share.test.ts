@@ -70,7 +70,6 @@ describe('submission registry and cross-tab storage sync', () => {
   afterEach(() => {
     resetSubmissionsForTest();
     localStorage.clear();
-    vi.restoreAllMocks();
   });
 
   it('sends nothing to the relays from a staging copy', async () => {
