@@ -539,8 +539,9 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   900 px wide up: 672 px at doubled text, 336 px at normal text, where it never applies) the toast is compact: one
   44 px line of its kicker ("8 unlocked", "Level up") and the X, with no icon, and it starts 4.5rem
   under the header, just under the set picker. The word "achievements", the title and a level-up's line are
-  clipped, not removed, so the button's name still has all of it. It is a rule on the app's height in rem (a
-  size container on every wide `.app` outside pack focus mode, `Toasts.css`, not the home screen alone) and not a px media query, so it follows the text size
+  clipped, not removed, so the button's name still has all of it. It is a rule on the window's height in rem (a
+  size container, the toast's frame, as wide as the toast and as tall as the window, fixed to the window's top right on every
+  wide `.app` outside pack focus mode, `Toasts.css`, not the home screen alone) and not a px media query, so it follows the text size
   wherever the page sets it, and does not clamp where there is room (normal text keeps the whole toast in
   900x500, and doubled text in 900x680 and up). With it, the toast covers no control at all from 900x480 up at
   doubled text (the least clearance is 10 px, to the set picker and the Change pack row), at 100%, 150% and
@@ -550,6 +551,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   under the toast's left end (900x460: 123x10 px; 1200x440: 134x38 px); from 1280 px wide it holds to about
   430 px tall, below which the Card guide link and the chip are. There is no room left there for any 44 px toast
   above those rows (the stage is the window less 168 px of header, 109 px of set picker and 120 px of rows).
+  The window can be resized with a toast up, and the toast is then the one a fresh load at that size
+  gives, however the window got there: that frame is the only container the toast's width and height rules
+  read, because a rule under two nested containers that reads the outer one is not re-evaluated by
+  Chromium when only the outer one's size changes (`toast-resize.spec.ts`).
   A banner above the header takes room from that stage (the toast is placed from the header, but the rows
   keep their place at the foot of the window). The staging note, a line or three of fixed text (up to 3.5rem), is
   allowed for: with it the toast is compact under 25rem (800 px at doubled text), and clear down to about 590 px

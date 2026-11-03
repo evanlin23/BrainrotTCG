@@ -180,19 +180,6 @@ const setText = async (page: Page, percent: number) => {
   await page.evaluate(() => document.fonts.ready);
 };
 
-/**
- * Resizes to a wide window so that the app's height container is evaluated from scratch, as a fresh load does. Chromium can
- * keep a size container query's last answer through a run of resizes that are all on one side of its limit (the page
- * stays compact at a height that is not, or the other way round), so the way in is through a window under 900px wide,
- * where there is no container at all (Toasts.css): this is what makes the compact-or-whole shape asserted at each window
- * the shape a load at that window gets. (Whether a player resizing a window with a toast up can meet the stale answer
- * is Chromium's, not tested here.)
- */
-const resizeToWide = async (page: Page, viewport: { width: number; height: number }) => {
-  await page.setViewportSize({ width: 800, height: viewport.height });
-  await page.setViewportSize(viewport);
-};
-
 // Each scenario below is ONE test that walks its list of windows with page.setViewportSize while a toast is held
 // (each toast is held from the moment it shows, so a resize can't lose it), and measures again after each resize:
 // the layout (and the container query on the app's height) is live, so a resized page is the page a fresh load at
@@ -261,7 +248,7 @@ test('at 200% text both toasts leave every control uncovered on the home screen 
     await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
     for (const viewport of WIDE) {
       const at = `${viewport.width}x${viewport.height}`;
-      await resizeToWide(page, viewport);
+      await page.setViewportSize(viewport);
       // The chip and the guide link are on screen, so the checks below cover them.
       await expect(page.locator('.card-guide-entry .pack-milestone'), `${at}: the goal is on screen, so the checks below cover it`).toBeVisible();
       await expect(page.locator('.card-guide-link')).toBeVisible();
@@ -297,7 +284,7 @@ test('at 200% text both toasts leave every control uncovered on the home screen 
   await expect(page.locator('.toast')).toHaveCount(0);
   for (const viewport of WIDE) {
     const at = `${viewport.width}x${viewport.height}`;
-    await resizeToWide(page, viewport);
+    await page.setViewportSize(viewport);
     await expect.poll(() => placed(page), { message: `${at}: the toast took no room from the pack or any control` }).toEqual(shown.get(at));
   }
   expect(errors).toEqual([]);
@@ -349,7 +336,7 @@ test('with the save warning up, at each wide window and text size the toasts wai
     await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
     for (const { width, height, text } of BANNER_WINDOWS) {
       const at = `${width}x${height} at ${text}%`;
-      await resizeToWide(page, { width, height });
+      await page.setViewportSize({ width, height });
       await setText(page, text);
       await settled(page);
       await expectAnchoredTopRight(page, width);
@@ -382,7 +369,7 @@ test('with the staging note up, at each wide window and text size both toasts co
     await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
     for (const { width, height, text } of windows) {
       const at = `${width}x${height} at ${text}%`;
-      await resizeToWide(page, { width, height });
+      await page.setViewportSize({ width, height });
       await setText(page, text);
       await settled(page);
       await expectAnchoredTopRight(page, width);
