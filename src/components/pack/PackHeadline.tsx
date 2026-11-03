@@ -21,6 +21,12 @@ interface PackHeadlineProps {
    * each with the previous best under the combo; a #2 or #3 pack gets one quiet line there instead.
    */
   record?: PackRecord | null;
+  /**
+   * The results screen only: the number to show in the heading while the score counts up (after a pack-level
+   * takeover). The final total stays in the heading's text for a screen reader, and keeps the number's width, so
+   * nothing moves as the digits climb. Left out, or equal to the total, the heading shows the total as usual.
+   */
+  counted?: number;
   /** A last line, such as the results screen's Hall of Fame line. */
   children?: ReactNode;
   className?: string;
@@ -31,7 +37,7 @@ interface PackHeadlineProps {
  * then the combo with its multiplier. Elsewhere: the total and the combo with its multiplier. Display
  * only: the numbers come from the engine's scoring, never a second scorer.
  */
-const PackHeadline = ({ cards, headingRef, showTotal = true, record: shown, children, className = '' }: PackHeadlineProps) => {
+const PackHeadline = ({ cards, headingRef, showTotal = true, record: shown, counted, children, className = '' }: PackHeadlineProps) => {
   const { total, combo } = packHeadline(cards.map((card) => ({ ...card, cardId: card.key, card })));
   const record = headingRef ? shown : null;
   const beat = record && record.kind !== 'top' ? record : null;
@@ -52,7 +58,15 @@ const PackHeadline = ({ cards, headingRef, showTotal = true, record: shown, chil
               <span className="sr-only">:</span>
             </span>
           )}
-          <span className="tabular">{total.toLocaleString()}</span> Brainrot Score
+          {counted !== undefined && counted !== total ? (
+            <span className="tabular pack-headline-count">
+              <span aria-hidden="true">{counted.toLocaleString()}</span>
+              <span className="pack-headline-count-final">{total.toLocaleString()}</span>
+            </span>
+          ) : (
+            <span className="tabular">{total.toLocaleString()}</span>
+          )}{' '}
+          Brainrot Score
         </h2>
       ) : (
         showTotal && <p className="pack-headline-total">Pack total: <span className="tabular">{total.toLocaleString()}</span></p>

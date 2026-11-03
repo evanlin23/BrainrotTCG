@@ -138,3 +138,64 @@
         opacity: 0.6;
     }
 }
+
+/*
+ * The pack-level takeover (#1293 c): the same backdrop and banner over the summary as it opens, with the
+ * whole screen for a Skip button. It sits under the pack's X (the top bar is above the stage), covers the
+ * summary, and is removed when it settles. Black underneath, so the summary's zero score never shows
+ * through the backdrop's fade. Its pieces are the card takeover's (.takeover-overlay, .takeover-banner),
+ * so the reduced-motion block above holds them still here too; nothing here moves.
+ */
+.pack-takeover {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-stage-fx);
+    isolation: isolate;
+    display: grid;
+    align-content: center;
+    background: var(--black);
+}
+
+.pack-takeover-banner {
+    display: grid;
+    padding-inline: var(--gutter);
+}
+
+/* The whole screen is the button, over the banner (which is text only). */
+.pack-takeover-skip {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0 var(--gutter) max(var(--space-6), env(safe-area-inset-bottom));
+    border: 0;
+    background: transparent;
+    color: var(--white);
+    cursor: pointer;
+    font: inherit;
+}
+
+/* The button is the whole screen, so its own ring would sit off screen: the Skip label wears it. */
+.pack-takeover-skip:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+
+.pack-takeover-skip:focus-visible .pack-takeover-skip-label {
+    outline: var(--focus-outline);
+    outline-offset: 2px;
+}
+
+.pack-takeover-skip-label {
+    display: grid;
+    place-items: center;
+    min-width: var(--touch-target);
+    min-height: var(--touch-target);
+    padding: 0 var(--space-4);
+    border: 1px solid var(--white);
+    border-radius: var(--radius-lg);
+    background: var(--shade-55);
+    font-size: var(--text-sm);
+    font-weight: 800;
+}

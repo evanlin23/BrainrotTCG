@@ -7,7 +7,9 @@ import { cardFinishThumbUrl } from '../../content/art';
 import { SETS, getSet, isOpenable } from '../../content/sets';
 import { getSetCards, scoreCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
-import { revealOrder } from '../../game/reveal';
+import { COUNT_UP_MS } from '../../game/packTakeover';
+import { TAKEOVER_DURATION_MS, revealOrder } from '../../game/reveal';
+import { setMotionSetting } from '../../utils/motion';
 import { STAGE_CLICK_GUARD_MS, useStageClickGuard } from '../../hooks/useStageClickGuard';
 import SummaryScreen from './PackSummaryUI';
 
@@ -292,6 +294,10 @@ describe('record lines (#1287)', () => {
   it('heads the summary with NEW BEST when the pack beats the best before it', () => {
     seed(score - 1, 1);
     show();
+    // A new best opens under the pack-level takeover; once it and the count-up are done the heading reads as ever.
+    act(() => vi.advanceTimersByTime(TAKEOVER_DURATION_MS));
+    // A frame past the count-up's end: it is drawn a frame at a time.
+    act(() => vi.advanceTimersByTime(COUNT_UP_MS + 32));
     expect(heading()).toBe(`NEW BEST:${score.toLocaleString()} Brainrot Score`);
     expect(container.querySelector('.pack-headline-previous')!.textContent).toContain(`previous best ${(score - 1).toLocaleString()}`);
   });
@@ -322,6 +328,182 @@ describe('record lines (#1287)', () => {
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={{ ...pack }} />));
     expect(container.querySelector('.pack-headline-record')).toBeNull();
     expect(container.querySelector('.pack-headline-rank')!.textContent).toBe('your #2 pack ever');
+  });
+});
+
+describe('the pack-level takeover and the count-up (#1293 c)', () => {
+  const key = '0123456789abcdef0000111122223333';
+  const pack = { setId: set.id, setVersion: set.version, nonce: 2, publicKeyHex: key };
+  const withHand = (shape: number[]): CardWithMeta[] => shape.flatMap((copies, group) => Array.from({ length: copies }, () => cards[group]))
+    .map((card, i) => ({ ...card, uniqueId: i + 1 }));
+  const fullHouse = withHand([3, 2]);
+  const fourOfAKind = withHand([4, 1]);
+  const fiveOfAKind = withHand([5]);
+  const pair = withHand([2, 1, 1, 1]);
+  const show = (opened: CardWithMeta[], opts: { pack?: typeof pack } = {}) =>
+    act(() => root.render(<PackSummaryUI openedCards={opened} set={set} onClose={() => {}} holdOptional {...opts} />));
+  const takeover = () => container.querySelector('.pack-takeover');
+  const heading = () => container.querySelector('h2')!;
+  /** The figure the heading shows now (the counting one while it climbs, the whole text once it is done). */
+  const shown = () => {
+    const live = heading().querySelector('.pack-headline-count > [aria-hidden]');
+    return live ? live.textContent : heading().querySelector('.tabular')!.textContent;
+  };
+  const seed = (...earlier: number[]) => localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([
+    { s: set.id, v: set.version, n: 2, k: key.slice(0, 16), h: 'Pair', x: scoreCards(pair).score, t: 3_000 },
+    ...earlier.map((x, i) => ({ s: set.id, v: set.version, n: earlier.length - 1 - i, k: key.slice(0, 16), h: 'Pair', x, t: 2_000 - i })),
+  ]));
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+  });
+  afterEach(() => {
+    localStorage.clear();
+    setMotionSetting('auto');
+  });
+
+  it.each([
+    ['a Full House', fullHouse, 'Full House', 'FULL_HOUSE'],
+    ['a 4 of a Kind', fourOfAKind, '4 of a Kind', 'FOUR_OF_A_KIND'],
+    ['a 5 of a Kind', fiveOfAKind, '5 of a Kind', 'FIVE_OF_A_KIND'],
+  ])('opens under a takeover for %s, with its banner naming the hand and the set', (_, opened, kicker, reason) => {
+    show(opened);
+    expect(takeover()!.getAttribute('data-reason')).toBe(reason);
+    expect(container.querySelector('.takeover-banner-kicker')!.textContent).toBe(kicker);
+    expect(container.querySelector('.takeover-banner-name')!.textContent).toBe(set.name);
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    // The best card's art fills the screen behind it.
+    expect(container.querySelector('.takeover-art')!.getAttribute('src')).toBe(opened[opened.length - 1].image);
+  });
+
+  it('opens under a takeover for a new best, and for no other record', () => {
+    seed(1, 1);
+    show(pair, { pack });
+    expect(container.querySelector('.takeover-banner-kicker')!.textContent).toBe('New best');
+    // A set best (another set holds a higher score), a #2 and a first pack earn none.
+    localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([
+      { s: set.id, v: set.version, n: 2, k: key.slice(0, 16), h: 'Pair', x: scoreCards(pair).score, t: 3_000 },
+      { s: 'other-set', v: 1, n: 1, k: key.slice(0, 16), h: 'Pair', x: scoreCards(pair).score + 1, t: 2_000 },
+      { s: set.id, v: set.version, n: 0, k: key.slice(0, 16), h: 'Pair', x: 1, t: 1_000 },
+    ]));
+    act(() => root.unmount());
+    root = createRoot(container);
+    show(pair, { pack });
+    expect(container.querySelector('.pack-headline-record--set')).not.toBeNull();
+    expect(takeover()).toBeNull();
+    seed();
+    act(() => root.unmount());
+    root = createRoot(container);
+    show(pair, { pack });
+    expect(takeover()).toBeNull();
+  });
+
+  it('is not earned by points alone: a Diamond with nothing matching or beaten opens the summary as it always did', () => {
+    const rich = cards.map((card, i) => ({ ...card, uniqueId: i + 1, rarity: 'COMMON', finish: i === 4 ? 'DIAMOND' : null }) as CardWithMeta);
+    expect(scoreCards(rich).score).toBeGreaterThanOrEqual(10_000);
+    show(rich);
+    expect(takeover()).toBeNull();
+    expect(container.querySelector('.summary-content')!.hasAttribute('inert')).toBe(false);
+    expect(heading().textContent).toBe(`${scoreCards(rich).score.toLocaleString()} Brainrot Score`);
+  });
+
+  it('keeps the summary under it inert with its score at 0, then counts up on Skip and lands on the total', () => {
+    show(fullHouse);
+    const total = scoreCards(fullHouse).score;
+    expect(container.querySelector('.summary-content')!.hasAttribute('inert')).toBe(true);
+    // Still inside the settle window: a tap that was meant for the last card does not skip the moment.
+    const skip = container.querySelector<HTMLButtonElement>('.pack-takeover-skip')!;
+    expect(document.activeElement).toBe(skip);
+    act(() => skip.click());
+    expect(takeover()).not.toBeNull();
+    expect(shown()).toBe('0');
+    // The total stays in the heading's text for a screen reader the whole time.
+    expect(heading().textContent).toContain(total.toLocaleString());
+    settled();
+    act(() => skip.click());
+    expect(takeover()).toBeNull();
+    expect(container.querySelector('.summary-content')!.hasAttribute('inert')).toBe(false);
+    // The keyboard lands on the result, as on any summary.
+    expect(document.activeElement).toBe(heading());
+    expect(shown()).toBe('0');
+    act(() => vi.advanceTimersByTime(COUNT_UP_MS / 2));
+    const middle = Number(shown()!.replace(/,/g, ''));
+    expect(middle).toBeGreaterThan(0);
+    expect(middle).toBeLessThan(total);
+    act(() => vi.advanceTimersByTime(COUNT_UP_MS));
+    expect(heading().querySelector('.pack-headline-count')).toBeNull();
+    expect(heading().textContent).toBe(`${total.toLocaleString()} Brainrot Score`);
+  });
+
+  it('ends by itself, and Space or Enter with no button focused settles it without closing the summary', () => {
+    const onClose = vi.fn();
+    act(() => root.render(<PackSummaryUI openedCards={fullHouse} set={set} onClose={onClose} holdOptional />));
+    // Inside the settle window a key does nothing yet, and is still kept from the pack's own keys.
+    const press = (code: string) => {
+      const event = new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true });
+      act(() => { document.body.dispatchEvent(event); });
+      return event;
+    };
+    expect(press('Space').defaultPrevented).toBe(true);
+    expect(takeover()).not.toBeNull();
+    settled();
+    expect(press('Enter').defaultPrevented).toBe(true);
+    expect(takeover()).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // A summary of its own: this one's takeover has settled.
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(<PackSummaryUI openedCards={fourOfAKind} set={set} onClose={onClose} holdOptional />));
+    expect(takeover()).not.toBeNull();
+    act(() => vi.advanceTimersByTime(TAKEOVER_DURATION_MS - 1));
+    expect(takeover()).not.toBeNull();
+    act(() => vi.advanceTimersByTime(1));
+    expect(takeover()).toBeNull();
+  });
+
+  it('leaves a button its own keys, so the X and Skip work as ever', () => {
+    show(fullHouse);
+    settled();
+    const other = document.body.appendChild(document.createElement('button'));
+    const event = new KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true });
+    act(() => { other.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(false);
+    expect(takeover()).not.toBeNull();
+    other.remove();
+  });
+
+  it('takes no key while a sheet covers the summary', () => {
+    act(() => root.render(<PackSummaryUI openedCards={fullHouse} set={set} onClose={() => {}} holdOptional={false} />));
+    const event = new KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true });
+    act(() => { document.body.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(false);
+    expect(takeover()).not.toBeNull();
+    expect(document.activeElement).not.toBe(container.querySelector('.pack-takeover-skip'));
+  });
+
+  it('lands on the total at once when it settles under the Motion setting', () => {
+    setMotionSetting('reduced');
+    show(fullHouse);
+    settled();
+    act(() => container.querySelector<HTMLButtonElement>('.pack-takeover-skip')!.click());
+    expect(takeover()).toBeNull();
+    expect(heading().querySelector('.pack-headline-count')).toBeNull();
+    expect(heading().textContent).toBe(`${scoreCards(fullHouse).score.toLocaleString()} Brainrot Score`);
+  });
+
+  it('lands on the total at once under the device\'s reduced-motion setting too', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('prefers-reduced-motion'), addEventListener() {}, removeEventListener() {} }));
+    show(fullHouse);
+    act(() => vi.advanceTimersByTime(TAKEOVER_DURATION_MS));
+    expect(takeover()).toBeNull();
+    expect(heading().textContent).toBe(`${scoreCards(fullHouse).score.toLocaleString()} Brainrot Score`);
+  });
+
+  it('counts nothing up for a pack with no takeover', () => {
+    show(pair);
+    expect(heading().querySelector('.pack-headline-count')).toBeNull();
+    expect(heading().textContent).toBe(`${scoreCards(pair).score.toLocaleString()} Brainrot Score`);
   });
 });
 

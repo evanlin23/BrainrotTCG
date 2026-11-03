@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
 import { motion } from 'framer-motion';
 import { RotateCcw, Share2 } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
@@ -14,9 +14,14 @@ import type { SetDefinition } from '../../engine';
 import type { PullRef } from '../../game/pulls';
 import { getHistory } from '../../game/history';
 import { packRecord } from '../../game/personalRecords';
+import { packTakeoverReason } from '../../game/packTakeover';
+import { TAKEOVER_DURATION_MS } from '../../game/reveal';
+import { useCountUp } from '../../hooks/useCountUp';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
+import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { STAGE_PRIMARY_ATTR, type StageClickGuard } from '../../hooks/useStageClickGuard';
 import PackHeadline from './PackHeadline';
+import PackTakeover from './PackTakeover';
 import SummaryHallOfFame from './SummaryHallOfFame';
 import '../../styles/CollectionLabel.css';
 import '../../styles/PackSummary.css';
@@ -63,6 +68,11 @@ interface PackSummaryUIProps {
  * to the bottom so they never scroll away. Nothing follows them: level progress lives on Profile. Sharing
  * starts here, never mid-reveal: the link carries the whole pack, so it would spoil the cards still face
  * down.
+ *
+ * A Full House or better, or a new best, opens it under the pack-level takeover (PackTakeover, #1293 c): the
+ * summary underneath is inert and its score reads 0 until a tap, Space, Enter, Skip or the takeover's own end
+ * (TAKEOVER_DURATION_MS) settles it. Then the score counts up to its total (at once under reduced motion) and
+ * the keyboard lands on the heading. Any other pack opens as it always did.
  */
 const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRankingsHelp, holdOptional = false, guard, packChoices }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
@@ -77,12 +87,56 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
   // summary appears: it must not open a card up close, the Card guide, the share sheet or send a Hall of
   // Fame entry. Open again is the one deliberate move.
   const { blockClicks, settling } = guard;
-  // The keyboard starts at the result, not on an action: the heading, so the cards come next.
+  const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
+  // Read as the summary first renders, so a record line shows from the first paint and nothing moves after.
+  const others = packChoices ? otherPackChoices(packChoices.sets, set.id, packChoices.collection) : null;
+  const record = useMemo(() => (pack ? packRecord(getHistory(), pack, packScore.score) : null), [pack, packScore]);
+  // The pack-level takeover: decided once, from the same record the NEW BEST medal reads (no second computation).
+  const best = openedCards[openedCards.length - 1];
+  const takeoverReason = useMemo(() => (best ? packTakeoverReason(packScore.hand, record) : null), [best, packScore, record]);
+  const [settled, setSettled] = useState(false);
+  const takeoverOn = takeoverReason !== null && !settled;
+  const settleTakeover = useCallback(() => setSettled(true), []);
+  const skipRef = useRef<HTMLButtonElement>(null);
+  const reducedMotion = usePrefersReducedMotion();
+  const { value: countedScore, counting } = useCountUp(packScore.score, takeoverReason === null ? 'off' : takeoverOn ? 'wait' : 'run', reducedMotion);
+  // The takeover ends by itself, so a player who does nothing still reaches the summary.
   useEffect(() => {
-    if (holdOptional) headingRef.current?.focus({ preventScroll: true });
-    // Only as it appears; not while a sheet covers it (holdOptional is off then).
+    if (!takeoverOn) return;
+    const timer = setTimeout(settleTakeover, TAKEOVER_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [takeoverOn, settleTakeover]);
+  // Space and Enter settle it too, wherever focus is that would not already act on them (a button keeps its
+  // own keys, so Skip, the X and a sheet's controls work as ever). The capture phase gets there before the
+  // pack's own keys, which would close the summary.
+  useEffect(() => {
+    if (!takeoverOn || !holdOptional) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' && event.code !== 'Enter' && event.code !== 'NumpadEnter') return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if ((event.target as Element | null)?.closest?.('button, a, input, select, textarea, [contenteditable]:not([contenteditable="false"])')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat && !guard.settling) settleTakeover();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [takeoverOn, holdOptional, guard.settling, settleTakeover]);
+  // The keyboard starts at the result, not on an action: the heading, so the cards come next. Under a
+  // takeover it starts on Skip, and the heading takes it when the takeover settles (unless the player has
+  // moved on to something else, such as the X).
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!holdOptional) return;
+    if (takeoverOn) {
+      skipRef.current?.focus({ preventScroll: true });
+    } else if (!focused.current || document.activeElement === document.body || !document.activeElement) {
+      headingRef.current?.focus({ preventScroll: true });
+    }
+    focused.current = true;
+    // Only as it appears or settles; not while a sheet covers it (holdOptional is off then).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [takeoverOn]);
   // Keyboard focus never lands under the stuck actions, however tall large text makes them: the browser
   // only scrolls focus into the scroller's box, so move it clear of them.
   const clearActions = (event: FocusEvent<HTMLDivElement>) => {
@@ -107,16 +161,13 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
     observer.observe(actions);
     return () => observer.disconnect();
   }, []);
-  const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
-  // Read as the summary first renders, so a record line shows from the first paint and nothing moves after.
-  const others = packChoices ? otherPackChoices(packChoices.sets, set.id, packChoices.collection) : null;
-  const record = useMemo(() => (pack ? packRecord(getHistory(), pack, packScore.score) : null), [pack, packScore]);
 
   return (
+    <>
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
-      <div className="summary-content" ref={contentRef} onFocus={clearActions} onClickCapture={blockClicks}>
+      <div className="summary-content" ref={contentRef} onFocus={clearActions} onClickCapture={blockClicks} inert={takeoverOn || undefined}>
         <div className="summary-details">
-          <PackHeadline cards={openedCards} headingRef={headingRef} record={record}>
+          <PackHeadline cards={openedCards} headingRef={headingRef} record={record} counted={counting ? countedScore : undefined}>
             {pack && <SummaryHallOfFame pack={pack} score={packScore} onOpenRankingsHelp={onOpenRankingsHelp} />}
           </PackHeadline>
           <div className="summary-guide-line">
@@ -192,6 +243,10 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, onOpenRanking
         />
       )}
     </Motion.div>
+    {takeoverOn && best && (
+      <PackTakeover card={best} reason={takeoverReason} name={set.name} onSettle={settleTakeover} guard={guard} skipRef={skipRef} />
+    )}
+    </>
   );
 };
 
