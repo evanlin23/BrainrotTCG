@@ -258,6 +258,7 @@ test('a Brainrot takes over, keeps its 3 s hold, and at 200% text fits with ever
 
 test('a Brainrot settles on the first tap with Pause on good pulls off, and with the Reduced motion setting holds still', async ({ page, baseURL }) => {
   test.setTimeout(90000);
+  await page.setViewportSize(PHONE);
   // The device says nothing; the app's own Motion setting is what holds it still (data-motion on the page).
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.clock.install();
@@ -295,5 +296,40 @@ test('a 10,000-point Diamond duplicate gets no takeover, only its ribbon and hal
   await expect(page.locator('.reveal-card.is-celebrating .showcase-halo')).toHaveCount(1);
   await expect(page.locator('.takeover-banner')).toHaveCount(0);
   await expect(page.locator('.takeover-overlay')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('the pack summary of a takeover pack gets the ordinary top padding, on a phone and on a short landscape one', async ({ page, baseURL }) => {
+  test.setTimeout(90000);
+  await page.setViewportSize(PHONE);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  // Nonce 8 deals a Brainrot takeover; with no cards owned it is new.
+  const errors = await start(page, baseURL!, { nonce: 8, settings: { pauseBigPulls: false } });
+  await toCard(page, 5);
+  await tapSpace(page);
+  await expect(page.locator('.takeover-banner')).toHaveCount(1);
+  await tapSpace(page);
+  await expect(page.locator('.takeover-banner')).toHaveCount(0);
+  await tapSpace(page);
+  await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 15000 });
+
+  /** The area's top padding at the summary, against an ordinary reveal area (no takeover band) beside it. */
+  const summaryPadding = () => page.evaluate(() => {
+    const area = document.querySelector<HTMLElement>('.card-reveal-area');
+    if (!area || !area.querySelector('.pack-summary')) throw new Error('the summary is not up');
+    const probe = document.createElement('div');
+    probe.className = 'card-reveal-area';
+    area.parentElement!.append(probe);
+    const ordinary = getComputedStyle(probe).paddingTop;
+    probe.remove();
+    return { reserved: area.hasAttribute('data-takeover'), padding: getComputedStyle(area).paddingTop, ordinary };
+  });
+  // A phone, and a short landscape phone, where the height is scarcest.
+  for (const size of [PHONE, { width: 640, height: 360 }]) {
+    await page.setViewportSize(size);
+    const shot = await summaryPadding();
+    expect(shot.reserved, `the summary keeps the banner band at ${size.width}x${size.height}`).toBe(false);
+    expect(shot.padding, `the summary sits lower than a plain pack's at ${size.width}x${size.height}`).toBe(shot.ordinary);
+  }
   expect(errors).toEqual([]);
 });

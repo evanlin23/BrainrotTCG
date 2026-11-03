@@ -19,8 +19,8 @@
  * On a phone the banner has the width between the close button and its mirror, so at large text the kicker
  * and the name each wrap to a second line. The area clears four lines then, not the ribbon's two, so the
  * card's art is never under the banner. (A desktop window has the width for one line each.) The area keeps
- * that room for the whole of a pack that holds a takeover (data-takeover), face down and settled too, so
- * the card never moves when a takeover begins or ends.
+ * that room for every card of a pack that holds a takeover (data-takeover), face down and settled too, so
+ * the card never moves when a takeover begins or ends. Not for the summary, which has no banner.
  */
 @media (max-width: 899px) {
     .card-reveal-area[data-takeover] {

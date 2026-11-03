@@ -956,7 +956,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
             transition={{ duration: 0.2 }}
             className="card-reveal-area"
             // A pack with a takeover clears its banner's height from the first card on, so no card moves when one starts or ends.
-            data-takeover={takeovers.size > 0 ? '' : undefined}
+            // The summary has no banner (and replaces the last card in the same render), so it keeps the ordinary padding.
+            data-takeover={takeovers.size > 0 && !showSummary ? '' : undefined}
           >
             {!showSummary ? (
               <CardRevealUI
