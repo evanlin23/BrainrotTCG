@@ -245,7 +245,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
                   {grouped || !shown[0].kicker ? <Award strokeWidth={2.4} /> : shown[0].opens === 'collection' ? <Layers strokeWidth={2.4} /> : shown[0].opens === 'news' ? <Newspaper strokeWidth={2.4} /> : <ChevronsUp strokeWidth={2.4} />}
                 </span>
                 <span className="toast-text">
-                  <span className="toast-kicker">{grouped ? `${shown.length} achievements unlocked` : (shown[0].kicker ?? 'Achievement unlocked')}</span>
+                  <span className="toast-kicker">{grouped ? <>{shown.length} <span className="toast-kicker-noun">achievements</span> unlocked</> : (shown[0].kicker ?? 'Achievement unlocked')}</span>
                   <span className="toast-title">
                     {grouped
                       ? shown

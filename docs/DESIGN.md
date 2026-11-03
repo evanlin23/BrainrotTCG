@@ -537,19 +537,28 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   212 px tall) would reach the Change pack row, the chip and the guide link in windows under about 660 px
   tall (900x500, 1280x550, 1280x570, 900x600). So in a window under 21rem tall (the app's height in rem, from
   900 px wide up: 672 px at doubled text, 336 px at normal text, where it never applies) the toast is compact: one
-  44 px line of its kicker ("8 achievements unlocked", "Level up") and the X, with no icon, and it starts 4.5rem
-  under the header, just under the set picker. The title and a level-up's line are clipped, not removed, so the
-  button's name still has all of it. It is a rule on the app's height in rem (a size container on the home
-  screen, `Toasts.css`) and not a px media query, so it follows the text size wherever the page sets it, and
-  does not clamp where there is room (normal text keeps the whole toast in 900x500, and doubled text in 900x680
-  and up). With it, the toast covers no control at all from 900x480 up at doubled text (the least clearance
-  is 10 px, to the set picker and the Change pack row), at 100% and every size probed from 900x500 up, and
-  it still covers none of the pack, the set picker, the tabs, Settings and the wordmark. One bound remains:
-  below about 470 px tall at doubled text and 900 px wide (the pack is then under 20 px wide) the Change pack
-  row is under the toast's left end (900x460: 123x10 px), and below about 430 px tall at 1280 px wide the
-  Card guide link and the chip are. There is no room left there for any 44 px toast above those rows (the stage
-  is the window less 168 px of header, 109 px of set picker and 120 px of rows), and nothing is hidden to make
-  room: the toast has an X and goes in 5 to 6 s. It is at least 44 px tall at every size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
+  44 px line of its kicker ("8 unlocked", "Level up") and the X, with no icon, and it starts 4.5rem
+  under the header, just under the set picker. The word "achievements", the title and a level-up's line are
+  clipped, not removed, so the button's name still has all of it. It is a rule on the app's height in rem (a
+  size container on every wide `.app` outside pack focus mode, `Toasts.css`, not the home screen alone) and not a px media query, so it follows the text size
+  wherever the page sets it, and does not clamp where there is room (normal text keeps the whole toast in
+  900x500, and doubled text in 900x680 and up). With it, the toast covers no control at all from 900x480 up at
+  doubled text (the least clearance is 10 px, to the set picker and the Change pack row), at 100%, 150% and
+  175%, and it still covers none of the pack, the set picker, the tabs, Settings and the wordmark. One bound
+  remains, and it is not the same at every width: below about 470 px tall at doubled text from 900 to 1100 px
+  wide (the pack is then under 20 px wide), and below about 475 px tall at 1200 px wide, the Change pack row is
+  under the toast's left end (900x460: 123x10 px; 1200x440: 134x38 px); from 1280 px wide it holds to about
+  430 px tall, below which the Card guide link and the chip are. There is no room left there for any 44 px toast
+  above those rows (the stage is the window less 168 px of header, 109 px of set picker and 120 px of rows).
+  A banner above the header takes room from that stage (the toast is placed from the header, but the rows
+  keep their place at the foot of the window). The staging note, a line or three of fixed text (up to 3.5rem), is
+  allowed for: with it the toast is compact under 25rem (800 px at doubled text), and clear down to about 590 px
+  tall at 900 px wide (560 at 1280). The save warning (the kept-aside recovery note, "couldn't be saved", a
+  stale tab) is up to 18rem tall and its height is not known, so on a wide screen every toast waits behind it,
+  as the news toast always did, instead of covering its buttons or the rows beneath: they stay queued, none is
+  lost, and they come in one after another once the warning is gone (Hide note, or the problem fixed); until
+  then the Profile page still lists any achievement. A phone's toast lies over the header and shows as before.
+  Otherwise nothing is hidden to make room: the toast has an X and goes in 5 to 6 s. It is at least 44 px tall at every size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
   hold the toasts until they clear, and a toast the player had 1.5 s to see is let go then, not shown again in
   full. In pack focus mode it still overlays, under the pack's X, or beside the X at the right on a short
   screen (520 px tall or less, where the headline below it is kept clear by tight padding).
@@ -558,7 +567,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   1280x800, 1440x900 and 1920x1080, the square and portrait windows 1024x1000, 900x1200, 1280x1200 and 1080x1920,
   and the short windows 900x480, 900x500, 1280x550, 1280x570, 900x590, 900x600, 900x650 and 900x680, at 200% text at
   360 and on every wide size (every control on the screen, whatever it is, must be clear of the toast, and the
-  window under 672 px tall must get the compact toast),
+  window under 672 px tall must get the compact toast, and the kicker is whole), that the toast takes no room from the
+  pack or any control, with a banner above the header at 900x700, 900x800, 1024x768 and 1280x700 at 200%, 900x600
+  at 175% and 900x500 at 150% (the save warning: no toast until Hide note, then each one clear and inside the
+  window; the staging note, put in as the app renders it, as there is no staging here: clear and inside),
   the pack's summary on every
   wide screen at normal and doubled text, that nothing moves as the toast goes, the turn to landscape, and the sheet hold.
   `tests/browser/toast-touch.spec.ts` checks the tap, the X, the swipe, the seen toast, the pack hold, the reduced

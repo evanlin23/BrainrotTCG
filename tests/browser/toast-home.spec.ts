@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { STORAGE_KEYS } from '../../src/constants/config';
 import { expectSummaryTakesClicks, monitor, recordShownToasts } from './support';
 
 /**
@@ -91,6 +92,15 @@ const expectAnchoredTopRight = async (page: Page, width: number) => {
   expect(box.x + box.width, 'anchored to the right edge').toBeGreaterThanOrEqual(width - 72);
   const limit = await page.evaluate(() => document.querySelector('.app-header')!.getBoundingClientRect().bottom + 6.5 * parseFloat(getComputedStyle(document.documentElement).fontSize));
   expect(box.y, 'anchored to the top').toBeLessThanOrEqual(limit);
+};
+
+/** The toast is wholly inside the window (a toast that runs off the bottom of a short one is as good as lost). */
+const expectInWindow = async (page: Page, message: string) => {
+  const outside = await page.locator('.toast').evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight ? [box.left, box.top, box.right, box.bottom].map(Math.round) : null;
+  });
+  expect(outside, message).toBeNull();
 };
 
 /** The toast has finished entering (it comes in from 12px up, at no opacity), so a box measured now is the one that stays. */
@@ -191,7 +201,8 @@ for (const viewport of VIEWPORTS) {
 // page's width, so the toast must be below it as well as clear of the pack. In a short window (under 21rem, 672px
 // here) the page has almost no room left (the pack is a few dozen px wide), so the toast is compact, one 44px line
 // of its kicker and X, and starts just under the picker: it then covers no control of the screen, the next-goal
-// chip, the Card guide link, the Change pack row and any banner's buttons included. Taller than that it is whole.
+// chip, the Card guide link and the Change pack row included. Taller than that it is whole. With a banner above
+// the header, see the cases further down.
 for (const viewport of WIDE) {
   test(`at 200% text both toasts leave every control uncovered on the home screen at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
     test.setTimeout(120000);
@@ -203,15 +214,20 @@ for (const viewport of WIDE) {
     await expect(page.locator('.card-guide-entry .pack-milestone'), 'the goal is on screen, so the checks below cover it').toBeVisible();
     await expect(page.locator('.card-guide-link')).toBeVisible();
     const compact = viewport.height < COMPACT_BELOW;
+    let shown: string[] | undefined;
 
     for (const { kicker, name } of TOASTS) {
       await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
       await settled(page);
       await expectAnchoredTopRight(page, viewport.width);
+      await expectInWindow(page, `${kicker}: the toast is inside the window`);
+      // Where every control is while the toast is up; it is the same once it is gone (the toast takes no room).
+      shown = await placed(page);
       await expect.poll(() => blocked(page, [INTERACTIVE]), { message: `no control is under the ${kicker} toast` }).toEqual([]);
       await expect.poll(() => blocked(page, DESKTOP_CONTROLS), { message: `none of the home controls is under the ${kicker} toast` }).toEqual([]);
       // Under about 520px tall at doubled text the page itself leaves the pack under 44px (the header, the picker and
-      // the Change pack and guide rows take the stage); that is not the toast's doing, as it takes no room.
+      // the Change pack and guide rows take the stage); that is not the toast's doing, as it takes no room: the pack
+      // and every control below are exactly where they are without it (checked after the last toast is gone).
       if (viewport.height >= 520) expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
       expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
       const box = (await page.locator('.toast').boundingBox())!;
@@ -221,7 +237,95 @@ for (const viewport of WIDE) {
       const titleWidth = await page.locator('.toast-title').evaluate((el) => el.getBoundingClientRect().width);
       if (compact) expect(titleWidth, `${kicker}: the title is not drawn`).toBeLessThanOrEqual(1);
       else expect(titleWidth, `${kicker}: the whole toast is back`).toBeGreaterThan(40);
+      // What the compact toast draws of its kicker is whole, not cut with an ellipsis ("8 unlocked").
+      const cut = await page.locator('.toast-kicker').evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(cut, `${kicker}: the kicker is whole`).toBeLessThanOrEqual(1);
       // However little of it a short screen draws, the button's name is still all of it.
+      await expect(toast).toHaveAccessibleName(name);
+      await dismiss(page);
+    }
+    await expect(page.locator('.toast')).toHaveCount(0);
+    expect(await placed(page), 'the toast took no room from the pack or any control').toEqual(shown);
+    expect(errors).toEqual([]);
+  });
+}
+
+// A banner above the header takes room from the page, and with larger text the toast no longer clears the Change pack
+// row or the chips beneath it. Two banners, two answers (Toasts.css, App.tsx):
+// - the save warning (here the kept-aside recovery note) is tall and its height is not known, so on a wide screen
+//   every toast waits behind it: none on screen with it up, and each one comes in, whole and clear, once it is hidden;
+// - the staging note is a line or three of fixed text, so the toast is compact 4rem sooner and clears the page.
+const BANNER_WINDOWS = [
+  { width: 900, height: 700, text: 200 },
+  { width: 900, height: 800, text: 200 },
+  { width: 1024, height: 768, text: 200 },
+  { width: 1280, height: 700, text: 200 },
+  { width: 900, height: 600, text: 175 },
+  { width: 900, height: 500, text: 150 },
+];
+const RECOVERY_ARCHIVE = JSON.stringify({ raw: '{"lost-set/ghost":null}', player: null });
+const STAGING_NOTE = 'Staging: a test copy of the next release. Saves here are separate from the real game, and nothing is sent to the Hall of Fame.';
+
+for (const { width, height, text } of BANNER_WINDOWS) {
+  test(`with the save warning up at ${width}x${height} and ${text}% text the toasts wait behind it, then cover no control`, async ({ page, baseURL }) => {
+    test.setTimeout(120000);
+    const origin = new URL(baseURL!).origin;
+    await page.addInitScript(({ key, archive, origin }) => {
+      if (window.location.origin !== origin) return;
+      try { if (!localStorage.getItem(key)) localStorage.setItem(key, archive); } catch { /* storage blocked */ }
+    }, { key: STORAGE_KEYS.COLLECTION_RECOVERY, archive: RECOVERY_ARCHIVE, origin });
+    await page.setViewportSize({ width, height });
+    const errors = await toSummary(page, baseURL!);
+    await page.addStyleTag({ content: `html { font-size: ${text}% !important; }` });
+    const banner = page.locator('.save-warning[role="alert"]');
+    await expect(banner).toBeVisible();
+    await page.getByRole('button', { name: /^Open .+ again$/ }).click();
+    await expect(page.locator('.set-current')).toBeVisible();
+    await expect(page.locator('.app')).toHaveAttribute('data-toasts-ready', 'true');
+    // The toasts are queued (the pack made two), and a few frames and an idle moment later none has come in.
+    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => requestIdleCallback(() => done())))));
+    await expect(page.locator('.toast')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { __shownToasts: string[] }).__shownToasts.slice())).toEqual([]);
+    await expect(banner).toBeVisible();
+
+    await banner.getByRole('button', { name: 'Hide note' }).click();
+    await expect(banner).toHaveCount(0);
+    for (const { kicker, name } of TOASTS) {
+      await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
+      await settled(page);
+      await expectAnchoredTopRight(page, width);
+      await expectInWindow(page, `${kicker}: the toast is inside the window`);
+      await expect.poll(() => blocked(page, [INTERACTIVE]), { message: `nothing is under the ${kicker} toast` }).toEqual([]);
+      await expect(page.locator('.toast-open')).toHaveAccessibleName(name);
+      await dismiss(page);
+    }
+    expect(errors).toEqual([]);
+  });
+}
+
+// Staging cannot be turned on here (it is decided by the host name the deploy sets), so the note is put in as the
+// app renders it: the same element and class as the first child of the app.
+for (const { width, height, text } of [...BANNER_WINDOWS, { width: 900, height: 600, text: 200 }, { width: 1280, height: 560, text: 200 }]) {
+  test(`with the staging note up at ${width}x${height} and ${text}% text both toasts cover no control and stay in the window`, async ({ page, baseURL }) => {
+    test.setTimeout(120000);
+    await page.setViewportSize({ width, height });
+    const errors = await toSummary(page, baseURL!);
+    await page.addStyleTag({ content: `html { font-size: ${text}% !important; }` });
+    await page.evaluate((note) => {
+      const banner = document.createElement('p');
+      banner.setAttribute('role', 'note');
+      banner.className = 'save-warning staging-banner';
+      banner.textContent = note;
+      document.querySelector('.app')!.prepend(banner);
+    }, STAGING_NOTE);
+    const toast = await toHome(page);
+    await expect(page.locator('.card-guide-entry .pack-milestone')).toBeVisible();
+    for (const { kicker, name } of TOASTS) {
+      await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
+      await settled(page);
+      await expectAnchoredTopRight(page, width);
+      await expectInWindow(page, `${kicker}: the toast is inside the window`);
+      await expect.poll(() => blocked(page, [INTERACTIVE]), { message: `nothing is under the ${kicker} toast` }).toEqual([]);
       await expect(toast).toHaveAccessibleName(name);
       await dismiss(page);
     }

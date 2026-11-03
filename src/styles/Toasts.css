@@ -5,6 +5,9 @@
      free column at the top right (both below). */
   position: relative;
   top: var(--space-1);
+  /* Not what keeps a toast off a sheet: on a wide screen the size container below (layout containment) makes
+     .app a stacking context, so this 200 ranks only inside it and can't outrank the portalled sheet (100);
+     on a phone it would. Either way a toast is held while a sheet is open (App.tsx, `paused`). */
   z-index: var(--z-toast);
   flex: none;
   width: min(92vw, 24rem);
@@ -284,12 +287,15 @@
 
   /* A short window (under 21rem tall: 672px at doubled text, where the toast would otherwise be 173px to 212px
      tall and reach the Change pack, Card guide and next-goal row at the foot of the stage): a compact toast,
-     one 44px line with the kicker ("8 achievements unlocked", "Level up") and the X. The icon, the title and
-     a level-up's line are not drawn here; the title and the line stay in the button's name (clipped, not
-     removed). It also starts 4.5rem under the header, just under the set picker (3.9rem tall at doubled
+     one 44px line with the kicker ("8 unlocked", "Level up") and the X. The icon, the title and
+     a level-up's line, and the word "achievements" are not drawn here; they stay in the button's name
+     (clipped, not removed), so the kicker reads "8 unlocked" in the width it has. It also starts 4.5rem under the header, just under the set picker (3.9rem tall at doubled
      text), to leave the stage's whole gap above the Change pack row. In rem so that it follows the text size:
      at normal text 21rem is 336px, which no window this wide is short of in practice. Windows under about
-     15rem (480px at doubled text) are shorter than the gap the toast needs (DESIGN.md, Toasts). */
+     15rem (480px at doubled text) are shorter than the gap the toast needs (DESIGN.md, Toasts).
+     The staging banner (a note of up to 3.5rem, at any text size, above the header) takes that much of the
+     stage, so it is compact 4rem sooner (25rem tall); the same rules, so keep the two blocks in step.
+     The save warning is taller and its height unknown, so toasts wait behind it instead (App.tsx). */
   @container app (max-height: 21rem) {
     .app:not(.is-focus) .toast-region {
       top: 4.5rem;
@@ -317,6 +323,7 @@
     }
 
     .app:not(.is-focus) .toast-title,
+    .app:not(.is-focus) .toast-kicker-noun,
     .app:not(.is-focus) .toast--detail .toast-desc {
       position: absolute;
       width: 1px;
@@ -328,6 +335,49 @@
     }
 
     .app:not(.is-focus) .toast-dismiss {
+      position: static;
+    }
+  }
+
+  @container app (max-height: 25rem) {
+    .app:not(.is-focus):has(> .staging-banner) .toast-region {
+      top: 4.5rem;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-open {
+      flex-direction: row;
+      align-items: center;
+      gap: 0;
+      padding: 0 0 0 var(--space-3);
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-icon {
+      display: none;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-text {
+      width: auto;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-kicker {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-title,
+    .app:not(.is-focus):has(> .staging-banner) .toast-kicker-noun,
+    .app:not(.is-focus):has(> .staging-banner) .toast--detail .toast-desc {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-dismiss {
       position: static;
     }
   }
