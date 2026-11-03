@@ -431,7 +431,7 @@ describe('checkSite', () => {
     // Random bytes don't compress, so this script alone is over the budget gzipped.
     write(`${outDir}assets/index-AbCd1234.js`, randomBytes(MAX_FIRST_LOAD_BYTES).toString('base64'));
     const { errors } = await checkSite(options);
-    expect(errors).toEqual([{ path: 'index.html', error: expect.stringMatching(/^Loads [\d,]+ bytes \(gzip\) before the app can render, over 284,000 \(MAX_FIRST_LOAD_BYTES, #776\)$/) }]);
+    expect(errors).toEqual([{ path: 'index.html', error: expect.stringMatching(/^Loads [\d,]+ bytes \(gzip\) before the app can render, over 280,000 \(MAX_FIRST_LOAD_BYTES, #776\)$/) }]);
   });
 
   it('fails a build missing what its pages or stylesheets load', async () => {
@@ -596,9 +596,9 @@ describe('first-load budget', () => {
   });
 
   it('passes up to the budget and fails a first load over it', () => {
-    expect(MAX_FIRST_LOAD_BYTES).toBe(284_000);
+    expect(MAX_FIRST_LOAD_BYTES).toBe(280_000);
     expect(checkFirstLoad(MAX_FIRST_LOAD_BYTES)).toEqual([]);
-    expect(checkFirstLoad(MAX_FIRST_LOAD_BYTES + 1)).toEqual([{ path: 'index.html', error: 'Loads 284,001 bytes (gzip) before the app can render, over 284,000 (MAX_FIRST_LOAD_BYTES, #776)' }]);
+    expect(checkFirstLoad(MAX_FIRST_LOAD_BYTES + 1)).toEqual([{ path: 'index.html', error: 'Loads 280,001 bytes (gzip) before the app can render, over 280,000 (MAX_FIRST_LOAD_BYTES, #776)' }]);
     expect(checkFirstLoad(4, 3)).toHaveLength(1);
   });
 });

@@ -360,7 +360,7 @@ export const checkFileCount = (count: number, max = MAX_SITE_FILES): AssetValida
  * the app can first render (#776: on a slow connection these come before anything else). Raise it
  * only with a reason in the PR: what was added, and why the first screen can't load it later.
  */
-export const MAX_FIRST_LOAD_BYTES = 284_000;
+export const MAX_FIRST_LOAD_BYTES = 280_000;
 
 /** The files (relative to the build) index.html loads up front: its module scripts, modulepreloads and stylesheets. */
 export const firstLoadFiles = (html: string, base: string): string[] =>
