@@ -303,14 +303,18 @@ test('the pack summary of a takeover pack gets the ordinary top padding, on a ph
   test.setTimeout(90000);
   await page.setViewportSize(PHONE);
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  // The page's clock, so the takeover's own 4.5 s end can't come between the taps on a slow runner.
+  await page.clock.install();
   // Nonce 8 deals a Brainrot takeover; with no cards owned it is new.
   const errors = await start(page, baseURL!, { nonce: 8, settings: { pauseBigPulls: false } });
   await toCard(page, 5);
+  await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 2000));
   await tapSpace(page);
   await expect(page.locator('.takeover-banner')).toHaveCount(1);
   await tapSpace(page);
   await expect(page.locator('.takeover-banner')).toHaveCount(0);
   await tapSpace(page);
+  await page.clock.resume();
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 15000 });
 
   /** The area's top padding at the summary, against an ordinary reveal area (no takeover band) beside it. */
