@@ -157,7 +157,8 @@
  * width at which that height fills the stage less a gap above and below. The gap is a space-4, and at
  * most a twentieth of the stage's height, so on a short landscape stage (a phone on its side) it
  * shrinks with the stage and the width never goes negative. The width is also capped at 80% of the
- * screen (100% on phones, below). There is no floor: one taller than the stage cut the bottom of the
+ * screen (100% on phones, below), and on a wide screen at what leaves the achievement toast its narrowest
+ * column at each side (--pack-cap, below). There is no floor: one taller than the stage cut the bottom of the
  * pack off at rest and while it fell in. A pack on a stage that short is small but whole, and it still
  * opens: the pack itself is the Open pack control (.pack-actions, which follows the same width, only
  * carries a refusal under it).
@@ -166,7 +167,20 @@
 .pack-actions {
     --pack-gap: min(var(--space-4), 5cqh);
     --pack-fit: calc((100cqh - var(--pack-gap) * 2) / 1.7);
-    --pack-w: min(80vw, 1600px, var(--pack-fit));
+    --pack-cap: 100vw;
+    --pack-w: min(80vw, 1600px, var(--pack-fit), var(--pack-cap));
+}
+
+/* A square or portrait window on a wide screen: 80% of its width leaves no column at the right for the
+   achievement toast, which stays at the top right and must cover no part of the pack (#1220). The pack
+   gives up the width the toast's floor (--toast-floor) and the gutters need on each side. Wherever a
+   column already exists (any window about 1.2 times wider than tall or more) this is the larger value
+   and changes nothing. */
+@media (min-width: 900px) {
+    .pack-shell-wrap,
+    .pack-actions {
+        --pack-cap: calc(100vw - 2 * (var(--toast-floor) + var(--gutter) + var(--space-3)));
+    }
 }
 
 .pack-shell-wrap {
@@ -219,7 +233,7 @@
     .pack-actions {
         --pack-share: 0.52;
         --pack-big: calc((100cqh - var(--pack-gap)) / (1.575 * var(--pack-share) + 0.084));
-        --pack-w: min(80vw, 1600px, max(var(--pack-fit), var(--pack-big)));
+        --pack-w: min(80vw, 1600px, var(--pack-cap), max(var(--pack-fit), var(--pack-big)));
     }
 }
 

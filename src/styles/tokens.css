@@ -236,6 +236,9 @@
 
   /* Layout */
   --touch-target: 44px;
+  /* The narrowest the achievement toast gets on a wide screen (Toasts.css). The pack leaves this much room
+     at the right of the stage (PackOpener.css), so the toast never has to sit over it. */
+  --toast-floor: 7.5rem;
   --nav-height: 64px;
   --header-height: 56px;
   /* Notch and home-indicator insets (index.html sets viewport-fit=cover, so the page runs under them). */

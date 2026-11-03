@@ -1,9 +1,13 @@
 .toast-region {
   /* A zero-height row in the app column, right after the header (and the save warning above it), so
      a toast hangs just under whatever the header's real height is. Focus mode keeps it that way; on
-     the home screen it is moved over the header instead (below). */
+     a phone's home screen it is moved over the header instead, and on a wide screen's home screen to the
+     free column at the top right (both below). */
   position: relative;
   top: var(--space-1);
+  /* Not what keeps a toast off a sheet: on a wide screen the size container below (layout containment) makes
+     .app a stacking context, so this 200 ranks only inside it and can't outrank the portalled sheet (100);
+     on a phone it would. Either way a toast is held while a sheet is open (App.tsx, `paused`). */
   z-index: var(--z-toast);
   flex: none;
   width: min(92vw, 24rem);
@@ -115,13 +119,14 @@
   font-size: var(--text-xs);
 }
 
-/* The home screen has no free band under the header (the set picker, the pack and the guide link fill it,
-   on a phone and on a wide screen alike), so a toast lies over the header instead, bottom-aligned to it (the
-   header's rows and any banner above it are never moved): over the wordmark, which only links to the screen
-   the player is on, and clear of everything beside it. It takes no room, so the pack and the set picker rest
-   the same with a toast up, one that has gone and none at all, and nothing moves under a finger as one
-   arrives or leaves (#803). A level-up's line is clamped to one line (the header is only about 86px tall);
-   its full text is still the button's name. */
+/* A phone's home screen has no free band under the header (the set picker, the pack and the guide link fill
+   it), so a toast lies over the header instead, bottom-aligned to it (the header's rows and any banner above
+   it are never moved): over the wordmark, which only links to the screen the player is on, and clear of
+   everything beside it. A wide screen (900px and up) has the nav and Settings in the header's row, so there
+   the toast goes to the top right instead (below), and this overlap with the wordmark is phone-only. It
+   takes no room, so the pack and the set picker rest the same with a toast up, one that has gone and none at
+   all, and nothing moves under a finger as one arrives or leaves (#803). A level-up's line is clamped to one
+   line (the header is only about 86px tall); its full text is still the button's name. */
 .app:not(.is-focus) .toast-region {
   top: 0;
   width: auto;
@@ -190,18 +195,190 @@
   }
 }
 
-/* Wide screens: the nav and Settings share the header's row with the wordmark, and the nav starts only about
-   37px past the wordmark's right edge, so the toast is held to the wordmark's width: 9.6em of the logo's
-   size here (index.css; the wordmark, mark included, measures about 9.7em), and at most 24rem. At 900px that
-   is 346px against the wordmark's 348px; from about 950px the 24rem cap is the narrower. Focus mode (a
-   header-less pack screen) keeps it at the right. */
+
+/* Wide screens: the toast stays at the top right on every screen (the owner's call, so it never jumps
+   between corners), fitted so that it covers no control.
+   Pack summary (focus mode): it hangs under the header at the right, as it always did; nothing the player
+   can press is in that strip.
+   Home: the header row is full (wordmark, tabs and Settings), the set picker sits right under it, and the
+   pack is centred below, so the toast takes the free column at the right of the pack. Its left edge stays
+   clear of the pack, whose width is the smaller of 80vw and what the stage's height gives it (PackOpener.css:
+   the stage is the window less the header, the set picker and the guide row, about 12rem); both are
+   estimated here from the window, a little on the large side, so the toast is a little too narrow rather
+   than ever over the pack. It is held between --toast-floor (7.5rem) and 24rem; the pack is capped so that
+   the floor always fits beside it (--pack-cap, PackOpener.css). Narrower than 15rem it stacks (icon and X
+   on one row, the text under it). It starts below the set picker's row (5.25rem under the header: the
+   picker is 4rem to 5rem tall, and 3.9rem with doubled text), because with larger text the picker runs
+   the width of the page. Still a zero-height row: it takes no room. */
 @media (min-width: 900px) {
-  .app:not(.is-focus) .toast-region {
-    width: min(24rem, calc(9.6 * clamp(1.75rem, 10vw - 3.375rem, 3.25rem)));
-    margin-right: 0;
+  /* The window's height, in rem, for the short-window rule below: the app is exactly one viewport tall
+     (index.css), so nothing inside it moves when it becomes a container, and (since rem follows the text size,
+     which a media query in rem does not when the page itself sets it) the rule is the same at every text size. */
+  .app:not(.is-focus) {
+    container: app / size;
   }
 
   .app.is-focus .toast-region {
     margin: 0 var(--gutter) 0 auto;
+  }
+
+  .app:not(.is-focus) .toast-region {
+    container-type: inline-size;
+    top: 5.25rem;
+    width: clamp(var(--toast-floor), calc(50vw - var(--gutter) - var(--space-3) - min(40vw, 800px, (100dvh - 12rem) / 1.806)), 24rem);
+    max-width: none;
+    margin: 0 var(--gutter) 0 auto;
+  }
+
+  .app:not(.is-focus) .toast {
+    position: static;
+  }
+
+  .app:not(.is-focus) .toast-open {
+    gap: var(--space-3);
+    padding: var(--space-2) 0 var(--space-2) var(--space-3);
+  }
+
+  .app:not(.is-focus) .toast--detail .toast-desc {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  @container (max-width: 15rem) {
+    .app:not(.is-focus) .toast {
+      position: relative;
+    }
+
+    .app:not(.is-focus) .toast-open {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-1);
+      /* The X is 44px square at the top right, beside the icon; the text starts under both. */
+      padding: var(--space-2) var(--space-3) var(--space-2);
+    }
+
+    .toast-icon {
+      margin-bottom: var(--space-1);
+    }
+
+    .toast-dismiss {
+      position: absolute;
+      top: 0;
+      right: 0;
+    }
+
+    .toast-text {
+      width: 100%;
+    }
+
+    .toast-kicker,
+    .toast-title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .toast-title {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+    }
+  }
+
+  /* A short window (under 21rem tall: 672px at doubled text, where the toast would otherwise be 173px to 212px
+     tall and reach the Change pack, Card guide and next-goal row at the foot of the stage): a compact toast,
+     one 44px line with the kicker ("8 unlocked", "Level up") and the X. The icon, the title and
+     a level-up's line, and the word "achievements" are not drawn here; they stay in the button's name
+     (clipped, not removed), so the kicker reads "8 unlocked" in the width it has. It also starts 4.5rem under the header, just under the set picker (3.9rem tall at doubled
+     text), to leave the stage's whole gap above the Change pack row. In rem so that it follows the text size:
+     at normal text 21rem is 336px, which no window this wide is short of in practice. Windows under about
+     15rem (480px at doubled text) are shorter than the gap the toast needs (DESIGN.md, Toasts).
+     The staging banner (a note of up to 3.5rem, at any text size, above the header) takes that much of the
+     stage, so it is compact 4rem sooner (25rem tall); the same rules, so keep the two blocks in step.
+     The save warning is taller and its height unknown, so toasts wait behind it instead (App.tsx). */
+  @container app (max-height: 21rem) {
+    .app:not(.is-focus) .toast-region {
+      top: 4.5rem;
+    }
+
+    .app:not(.is-focus) .toast-open {
+      flex-direction: row;
+      align-items: center;
+      gap: 0;
+      padding: 0 0 0 var(--space-3);
+    }
+
+    .app:not(.is-focus) .toast-icon {
+      display: none;
+    }
+
+    .app:not(.is-focus) .toast-text {
+      width: auto;
+    }
+
+    .app:not(.is-focus) .toast-kicker {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .app:not(.is-focus) .toast-title,
+    .app:not(.is-focus) .toast-kicker-noun,
+    .app:not(.is-focus) .toast--detail .toast-desc {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .app:not(.is-focus) .toast-dismiss {
+      position: static;
+    }
+  }
+
+  @container app (max-height: 25rem) {
+    .app:not(.is-focus):has(> .staging-banner) .toast-region {
+      top: 4.5rem;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-open {
+      flex-direction: row;
+      align-items: center;
+      gap: 0;
+      padding: 0 0 0 var(--space-3);
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-icon {
+      display: none;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-text {
+      width: auto;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-kicker {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-title,
+    .app:not(.is-focus):has(> .staging-banner) .toast-kicker-noun,
+    .app:not(.is-focus):has(> .staging-banner) .toast--detail .toast-desc {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .app:not(.is-focus):has(> .staging-banner) .toast-dismiss {
+      position: static;
+    }
   }
 }

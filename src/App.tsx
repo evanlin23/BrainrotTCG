@@ -49,6 +49,7 @@ import { isStaging, STAGING_NOTE } from './game/staging';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useNewsToast } from './hooks/useNewsToast';
 import { useRoute } from './hooks/useRoute';
+import { useWideScreen } from './hooks/useWideScreen';
 import { linkedSetAtLoad, useSetLink } from './hooks/useSetLink';
 import { useProgressWriter } from './hooks/useProgressWriter';
 import { useAchievementReconciler } from './hooks/useAchievementReconciler';
@@ -468,12 +469,20 @@ function App() {
   // a save warning shows, the "Pack kept" notice would contradict it, so it never shows (neither clears).
   // A news toast waits behind the save warning too: the toast region sits over the banner, so it would
   // cover the warning and its buttons. It stays queued and comes in once the warning is gone.
+  // On a wide screen every toast waits behind it: the banner (up to 18rem tall) takes room from the page, so
+  // a toast at the top right would cover the Change pack row or a chip at larger text, and the toast can't
+  // tell (Toasts.css measures the window, not what is left under the banner). Nothing is lost: they stay
+  // queued, and come in one after another once the warning is gone (Hide note, or the problem is fixed).
+  // A phone's toast lies over the header instead, and goes on showing.
+  const wide = useWideScreen();
   const visibleNotifications = useMemo(
     () => {
       const warned = saveFailed || staleSave;
-      return warned || bannerWarning ? notificationQueue.filter((toast) => !(warned && toast.id.startsWith('pack-kept-')) && !isNewsToastId(toast.id)) : notificationQueue;
+      if (!warned && !bannerWarning) return notificationQueue;
+      if (bannerWarning && wide && route !== 'settings') return [];
+      return notificationQueue.filter((toast) => !(warned && toast.id.startsWith('pack-kept-')) && !isNewsToastId(toast.id));
     },
-    [saveFailed, staleSave, bannerWarning, notificationQueue],
+    [saveFailed, staleSave, bannerWarning, wide, route, notificationQueue],
   );
   const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
   // Any sheet at all (the summary's card close-up too): a toast over one covers its title or takes a tap meant for it (#803).
@@ -604,7 +613,7 @@ function App() {
         </div>
       </header>
 
-      {/* Right under the header, and the save warning when it shows: a toast takes no room, and on the home screen lies over the header's wordmark. Held while a pack is torn and revealed, so it is never over the pack. */}
+      {/* Right under the header, and the save warning when it shows: a toast takes no room: on a phone it lies over the header, on a wide screen it is at the top right, narrowed to clear the pack (Toasts.css). Held while a pack is torn and revealed, so it is never over the pack. */}
       <div className="toast-region" role="status" aria-live="polite">
         {AchievementToasts && (
           <AchievementToasts
