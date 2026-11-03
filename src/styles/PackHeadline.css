@@ -29,3 +29,22 @@ p.pack-headline-total {
   font-weight: 700;
   color: var(--text);
 }
+
+/*
+ * The score while it counts up (a pack-level takeover has just settled): the counting figure and the final
+ * one share a cell, the final one unseen but still read, so the heading is as wide as its last figure from
+ * the first frame and nothing around it moves. Static: the count-up itself is script (it lands at once under
+ * reduced motion).
+ */
+.pack-headline-count {
+  display: inline-grid;
+  justify-items: end;
+}
+
+.pack-headline-count > * {
+  grid-area: 1 / 1;
+}
+
+.pack-headline-count-final {
+  opacity: 0;
+}
