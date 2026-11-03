@@ -5,22 +5,48 @@ root and in `tools/wrangler` whenever a lockfile changes, and update this file.
 
 ## Current state
 
-Re-run on 2026-10-16 on main (7233d12) after a frozen `npm ci`; the "After" column below is that
-re-run. A finding is a package and can carry several advisories.
+Re-run on 2026-11-03 on main (1b1562b) after a frozen `npm ci`. A finding is a package and can carry
+several advisories. The refresh is one in-range lockfile change, `npm update zod`.
 
-| Lockfile | Before (main at bd55082) | After the lockfile refresh |
+| Lockfile | Before (main at 1b1562b) | After the lockfile refresh |
 | --- | --- | --- |
-| Root, `npm audit` | 8 in 369 packages (4 high, 2 moderate, 2 low) | 0 |
-| Root, `npm audit --omit=dev` | 0 in 16 production packages | 0 |
+| Root, `npm audit` | 13 in 337 packages (1 high, 12 moderate) | 12 (12 moderate) |
+| Root, `npm audit --omit=dev` | 0 | 0 |
 | `tools/wrangler`, both commands | 0 in 91 packages | 0 (unchanged) |
 
-Nothing remains open: the 2026-10-16 re-run reports 0 for both commands at the root and in
-`tools/wrangler`. The 34 findings quoted in #230 on 2026-10-13 were already gone by the first triage
-(#413, at 9d806ff).
+Production and `tools/wrangler` are clean. The 12 moderate findings left at the root are all one
+advisory, listed under "Open findings" below. Before this, the 2026-10-16 re-run (main at 7233d12)
+reported 0 everywhere; the new findings appeared as advisories were published, not from a lockfile
+change. The 34 findings quoted in #230 on 2026-10-13 were already gone by the first triage (#413, at
+9d806ff).
+
+## Open findings
+
+One advisory, GHSA-g3hv-75wg-m249 (minimatch before 11.0.1, denial of service through globparts
+amplification), reaches 12 packages because they all depend on minimatch 10.2.6: minimatch itself,
+eslint, @eslint/config-array, @eslint/js, @eslint-community/eslint-utils, eslint-plugin-react-refresh,
+typescript-eslint, @typescript-eslint/eslint-plugin, parser, type-utils, utils and typescript-estree.
+
+- **Dev-only exposure:** none of these is in the production bundle or in `tools/wrangler`. minimatch
+  runs in ESLint (locally and in CI) to match our own file globs from `eslint.config.js` and in
+  typescript-estree for our own tsconfig globs. No untrusted pattern reaches it.
+- **Why not fixed:** the newest releases inside `package.json`'s ranges still depend on minimatch 10:
+  eslint 10.14.0 (`^10.2.6`), @eslint/config-array 0.23.5 (`^10.2.4`) and typescript-estree 8.72.1
+  (`^10.2.2`); minimatch 11.0.4 is out, but nothing that depends on it has shipped. npm's suggested
+  fix (@eslint/js 9.39.5, typescript-eslint 8.36.0) is a downgrade and was not taken. The only fix
+  today is an `overrides` entry forcing minimatch 11 under ESLint, which was not added: it would run
+  ESLint on a major its maintainers have not tested.
+- **What would fix it:** an ESLint or typescript-eslint release that depends on minimatch 11.0.1 or
+  later. Re-run the audit when Dependabot's `dev-tooling` PR lands one.
 
 ## Fixed findings
 
-All 8 were dev dependencies: none is in the production bundle, and nothing in `src/`, `scripts/` or
+The zod finding (GHSA-mrhx-c7xc-m3w5, high; memory exhaustion validating oversized constrained
+collections) was fixed on 2026-11-03 by moving zod 4.3.6 to 4.6.7 in the lockfile. It is dev-only: zod
+comes in through eslint-plugin-react-hooks and zod-validation-error, and nothing in `src/`, `scripts/`
+or `tests/` imports it.
+
+The 2026-10-16 refresh fixed 8 findings. All 8 were dev dependencies: none is in the production bundle, and nothing in `src/`, `scripts/` or
 `tests/` imports one. `npm run dev` binds to localhost only (`vite.config.ts` sets no
 `server.host`). CI runs ESLint and `vite build` on repo files with a read-only token and no secrets.
 `hall-of-fame.yml` handles untrusted issue text but runs `tsx`, which already used esbuild 0.28.2.
@@ -54,9 +80,12 @@ server, PR CI or the production bundle. `workers/hall-of-fame-cron/README.md` me
 
 ## Decisions
 
-- **Dev-tool findings:** all 8 fixed (table above). None reached production.
+- **Dev-tool findings:** the 8 from October and the zod finding are fixed. The minimatch advisory is
+  open (see "Open findings"). None reached production.
+- **No overrides:** none is in use. Add one only if a finding cannot be cleared any other way, and
+  record it here.
 - **TypeScript 7 (#392):** closed by the owner. No advisory needs it; main stays on `^5.9.3`.
-- **Vite 8 and ESLint 10:** adopted on main; no open advisory.
+- **Vite 8 and ESLint 10:** adopted on main; the audit was clean on them in October; the minimatch 10 path is the open finding.
 - **Production and `tools/wrangler`:** 0 findings. Escalate at once any finding that shows up in
   `npm audit --omit=dev` or in `tools/wrangler`.
 
