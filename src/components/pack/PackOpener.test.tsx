@@ -4,13 +4,14 @@ import { MotionGlobalConfig, frameData } from 'framer-motion';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
-import { SETS } from '../../content/sets';
+import { SETS, cardKey } from '../../content/sets';
 import { getCard } from '../../data/cards';
 import { setKey, type SetDefinition } from '../../engine';
 import { packArtSettled } from '../../game/packArt';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack, prefetchNextPack } from '../../game/pulls';
 import { PlayerUnreadableError, StaleSaveError } from '../../game/player';
+import { TAKEOVER_DURATION_MS } from '../../game/reveal';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 import { REFUSAL_COPY } from './refusal';
@@ -144,9 +145,9 @@ const countPopstate = () => {
 
 /** The save the tab loaded, which every tear binds its claim to. */
 const MOUNTED_SAVE = { key: 'ab'.repeat(32), stored: true, stamp: null };
-const render = (disabled: boolean, openBlocked = false, settings = DEFAULT_SETTINGS) =>
+const render = (disabled: boolean, openBlocked = false, settings = DEFAULT_SETTINGS, isOwned?: (key: string) => boolean) =>
   act(() => root.render(
-    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} mountedSave={MOUNTED_SAVE} />,
+    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} mountedSave={MOUNTED_SAVE} isOwned={isOwned} />,
   ));
 
 beforeEach(() => {
@@ -1217,5 +1218,166 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
         expect(stage().style.transform).toBe('none');
       });
     });
+  });
+});
+
+describe('the takeover reveal (#1293 b)', () => {
+  const set = SETS[0];
+  const keyOf = (i: number) => cardKey(set.id, set.cards[i].id);
+  const everyKey = set.cards.map((card) => cardKey(set.id, card.id));
+  /** A pack of five plain Commons (so none is a valuable pull on its own), with `overrides` applied by index. */
+  const deal = async (owned: readonly string[] | null, settings = DEFAULT_SETTINGS, overrides: Record<number, object> = {}) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    vi.stubGlobal('requestIdleCallback', (task: () => void) => task());
+    vi.stubGlobal('cancelIdleCallback', () => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+    const cards = set.cards.slice(0, 5).map((card, i) => ({
+      ...card, key: cardKey(set.id, card.id), uniqueId: i, isRevealed: false, isHolo: false, rarity: 'COMMON', finish: null, ...overrides[i],
+    }));
+    vi.mocked(openPack).mockResolvedValue({
+      setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
+    } as unknown as Awaited<ReturnType<typeof openPack>>);
+    await render(false, false, settings, owned ? (key) => owned.includes(key) : undefined);
+    act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
+    await act(async () => { vi.advanceTimersByTime(500); });
+    await act(async () => {});
+  };
+  afterEach(() => vi.useRealTimers());
+
+  // A key left down starts Space's hold-to-repeat, which a later press would then wait behind.
+  const press = () => act(() => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
+    document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ', bubbles: true }));
+  });
+  /** Flips and moves past the first `count` cards, to stand at the next one face down. */
+  const passCards = async (count: number) => {
+    for (let i = 0; i < count; i++) {
+      press();
+      press();
+      await advance(0);
+    }
+  };
+  const advance = (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
+  const banners = () => document.querySelectorAll('.takeover-banner');
+  const overlays = () => document.querySelectorAll('.takeover-overlay');
+  // Cards reveal least valuable first, so the Brainrot and the Diamond come up last of five.
+  const brainrot = { 4: { rarity: 'BRAINROT' } };
+
+  it('triggers on the new card that completes the set, not on the first new card of the pack', async () => {
+    // Two cards are missing from the set, and both are in this pack: the second one completes it.
+    await deal(everyKey.filter((key) => key !== keyOf(0) && key !== keyOf(1)));
+    press();
+    expect(banners()).toHaveLength(0);
+    expect(overlays()).toHaveLength(0);
+    press();
+    await advance(0);
+    press();
+    expect(banners()).toHaveLength(1);
+    expect(overlays()).toHaveLength(1);
+  });
+
+  it('shows one banner that is announced as a status, and no Big pull! ribbon with it', async () => {
+    await deal(everyKey.filter((key) => key !== keyOf(0)));
+    press();
+    expect(banners()).toHaveLength(1);
+    const banner = banners()[0];
+    expect(banner.getAttribute('role')).toBe('status');
+    expect(banner.getAttribute('data-reason')).toBe('SET');
+    expect(banner.textContent).toContain('Set complete');
+    expect(banner.textContent).toContain(set.name);
+    expect(document.querySelectorAll('[role="status"].takeover-banner, .showcase-ribbon')).toHaveLength(1);
+    expect(document.querySelector('.showcase-ribbon')).toBeNull();
+  });
+
+  it('settles a set-completing Common at once on a tap, even with the pause on, since the setting names no such card', async () => {
+    await deal(everyKey.filter((key) => key !== keyOf(0)));
+    press();
+    expect(DEFAULT_SETTINGS.pauseBigPulls).toBe(true);
+    expect(banners()).toHaveLength(1);
+    press();
+    expect(banners()).toHaveLength(0);
+    expect(overlays()).toHaveLength(0);
+  });
+
+  it('keeps a Brainrot\'s 3 s lock, then lets a tap, Space or Skip settle it, and a second press moves on', async () => {
+    await deal(everyKey, DEFAULT_SETTINGS, brainrot);
+    await passCards(4);
+    press();
+    expect(banners()[0].getAttribute('data-reason')).toBe('BRAINROT');
+    expect(banners()[0].textContent).toContain('Continue in a moment');
+    press();
+    await advance(2_999);
+    press();
+    expect(banners()).toHaveLength(1);
+    await advance(1);
+    expect(banners()[0].textContent).not.toContain('Continue in a moment');
+    press();
+    expect(banners()).toHaveLength(0);
+    expect(overlays()).toHaveLength(0);
+  });
+
+  it('lets Skip, after the lock, end the takeover and not the pack', async () => {
+    await deal(everyKey, DEFAULT_SETTINGS, brainrot);
+    await passCards(4);
+    press();
+    await advance(3_000);
+    act(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
+    expect(banners()).toHaveLength(0);
+    expect(document.querySelector('.reveal-skip')).not.toBeNull();
+  });
+
+  it('settles a Brainrot at once on a tap when the pause is off', async () => {
+    await deal(everyKey, { ...DEFAULT_SETTINGS, pauseBigPulls: false }, brainrot);
+    await passCards(4);
+    press();
+    expect(banners()).toHaveLength(1);
+    expect(banners()[0].textContent).not.toContain('Continue in a moment');
+    press();
+    expect(banners()).toHaveLength(0);
+  });
+
+  it('ends a takeover by itself after TAKEOVER_DURATION_MS', async () => {
+    await deal(everyKey, DEFAULT_SETTINGS, brainrot);
+    await passCards(4);
+    press();
+    await advance(TAKEOVER_DURATION_MS - 1);
+    expect(banners()).toHaveLength(1);
+    await advance(1);
+    expect(banners()).toHaveLength(0);
+  });
+
+  it('gives a 10,000-point Diamond duplicate no takeover, only the ribbon and halo', async () => {
+    await deal(everyKey, DEFAULT_SETTINGS, { 4: { finish: 'DIAMOND' } });
+    await passCards(4);
+    press();
+    expect(banners()).toHaveLength(0);
+    expect(overlays()).toHaveLength(0);
+    expect(document.querySelectorAll('.showcase-ribbon')).toHaveLength(1);
+    expect(document.querySelector('.showcase-halo')).not.toBeNull();
+  });
+
+  it('gives a pack of duplicates no takeover', async () => {
+    await deal(everyKey);
+    press();
+    expect(banners()).toHaveLength(0);
+  });
+
+  it('still takes over for a Brainrot when the opener has no record of what is owned', async () => {
+    await deal(null, DEFAULT_SETTINGS, brainrot);
+    await passCards(4);
+    press();
+    expect(banners()[0]?.getAttribute('data-reason')).toBe('BRAINROT');
+  });
+
+  it('drops the takeover, and its timers, when the pack is closed', async () => {
+    await deal(everyKey, DEFAULT_SETTINGS, brainrot);
+    await passCards(4);
+    press();
+    act(() => document.querySelector<HTMLButtonElement>('.pack-close')!.click());
+    await advance(TAKEOVER_DURATION_MS * 2);
+    expect(banners()).toHaveLength(0);
+    expect(overlays()).toHaveLength(0);
   });
 });

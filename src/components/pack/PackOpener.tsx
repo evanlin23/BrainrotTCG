@@ -23,6 +23,7 @@ import CardRevealUI from './CardRevealUI';
 import PackSummaryUI, { type PackChoices } from './PackSummaryUI';
 import PackTopBar from './PackTopBar';
 import ShowcaseRibbon from './ShowcaseRibbon';
+import TakeoverBanner from './TakeoverBanner';
 import { revealAnnouncement } from '../cards/cardLabel';
 import { REFUSAL_COPY } from './refusal';
 import { usePackLifecycle } from './usePackLifecycle';
@@ -30,7 +31,9 @@ import { stageEntrance } from './stageEntrance';
 import { loadConfetti } from './loadConfetti';
 import { packImageUrl } from '../../content/art';
 import { PlayerUnreadableError, StaleSaveError, type SaveMark } from '../../game/player';
-import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
+import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS, TAKEOVER_DURATION_MS, takeoverReasons, takeoverStart, type TakeoverReason } from '../../game/reveal';
+import { cardKey } from '../../content/sets';
+import { COLLECTIBLE_CARDS } from '../../data/cards';
 import '../../styles/PackOpener.css';
 
 const Motion = motion;
@@ -161,6 +164,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const [preloadedAssets, setPreloadedAssets] = useState<PreloadedAssets | null>(null);
   const [revealLocked, setRevealLocked] = useState(false);
   const [celebratingCardId, setCelebratingCardId] = useState<CardWithMeta['uniqueId'] | null>(null);
+  /** Which of the pack's cards earn a takeover and why, worked out when the pack is dealt (see takeoverReasons). */
+  const [takeovers, setTakeovers] = useState<ReadonlyMap<CardWithMeta['uniqueId'], TakeoverReason>>(new Map());
   const [skipping, setSkipping] = useState(false);
   const packDesign = packImageUrl(set.id);
   const [hasMovedMouse, setHasMovedMouse] = useState(false);
@@ -177,6 +182,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Set synchronously before React renders: rapid taps and held keys share the same guard.
   const revealLockedUntilRef = useRef(0);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The card whose takeover is on, set before React renders so a second press in the same moment settles it too. */
+  const takeoverCardRef = useRef<CardWithMeta['uniqueId'] | null>(null);
   const effectTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   /** The card whose confetti is still on its way (a slow import), so a late arrival can tell it's out of date. */
   const burstForRef = useRef<CardWithMeta['uniqueId'] | null>(null);
@@ -227,7 +235,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setOpenedPack(pack);
     // Shown rarest last, with NEW on cards the collection didn't have yet. The pack itself (and its
     // proof and history) keeps the engine's order.
-    setOpenedCards(markNew(revealOrder(pack.cards), (key) => isOwned?.(key) ?? true));
+    // Without a record of what is owned nothing is new, so nothing completes anything (a Brainrot still takes over).
+    const owned = (key: string) => isOwned?.(key) ?? true;
+    const dealt = markNew(revealOrder(pack.cards), owned);
+    setOpenedCards(dealt);
+    setTakeovers(takeoverReasons(dealt, takeoverStart(
+      set.cards.map((card) => cardKey(set.id, card.id)),
+      // A draft's cards are outside the collection, so they can't complete it.
+      COLLECTIBLE_CARDS.some((card) => card.setId === set.id) ? COLLECTIBLE_CARDS.map((card) => card.key) : undefined,
+      owned,
+    )));
     setCurrentIndex(0);
   }, [set, mountedSave, preloadAudio, isOwned, send]);
 
@@ -443,9 +460,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setSkipping(false);
     if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
     celebrationTimerRef.current = null;
+    if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+    lockTimerRef.current = null;
+    takeoverCardRef.current = null;
     revealLockedUntilRef.current = 0;
     setRevealLocked(false);
     setCelebratingCardId(null);
+    setTakeovers(new Map());
     stopAll();
     const assets = preloadedRef.current;
     preloadedRef.current = null;
@@ -483,9 +504,24 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     }
   }, [currentIndex, openedCards, recordPack, pauseBigPulls, send]);
 
+  /**
+   * A press on a card whose takeover is on (once its hold is over) ends the takeover, banner and all, and
+   * leaves the card settled in the reveal; the next press moves on. True if it did.
+   */
+  const settleTakeover = useCallback((): boolean => {
+    const card = openedCards[currentIndex];
+    if (!card?.isRevealed || takeoverCardRef.current !== card.uniqueId) return false;
+    takeoverCardRef.current = null;
+    if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
+    celebrationTimerRef.current = null;
+    setCelebratingCardId(null);
+    return true;
+  }, [openedCards, currentIndex]);
+
   /** With the pause enabled, Skip still gives each valuable card its full reveal. */
   const skipAll = useCallback(() => {
     if (disabled || skippingRef.current || (pauseBigPulls && performance.now() < revealLockedUntilRef.current)) return;
+    if (settleTakeover()) return;
     if (!pauseBigPulls) {
       setOpenedCards(openedCards.map((card) => ({ ...card, isRevealed: true })));
       const { record } = send({ type: 'finish' });
@@ -494,7 +530,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     }
     skippingRef.current = true;
     setSkipping(true);
-  }, [disabled, pauseBigPulls, openedCards, recordPack, send]);
+  }, [disabled, pauseBigPulls, openedCards, recordPack, send, settleTakeover]);
 
   const closeSummary = useCallback(() => {
     if (send({ type: 'close' }).from.kind === 'summary') finishPack();
@@ -627,18 +663,31 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     const currentCard = openedCards[currentIndex];
     if (!currentCard || currentCard.isRevealed || !preloadedAssets) return;
 
-    if (isSpecialReveal(currentCard)) {
-      // The celebration always plays; the setting controls only the input lock.
+    const takeover = takeovers.get(currentCard.uniqueId);
+    const special = isSpecialReveal(currentCard);
+    if (special || takeover) {
+      // The celebration always plays; the setting controls only the input lock, and only for the cards its
+      // copy names (a Brainrot, or 5,000+ points). A set-completing Common has a takeover but no hold.
+      const holds = pauseBigPulls && special;
       setCelebratingCardId(currentCard.uniqueId);
-      revealLockedUntilRef.current = pauseBigPulls ? performance.now() + SPECIAL_REVEAL_DURATION_MS : 0;
-      setRevealLocked(pauseBigPulls);
+      takeoverCardRef.current = takeover ? currentCard.uniqueId : null;
+      revealLockedUntilRef.current = holds ? performance.now() + SPECIAL_REVEAL_DURATION_MS : 0;
+      setRevealLocked(holds);
+      if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+      lockTimerRef.current = null;
+      if (holds) {
+        lockTimerRef.current = setTimeout(() => {
+          revealLockedUntilRef.current = 0;
+          lockTimerRef.current = null;
+          setRevealLocked(false);
+        }, SPECIAL_REVEAL_DURATION_MS);
+      }
       if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
       celebrationTimerRef.current = setTimeout(() => {
-        revealLockedUntilRef.current = 0;
         celebrationTimerRef.current = null;
-        setRevealLocked(false);
+        takeoverCardRef.current = null;
         setCelebratingCardId(null);
-      }, SPECIAL_REVEAL_DURATION_MS);
+      }, takeover ? TAKEOVER_DURATION_MS : SPECIAL_REVEAL_DURATION_MS);
     }
 
     if (effectsVolume > 0) {
@@ -674,7 +723,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         () => {},
       );
     }
-  }, [openedCards, currentIndex, preloadedAssets, playAndCleanup, playRandom, settings, effectsVolume, pauseBigPulls]);
+  }, [openedCards, currentIndex, preloadedAssets, playAndCleanup, playRandom, settings, effectsVolume, pauseBigPulls, takeovers]);
 
   // A skip is a short sequence: mount each valuable card face down, flip it, wait for its lock,
   // then move to the next. Already revealed cards don't repeat their celebration.
@@ -705,10 +754,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     const currentItem = openedCards[currentIndex];
     if (currentItem && !currentItem.isRevealed) {
       handleFlip();
-    } else {
+    } else if (!settleTakeover()) {
       nextCard();
     }
-  }, [isOpening, showSummary, disabled, openedCards, currentIndex, handleFlip, nextCard, pauseBigPulls]);
+  }, [isOpening, showSummary, disabled, openedCards, currentIndex, handleFlip, nextCard, settleTakeover, pauseBigPulls]);
 
   // Held Space reads the current interaction without a stale closure.
   useEffect(() => {
@@ -791,6 +840,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Cleanup on unmount
   useEffect(() => () => {
     if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
+    if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
     clearEffectTimers();
     if (openTimeoutRef.current) {
       window.clearTimeout(openTimeoutRef.current);
@@ -800,11 +850,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
 
   const currentCard = openedCards[currentIndex];
   // The showcase lasts as long as the celebration: its timer, moving on, the X or the summary ends it.
-  const showcase = isOpening && !showSummary && !!currentCard?.isRevealed
-    && celebratingCardId === currentCard.uniqueId && isSpecialReveal(currentCard);
+  const celebrating = isOpening && !showSummary && !!currentCard?.isRevealed && celebratingCardId === currentCard.uniqueId;
+  // A takeover, when the card earned one, takes the showcase's place: its banner is the pull's one announcement.
+  const takeover = (celebrating && takeovers.get(currentCard.uniqueId)) || null;
+  const showcase = celebrating && !takeover && isSpecialReveal(currentCard);
   // A skip still heading for a big pull keeps the hold between showcases, so a notice can't flash
   // in the frames it takes to reach the next one (#460).
-  const holdNotices = showcase || (skipping && pauseBigPulls && isOpening && !showSummary && nextSpecialRevealIndex(openedCards) !== -1);
+  const holdNotices = showcase || !!takeover || (skipping && pauseBigPulls && isOpening && !showSummary && nextSpecialRevealIndex(openedCards) !== -1);
   // Before paint, so a notice can't flash in the frame the ribbon first shows.
   useLayoutEffect(() => {
     if (!holdNotices) return;
@@ -831,7 +883,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         <PackTopBar
           onLeave={leaveFromUi}
           progress={isOpening && !showSummary ? { index: currentIndex, total: openedCards.length } : undefined}
-          showcase={showcase ? <ShowcaseRibbon card={currentCard} holding={revealLocked && pauseBigPulls} /> : undefined}
+          showcase={takeover
+            ? <TakeoverBanner reason={takeover} name={takeover === 'SET' ? set.name : currentCard.name} holding={revealLocked && pauseBigPulls} />
+            : showcase ? <ShowcaseRibbon card={currentCard} holding={revealLocked && pauseBigPulls} /> : undefined}
         />
       )}
       {/* The torn pack flies off as the first card back fades in, not before it: waiting for the exit
@@ -910,6 +964,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 onSkip={skipAll}
                 revealLocked={revealLocked && pauseBigPulls}
                 celebrating={celebratingCardId === currentCard?.uniqueId}
+                takeover={takeover}
                 skipping={skipping}
                 setName={set.name}
                 firstPack={openCue}
