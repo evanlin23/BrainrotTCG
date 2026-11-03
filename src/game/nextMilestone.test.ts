@@ -78,11 +78,17 @@ describe('getNextMilestone', () => {
   });
 
   it('moves from completing a set to mastering it, counting holos', () => {
-    expect(getNextMilestone(stats(0, 3), set)).toMatchObject({ kind: 'set-complete', detail: '3/4 cards, 1 to go' });
+    // Under "complete" the bare count is the set's cards, so it stays short.
+    expect(getNextMilestone(stats(0, 3), set)).toMatchObject({ kind: 'set-complete', detail: '3/4 cards, 1 to go', progressText: '3/4', progressLabel: '3 of 4' });
+    expect(getNextMilestone(stats(0, 3), set).progressUnit).toBeUndefined();
     expect(getNextMilestone(stats(0, 4, 1), set)).toMatchObject({
       kind: 'set-master',
       targetName: 'Mock Set master set',
-      detail: '1/4 as holos, 3 to go',
+      // The count is holos, not the set's completion (#898): its unit sits with the count, once, and the cue is only what is left.
+      detail: '3 to go',
+      progressText: '1/4',
+      progressUnit: 'holos',
+      progressLabel: '1 of 4 holos',
       progressPct: 25,
       action: { target: 'cards' },
     });
