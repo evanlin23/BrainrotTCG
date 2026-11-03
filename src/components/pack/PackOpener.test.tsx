@@ -12,6 +12,7 @@ import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack, prefetchNextPack } from '../../game/pulls';
 import { PlayerUnreadableError, StaleSaveError } from '../../game/player';
 import { SPECIAL_REVEAL_DURATION_MS, TAKEOVER_DURATION_MS } from '../../game/reveal';
+import { STAGE_CLICK_GUARD_MS } from '../../hooks/useStageClickGuard';
 import { setMotionSetting } from '../../utils/motion';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
@@ -81,7 +82,7 @@ vi.mock('../../hooks/usePackCutter', () => ({
     };
   },
 }));
-vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), siteLabel: () => 'example.test/BrainrotTCG' }));
+vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), canShare: () => false, siteLabel: () => 'example.test/BrainrotTCG' }));
 // The next pack's tickets, answered by hand per set (a set's ticket is cached, as the real miner's is).
 const tickets = vi.hoisted(() => {
   const bySet = new Map<string, { ticket: Promise<Uint8Array>; arrive: () => void }>();
@@ -1438,5 +1439,60 @@ describe('the takeover reveal (#1293 b)', () => {
     await advance(TAKEOVER_DURATION_MS * 2);
     expect(banners()).toHaveLength(0);
     expect(overlays()).toHaveLength(0);
+  });
+
+  // The pack-level takeover (#1293 c): from the last reveal to the summary.
+  describe('at the summary', () => {
+    /** Cards 0, 1 and 2 are one card and 3 and 4 another: a Full House of Commons, worth little. */
+    const fullHouse = { 1: { ...set.cards[0], key: keyOf(0) }, 2: { ...set.cards[0], key: keyOf(0) }, 4: { ...set.cards[3], key: keyOf(3) } };
+    const summaryTakeover = () => document.querySelector('.pack-takeover');
+    /** The last card flipped and moved past: the summary is up. */
+    const toSummary = async (overrides: Record<number, object>) => {
+      await deal(everyKey, DEFAULT_SETTINGS, overrides);
+      await passCards(5);
+    };
+
+    it('takes over for a Full House as the last card gives way to the summary, with no lock on it', async () => {
+      await toSummary(fullHouse);
+      expect(document.querySelector('.pack-summary')).not.toBeNull();
+      expect(summaryTakeover()).not.toBeNull();
+      expect(document.querySelector('.takeover-banner-kicker')!.textContent).toBe('Full House');
+      // The pause names cards, not packs: Skip works from the first moment the guard lets a tap through.
+      await advance(STAGE_CLICK_GUARD_MS);
+      act(() => document.querySelector<HTMLButtonElement>('.pack-takeover-skip')!.click());
+      expect(summaryTakeover()).toBeNull();
+      expect(document.activeElement).toBe(document.querySelector('.pack-summary h2'));
+    });
+
+    it('gives a plain pack the summary alone', async () => {
+      await toSummary({});
+      expect(document.querySelector('.pack-summary')).not.toBeNull();
+      expect(summaryTakeover()).toBeNull();
+    });
+
+    it('lets Space settle it without closing the summary, and the next Space close it as ever', async () => {
+      await toSummary(fullHouse);
+      await advance(STAGE_CLICK_GUARD_MS);
+      press();
+      expect(summaryTakeover()).toBeNull();
+      expect(document.querySelector('.pack-summary')).not.toBeNull();
+      press();
+      expect(document.querySelector('.pack-summary')).toBeNull();
+    });
+
+    it('ends by itself and leaves the pack\'s X above it, so a player is never held', async () => {
+      await toSummary(fullHouse);
+      expect(document.querySelector('.pack-close')).not.toBeNull();
+      await advance(TAKEOVER_DURATION_MS);
+      expect(summaryTakeover()).toBeNull();
+      expect(document.querySelector('.pack-summary')).not.toBeNull();
+    });
+
+    it('lets the X leave the pack from under it', async () => {
+      await toSummary(fullHouse);
+      act(() => document.querySelector<HTMLButtonElement>('.pack-close')!.click());
+      expect(summaryTakeover()).toBeNull();
+      expect(document.querySelector('.pack-summary')).toBeNull();
+    });
   });
 });
