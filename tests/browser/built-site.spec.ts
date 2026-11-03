@@ -1,6 +1,6 @@
 import { readdirSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, expectDecoded } from './support';
+import { monitor, expectAppMounted, expectDecoded } from './support';
 import { accessRequest } from './stagingAccess';
 
 /*
@@ -28,7 +28,7 @@ test('the app shell, its code and its link-preview picture all load from the bas
   const errors = await monitor(page, baseURL!);
   const seen = requests(page, baseURL!);
   await page.goto('./');
-  await expect(page.locator('.app-logo')).toBeVisible();
+  await expectAppMounted(page, errors);
   await expectDecoded(page.locator('.pack-shell img'), 2);
   const base = new URL(baseURL!).pathname;
   // Everything the shell loads is hashed under assets/, bar the icons beside index.html.

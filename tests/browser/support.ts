@@ -631,6 +631,47 @@ export async function releaseTickets(page: Page) {
   await page.evaluate(() => (window as unknown as { __releaseTickets: () => void }).__releaseTickets());
 }
 
+/**
+ * What the page holds when the app has not mounted: the document's state, what is in #root, how far the
+ * load got, the app's script files with their status and size, and the page errors seen so far. Paths
+ * only, never a query, a header or a request body. Never throws: a closed page reports as unreadable.
+ */
+export async function bootDiagnosis(page: Page, errors: readonly string[] = []): Promise<string> {
+  try {
+    const state = await page.evaluate(() => {
+      const root = document.getElementById('root');
+      const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+      return {
+        readyState: document.readyState,
+        root: root ? { child: root.firstElementChild?.className || root.firstElementChild?.tagName || 'empty', text: (root.textContent ?? '').replace(/\s+/g, ' ').slice(0, 120) } : 'no #root',
+        loadMs: nav ? { responseStart: Math.round(nav.responseStart), domContentLoaded: Math.round(nav.domContentLoadedEventEnd), load: Math.round(nav.loadEventEnd) } : null,
+        scripts: performance.getEntriesByType('resource').flatMap((entry) => {
+          const { pathname } = new URL(entry.name);
+          if (!pathname.endsWith('.js')) return [];
+          const timing = entry as PerformanceResourceTiming & { responseStatus?: number };
+          return [{ path: pathname, status: timing.responseStatus, bytes: timing.encodedBodySize, ms: Math.round(entry.duration) }];
+        }),
+      };
+    });
+    return JSON.stringify({ ...state, errors: errors.slice(-5).map((error) => error.slice(0, 300)) }, null, 2);
+  } catch (error) {
+    return `page unreadable: ${(error as Error).message.split('\n')[0]}`;
+  }
+}
+
+/**
+ * The app has mounted: its logo shows. A wait that runs out says what the page was showing instead
+ * (bootDiagnosis), because the staging checks upload no screenshot or trace (#1352). The wait is
+ * Playwright's own default, unchanged.
+ */
+export async function expectAppMounted(page: Page, errors: readonly string[] = [], { timeout }: { timeout?: number } = {}) {
+  try {
+    await expect(page.locator('.app-logo')).toBeVisible({ timeout });
+  } catch (error) {
+    throw new Error(`${(error as Error).message}\n\nThe app did not mount. The page held:\n${await bootDiagnosis(page, errors)}`, { cause: error });
+  }
+}
+
 /** Maximum time expectDecoded waits for img.decode() before falling back to complete && naturalWidth > 0 (#1314). */
 export const EXPECT_DECODED_CAP_MS = 2000;
 

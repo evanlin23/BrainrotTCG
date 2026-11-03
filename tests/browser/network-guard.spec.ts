@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import { BEACON_URL, pagesBeaconTag, RUM_URL } from '../../scripts/cloudflare-analytics';
-import { BEACON_STUB, guardConnectionHeaders, monitor, teardownMessages } from './support';
+import { BEACON_STUB, expectAppMounted, guardConnectionHeaders, monitor, teardownMessages } from './support';
 
 let primaryServer: Server;
 let externalServer: Server;
@@ -588,6 +588,24 @@ test('teardown names the requests still pending only in a test that is already f
     `Unexpected browser I/O blocked by network guard (1 attempt):\n${blocked}`,
     waiting,
   ]);
+});
+
+// #1352: a staging check that finds no logo uploads no screenshot, so the failure itself must say what the
+// page held: its document state, what is in #root and the page errors seen. The fixture page has a #root
+// and no app.
+test('a wait for the app that runs out says what the page held instead', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl);
+  await page.goto(primaryUrl);
+  await page.evaluate(() => setTimeout(() => { throw new Error('boot exploded'); }, 0));
+  await expect.poll(() => errors.some((error) => error.includes('boot exploded'))).toBe(true);
+  const failure = await expectAppMounted(page, errors, { timeout: 500 }).then(() => '', (error: Error) => error.message);
+  expect(failure).toContain('The app did not mount. The page held:');
+  expect(failure).toContain('"readyState": "complete"');
+  expect(failure).toContain('Network Guard Active');
+  expect(failure).toContain('boot exploded');
+  // The same page with the app's logo in it passes, and names nothing.
+  await page.evaluate(() => { document.getElementById('root')!.innerHTML = '<h1 class="app-logo">Brainrot TCG</h1>'; });
+  await expectAppMounted(page, errors, { timeout: 500 });
 });
 
 // Teardown failure is the core acceptance: test.fail() passes only if the guard fails the test
