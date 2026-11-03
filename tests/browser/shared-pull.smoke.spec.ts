@@ -5,7 +5,7 @@ import { decodeProof, verifyProof } from '../../src/engine/proof';
 import type { PulledCard, SetDefinition } from '../../src/engine/types';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPreviewPath, headline, previewPath, type ModifiedCard } from '../../src/game/previewLinks';
-import { expectDecoded, expectRankingsChecked, monitor, snapshot } from './support';
+import { expectAppMounted, expectDecoded, expectRankingsChecked, monitor, snapshot } from './support';
 
 const json = <T,>(path: string): T => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8')) as T;
 const vectors = json<typeof import('../../spec/vectors.json')>('../../spec/vectors.json');
@@ -144,7 +144,7 @@ async function startJourney(page: Page, baseURL: string, { returning = false } =
     }
     const response = route === undefined ? await page.reload() : await page.goto(route);
     expect(response?.status()).toBe(200);
-    await expect(page.locator('.app-logo')).toBeVisible();
+    await expectAppMounted(page, errors);
     await fontsSettled();
   }
   return { errors, openRoute, settle };

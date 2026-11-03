@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { monitor, expectDecoded, snapshot, expectRecordedPack } from './support';
+import { expectAppMounted, expectDecoded, monitor, snapshot, expectRecordedPack } from './support';
 
 test('opens one real pack and preserves its exact cards, counts, modifiers and ticket after reload', { tag: '@cross-browser' }, async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
-  await expect(page.locator('.app-logo')).toBeVisible();
+  await expectAppMounted(page, errors);
   const packShell = page.locator('.pack-shell');
   const openButton = page.getByRole('button', { name: /^Open pack/ });
   await expect(packShell).toBeVisible();
@@ -47,7 +47,7 @@ test('opens one real pack and preserves its exact cards, counts, modifiers and t
   const before = await expectRecordedPack(page);
 
   await page.reload();
-  await expect(page.locator('.app-logo')).toBeVisible();
+  await expectAppMounted(page, errors);
   await expect(picker).toBeVisible();
   // The reloaded stage is still fetching its art; leaving it for another screen sooner would cancel the request.
   await expectDecoded(packShell.locator('img'), 2);
