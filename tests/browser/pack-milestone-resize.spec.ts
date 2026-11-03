@@ -9,12 +9,13 @@ import { monitor, scaleText } from './support';
  * (pack-milestone) inside the Card guide's row (card-guide), and its text and picture read the row's width through it
  * (PackMilestone.css: the 34rem line). A player drags a window's edge, so each rule must give the
  * answer a fresh load at that width gives, whichever way the window got there: a plain setViewportSize walk, up and
- * down across each line and with several steps on the same side of it, at normal and doubled text.
+ * down across the 34rem line and with several steps on the same side of it, at normal and doubled text.
  *
  * One test per chip (the picture and cue of a cosmetic, the count and unit of a master set), each walking all its
  * windows with the chip left alone, so that a stale answer cannot be hidden by the chip being redrawn. The fresh
- * loads they compare with are the slow part, so one load per window and text size serves both chips (the chip's words
- * are put in after the load, as pack-milestone.spec.ts does) and is kept for the other test.
+ * loads they compare with are the slow part: the first test to run loads the home once per goal at each window and
+ * text size (the chip's words are put in after the load, as pack-milestone.spec.ts does) and keeps what it found, so
+ * the other test, when it runs in the same worker, reuses it and makes no loads of its own.
  *
  * Only the 34rem line is walked: the 20rem line hides the chip itself (its nearest container is the row) and the 36rem
  * line moves Change pack, which is not inside the chip, so neither is read through the chip's container. The walk
@@ -110,7 +111,7 @@ async function walk(page: Page, baseURL: string, project: string, chip: string, 
     return { line, width: Math.round(FIRST_WIDTH + inner - inner0), inner: Math.round(inner) };
   })).filter(({ width }) => width >= 320);
 
-  // What a fresh load gives at each window, found first on a page of its own (watched once), so that the walk below is only plain resizes.
+  // What a fresh load gives at each window, found first on a page of its own (watched once), so that the walk below is only plain resizes. One load per goal at each width, for both goals, and kept.
   const missing = [...new Set(windows.map(({ width }) => width))].filter((width) => !loaded.has(key(project, text, width, chip)));
   if (missing.length) {
     const other = await page.context().newPage();
