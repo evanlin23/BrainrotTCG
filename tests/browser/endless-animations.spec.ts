@@ -18,22 +18,47 @@ import { expectSummaryTakesClicks, fingerFor, monitor, tapSpace } from './suppor
  */
 const COMPOSITED = ['backdrop-filter', 'filter', 'opacity', 'rotate', 'scale', 'transform', 'translate'];
 
-/** Every animation on the page that never ends, with the properties its keyframes set. */
-function endlessAnimations(page: Page) {
-  return page.evaluate(() => document.getAnimations()
-    .filter((animation) => animation.effect?.getComputedTiming().iterations === Infinity)
-    .flatMap((animation) => {
-      const effect = animation.effect as KeyframeEffect;
-      const target = effect.target as Element;
-      const properties = [...new Set(effect.getKeyframes().flatMap((frame) => Object.keys(frame)))]
-        .filter((name) => !['offset', 'computedOffset', 'easing', 'composite'].includes(name)).sort();
-      return [{ animation: (animation as CSSAnimation).animationName, on: `${target.tagName.toLowerCase()}${effect.pseudoElement ?? ''}`, properties }];
-    }));
+/**
+ * Card art still on its way: CardImage marks it `loading` (fetched, not yet decoded) or `rendering` (a
+ * finish being drawn), and a placeholder shimmers over it for as long as it is (card-image-shimmer, which
+ * moves background-position). That is not one of the screen's own endless animations: it ends when the
+ * art does, and how long that takes is the machine's business. An image scrolled out of view is paused
+ * and may never load (CardImage marks it data-offscreen), so it isn't waited for.
+ */
+const ART_ARRIVING = '.card-image[data-state="loading"]:not([data-offscreen]), .card-image[data-state="rendering"]:not([data-offscreen])';
+
+/**
+ * Every animation on the page that never ends, with the properties its keyframes set, or null while card
+ * art is still arriving. The art and the animations are read in one pass of the page, so no image can
+ * start loading between the two.
+ */
+function endlessAnimations(page: Page, artArriving: string) {
+  return page.evaluate((artArriving) => {
+    if (document.querySelector(artArriving)) return null;
+    return document.getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().iterations === Infinity)
+      .flatMap((animation) => {
+        const effect = animation.effect as KeyframeEffect;
+        const target = effect.target as Element;
+        const properties = [...new Set(effect.getKeyframes().flatMap((frame) => Object.keys(frame)))]
+          .filter((name) => !['offset', 'computedOffset', 'easing', 'composite'].includes(name)).sort();
+        return [{ animation: (animation as CSSAnimation).animationName, on: `${target.tagName.toLowerCase()}${effect.pseudoElement ?? ''}`, properties }];
+      });
+  }, artArriving);
 }
 
-/** Fails with the offending animations, named, rather than a bare count. */
+/**
+ * Fails with the offending animations, named, rather than a bare count. It reads once the card art on the
+ * screen has arrived: while it loads, the placeholder's shimmer is an endless animation of
+ * background-position, which on a loaded machine lasts long enough for the read to name it (#1357).
+ */
 async function expectCompositorOnly(page: Page) {
-  const running = await endlessAnimations(page);
+  let running: NonNullable<Awaited<ReturnType<typeof endlessAnimations>>> = [];
+  await expect.poll(async () => {
+    const read = await endlessAnimations(page, ART_ARRIVING);
+    if (read) running = read;
+    return read !== null;
+  }, { message: 'card art never finished loading, so its placeholder shimmer is still running', timeout: 15000 }).toBe(true);
   const offenders = running.filter(({ properties }) => properties.some((name) => !COMPOSITED.includes(name)));
   expect(offenders, `endless animations that the main thread repaints or lays out every frame (only ${COMPOSITED.join(' and ')} are allowed)`).toEqual([]);
   return running;
